@@ -1,0 +1,52 @@
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000/api/v1");
+
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit & { token?: string } = {},
+): Promise<T> {
+  if (!API_URL) throw new ApiError("Thiếu cấu hình NEXT_PUBLIC_API_URL", 0);
+  const { token, ...request } = options;
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...request,
+      signal: request.signal ?? AbortSignal.timeout(15_000),
+      headers: {
+        ...(request.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...request.headers,
+      },
+    });
+  } catch (error) {
+    if (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) {
+      throw new ApiError("Máy chủ phản hồi quá lâu, vui lòng thử lại", 0);
+    }
+    throw new ApiError("Không thể kết nối tới máy chủ", 0);
+  }
+
+  if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("auth:expired"));
+    }
+    let message = "Không thể hoàn tất yêu cầu";
+    try {
+      const payload = (await response.json()) as { message?: string | string[] };
+      message = Array.isArray(payload.message)
+        ? payload.message.join(". ")
+        : payload.message ?? message;
+    } catch {
+      // Preserve a safe generic message when the server does not return JSON.
+    }
+    throw new ApiError(message, response.status);
+  }
+
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
