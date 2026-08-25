@@ -2,9 +2,13 @@
 
 import { BgColorsOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import { Alert, App, Avatar, Button, Card, Checkbox, ColorPicker, Form, Input, Space } from "antd";
-import { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
+import { isFormValidationError } from "@/components/form/validation-error";
 import { useAuth } from "@/components/providers/app-providers";
 import { apiFetch } from "@/lib/api";
+import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import type { LmsModule, Organization } from "@/lib/types";
 
 interface SettingsForm { name: string; primaryColor: string | { toHexString: () => string }; logoUrl?: string; enabledModules: LmsModule[] }
@@ -16,22 +20,35 @@ const moduleOptions: Array<{ label: string; value: LmsModule }> = [
 export default function SettingsPage() {
   const { message } = App.useApp();
   const { organization, token, updateOrganization, user } = useAuth();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm<SettingsForm>();
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (organization) form.setFieldsValue({ name: organization.name, primaryColor: organization.primaryColor, logoUrl: organization.logoUrl ?? undefined, enabledModules: organization.enabledModules });
   }, [form, organization]);
 
+  const scope = getViewerScope(user, organization);
+  const saveMutation = useMutation({
+    mutationFn: async (values: SettingsForm) => {
+      const primaryColor = typeof values.primaryColor === "string" ? values.primaryColor : values.primaryColor.toHexString();
+      return apiFetch<Organization>("/organizations/current", { token, method: "PATCH", body: JSON.stringify({ ...values, primaryColor, logoUrl: values.logoUrl?.trim() || null }) });
+    },
+    onSuccess: async (updated) => {
+      updateOrganization(updated);
+      message.success("Đã áp dụng cấu hình thương hiệu");
+      if (scope) await queryClient.invalidateQueries({ queryKey: lmsQueryKeys.viewer(scope) });
+    },
+  });
+  const tanstackForm = useAntdTanStackForm<SettingsForm>(
+    { enabledModules: [], name: "", primaryColor: "#5B5BD6" },
+    (values) => saveMutation.mutateAsync(values).then(() => undefined),
+  );
+
   const save = async () => {
-    const values = await form.validateFields();
-    const primaryColor = typeof values.primaryColor === "string" ? values.primaryColor : values.primaryColor.toHexString();
-    setSaving(true);
-    try {
-      const updated = await apiFetch<Organization>("/organizations/current", { token, method: "PATCH", body: JSON.stringify({ ...values, primaryColor, logoUrl: values.logoUrl?.trim() || null }) });
-      updateOrganization(updated); message.success("Đã áp dụng cấu hình thương hiệu");
-    } catch (caught) { message.error(caught instanceof Error ? caught.message : "Không thể lưu cấu hình"); }
-    finally { setSaving(false); }
+    try { await tanstackForm.submit(await form.validateFields()); }
+    catch (caught) {
+      if (!isFormValidationError(caught)) message.error(caught instanceof Error ? caught.message : "Không thể lưu cấu hình");
+    }
   };
 
   if (user?.role !== "TENANT_ADMIN") return <Alert message="Chỉ quản trị tổ chức được thay đổi cấu hình." showIcon type="warning" />;
@@ -44,7 +61,7 @@ export default function SettingsPage() {
           <Form.Item label="Màu chủ đạo" name="primaryColor" rules={[{ required: true }]}><ColorPicker showText /></Form.Item>
           <Form.Item extra="URL ảnh công khai, có đầy đủ http/https." label="Logo URL" name="logoUrl" rules={[{ type: "url", message: "URL chưa đúng định dạng" }]}><Input placeholder="https://..." /></Form.Item>
           <Form.Item extra="Menu sẽ thay đổi ngay sau khi lưu. Cần bật ít nhất một module." label="Module hoạt động" name="enabledModules" rules={[{ required: true, message: "Chọn ít nhất một module" }]}><Checkbox.Group options={moduleOptions} /></Form.Item>
-          <Button htmlType="submit" loading={saving} type="primary">Lưu và áp dụng</Button>
+          <Button htmlType="submit" loading={saveMutation.isPending} type="primary">Lưu và áp dụng</Button>
         </Form>
       </Card>
       <Card className="surface-card" title="Xem trước">

@@ -2,10 +2,11 @@
 
 import { ArrowRightOutlined, BookOutlined, RiseOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Col, Empty, List, Row, Skeleton, Statistic, Tag } from "antd";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { useAuth } from "@/components/providers/app-providers";
 import { apiFetch } from "@/lib/api";
+import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import type { DashboardData } from "@/lib/types";
 
 const statusLabel = { DRAFT: "Bản nháp", PUBLISHED: "Đang mở", ARCHIVED: "Đã lưu trữ" } as const;
@@ -13,13 +14,14 @@ const statusLabel = { DRAFT: "Bản nháp", PUBLISHED: "Đang mở", ARCHIVED: "
 export default function DashboardPage() {
   const { organization, token, user } = useAuth();
   const router = useRouter();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!token) return;
-    apiFetch<DashboardData>("/dashboard", { token }).then(setData).catch((caught) => setError(caught instanceof Error ? caught.message : "Không tải được dashboard"));
-  }, [token]);
+  const scope = getViewerScope(user, organization);
+  const dashboard = useQuery({
+    enabled: Boolean(token && scope),
+    queryKey: scope ? lmsQueryKeys.dashboard(scope) : ["lms", "signed-out", "dashboard"],
+    queryFn: () => apiFetch<DashboardData>("/dashboard", { token }),
+  });
+  const data = dashboard.data;
+  const error = dashboard.error instanceof Error ? dashboard.error.message : "";
 
   return (
     <div className="page-shell">

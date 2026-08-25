@@ -1,11 +1,16 @@
 "use client";
 
 import { PlusOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Card, Form, Input, Modal, Select, Table, Tag } from "antd";
-import type { ColumnsType } from "antd/es/table";
-import { useCallback, useEffect, useState } from "react";
+import { Alert, App, Button, Card, Form, Input, Modal, Select, Tag } from "antd";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ColumnDef, StockFeatures } from "@tanstack/react-table";
+import { useState } from "react";
+import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
+import { isFormValidationError } from "@/components/form/validation-error";
 import { useAuth } from "@/components/providers/app-providers";
+import { DataTable } from "@/components/table/data-table";
 import { apiFetch } from "@/lib/api";
+import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import type { AppUser } from "@/lib/types";
 
 interface UserForm {
@@ -25,25 +30,39 @@ const roleLabel = Object.fromEntries(roleOptions.map((item) => [item.value, item
 
 export default function UsersPage() {
   const { message } = App.useApp();
-  const { token, user } = useAuth();
+  const { organization, token, user } = useAuth();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm<UserForm>();
-  const [items, setItems] = useState<AppUser[]>([]);
   const [editing, setEditing] = useState<AppUser | null>(null);
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const scope = getViewerScope(user, organization);
+  const usersKey = scope ? lmsQueryKeys.users(scope) : ["lms", "signed-out", "users"] as const;
+  const usersQuery = useQuery({
+    enabled: Boolean(token && scope && user?.role === "TENANT_ADMIN"),
+    queryKey: usersKey,
+    queryFn: () => apiFetch<AppUser[]>("/users", { token }),
+  });
+  const items = usersQuery.data ?? [];
 
-  const load = useCallback(async () => {
-    if (!token || user?.role !== "TENANT_ADMIN") return;
-    try { setItems(await apiFetch<AppUser[]>("/users", { token })); setError(""); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Không tải được người dùng"); }
-    finally { setLoading(false); }
-  }, [token, user?.role]);
-  useEffect(() => {
-    const task = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(task);
-  }, [load]);
+  const saveMutation = useMutation({
+    mutationFn: async (values: UserForm) => {
+      const body = editing ? { fullName: values.fullName, role: values.role, status: values.status } : values;
+      await apiFetch(editing ? `/users/${editing._id}` : "/users", {
+        token,
+        method: editing ? "PATCH" : "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    onSuccess: async () => {
+      message.success(editing ? "Đã cập nhật người dùng" : "Đã thêm người dùng");
+      setOpen(false);
+      await queryClient.invalidateQueries({ queryKey: usersKey });
+    },
+  });
+  const tanstackForm = useAntdTanStackForm<UserForm>(
+    { email: "", fullName: "", role: "LEARNER" },
+    (values) => saveMutation.mutateAsync(values),
+  );
 
   const create = () => {
     setEditing(null); form.resetFields(); form.setFieldsValue({ role: "LEARNER" }); setOpen(true);
@@ -52,30 +71,26 @@ export default function UsersPage() {
     setEditing(item); form.resetFields(); form.setFieldsValue({ email: item.email, fullName: item.fullName, role: item.role, status: item.status }); setOpen(true);
   };
   const save = async () => {
-    const values = await form.validateFields();
-    setSaving(true);
-    try {
-      const body = editing ? { fullName: values.fullName, role: values.role, status: values.status } : values;
-      await apiFetch(editing ? `/users/${editing._id}` : "/users", { token, method: editing ? "PATCH" : "POST", body: JSON.stringify(body) });
-      message.success(editing ? "Đã cập nhật người dùng" : "Đã thêm người dùng");
-      setOpen(false); await load();
-    } catch (caught) { message.error(caught instanceof Error ? caught.message : "Không thể lưu người dùng"); }
-    finally { setSaving(false); }
+    try { await tanstackForm.submit(await form.validateFields()); }
+    catch (caught) {
+      if (!isFormValidationError(caught)) message.error(caught instanceof Error ? caught.message : "Không thể lưu người dùng");
+    }
   };
 
-  const columns: ColumnsType<AppUser> = [
-    { title: "Họ và tên", dataIndex: "fullName", render: (value, record) => <div><strong>{value}</strong><div className="table-muted">{record.email}</div></div> },
-    { title: "Vai trò", dataIndex: "role", responsive: ["sm"], render: (value) => roleLabel[value] },
-    { title: "Trạng thái", dataIndex: "status", width: 140, render: (value) => <Tag color={value === "ACTIVE" ? "green" : "default"}>{value === "ACTIVE" ? "Hoạt động" : "Tạm ngưng"}</Tag> },
-    { title: "", width: 80, render: (_, record) => <Button onClick={() => edit(record)} type="link">Sửa</Button> },
+  const columns: ColumnDef<StockFeatures, AppUser>[] = [
+    { header: "Họ và tên", accessorKey: "fullName", cell: ({ row }) => <div><strong>{row.original.fullName}</strong><div className="table-muted">{row.original.email}</div></div> },
+    { header: "Vai trò", accessorKey: "role", cell: ({ getValue }) => roleLabel[getValue<string>()], meta: { responsive: ["sm"] } },
+    { header: "Trạng thái", accessorKey: "status", cell: ({ getValue }) => { const value = getValue<AppUser["status"]>(); return <Tag color={value === "ACTIVE" ? "green" : "default"}>{value === "ACTIVE" ? "Hoạt động" : "Tạm ngưng"}</Tag>; }, meta: { width: 140 } },
+    { id: "actions", header: "", cell: ({ row }) => <Button onClick={() => edit(row.original)} type="link">Sửa</Button>, meta: { width: 80 } },
   ];
 
   if (user?.role !== "TENANT_ADMIN") return <Alert message="Chỉ quản trị tổ chức được quản lý người dùng." showIcon type="warning" />;
   return <div className="page-shell">
     <div className="page-heading"><div><h1>Người dùng</h1><p>Quản lý đội ngũ giảng viên, học viên và quyền truy cập workspace.</p></div><Button icon={<PlusOutlined />} onClick={create} type="primary">Thêm người dùng</Button></div>
-    {error && <Alert message={error} showIcon style={{ marginBottom: 18 }} type="error" />}
-    <Card className="surface-card"><Table columns={columns} dataSource={items} loading={loading} locale={{ emptyText: "Chưa có người dùng" }} pagination={{ pageSize: 10 }} rowKey="_id" scroll={{ x: 620 }} /></Card>
-    <Modal cancelText="Hủy" confirmLoading={saving} okText={editing ? "Lưu thay đổi" : "Thêm người dùng"} onCancel={() => setOpen(false)} onOk={() => void save()} open={open} title={editing ? "Cập nhật người dùng" : "Thêm người dùng"}>
+    {usersQuery.error
+      ? <Alert message={usersQuery.error instanceof Error ? usersQuery.error.message : "Không tải được người dùng"} showIcon type="error" />
+      : <Card className="surface-card"><DataTable columns={columns} data={items} emptyText="Chưa có người dùng" loading={usersQuery.isLoading} rowKey="_id" scrollX={620} /></Card>}
+    <Modal cancelText="Hủy" confirmLoading={saveMutation.isPending} okText={editing ? "Lưu thay đổi" : "Thêm người dùng"} onCancel={() => setOpen(false)} onOk={() => void save()} open={open} title={editing ? "Cập nhật người dùng" : "Thêm người dùng"}>
       <Form form={form} layout="vertical" requiredMark={false} style={{ marginTop: 22 }}>
         <Form.Item label="Họ và tên" name="fullName" rules={[{ required: true, min: 2, message: "Nhập họ tên" }]}><Input /></Form.Item>
         <Form.Item label="Email" name="email" rules={[{ required: !editing, type: "email", message: "Email chưa hợp lệ" }]}><Input disabled={Boolean(editing)} /></Form.Item>

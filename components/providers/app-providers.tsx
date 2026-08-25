@@ -1,9 +1,11 @@
 "use client";
 
 import { App as AntdApp, ConfigProvider } from "antd";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import viVN from "antd/locale/vi_VN";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { clearLmsSessionCache, createLmsQueryClient } from "@/lib/query-client";
 import type { AuthResponse, CurrentUser, Organization } from "@/lib/types";
 import { tenantPrimaryColor } from "@/lib/workspace";
 
@@ -25,14 +27,16 @@ interface AuthContextValue extends SessionState {
 const emptySession: SessionState = { token: "", user: null, organization: null };
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AppProviders({ children }: { children: React.ReactNode }) {
+function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [session, setSession] = useState<SessionState>(emptySession);
   const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
+    clearLmsSessionCache(queryClient);
     try { localStorage.removeItem(SESSION_KEY); } catch { /* Session still clears in memory. */ }
     setSession(emptySession);
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     const restore = async () => {
@@ -65,9 +69,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       method: "POST",
     });
     const next = { token: payload.accessToken, user: payload.user, organization: payload.organization };
+    clearLmsSessionCache(queryClient);
     try { localStorage.setItem(SESSION_KEY, JSON.stringify(next)); } catch { /* Keep the live session in memory. */ }
     setSession(next);
-  }, []);
+  }, [queryClient]);
 
   const updateOrganization = useCallback((organization: Organization) => {
     setSession((previous) => {
@@ -78,13 +83,34 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(() => ({ ...session, loading, login, logout, updateOrganization }), [session, loading, login, logout, updateOrganization]);
-  const primary = tenantPrimaryColor(session.organization);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function AppProviders({ children }: { children: React.ReactNode }) {
+  const [queryClient] = useState(createLmsQueryClient);
 
   return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProviders>{children}</ThemeProviders>
+    </QueryClientProvider>
+  );
+}
+
+function ThemeProviders({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthProvider>
+      <ThemedAntd>{children}</ThemedAntd>
+    </AuthProvider>
+  );
+}
+
+function ThemedAntd({ children }: { children: React.ReactNode }) {
+  const { organization } = useAuth();
+  const primary = tenantPrimaryColor(organization);
+  return (
     <ConfigProvider locale={viVN} theme={{ token: { borderRadius: 10, colorPrimary: primary, colorText: "#172033", fontFamily: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" } }}>
-      <AntdApp>
-        <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-      </AntdApp>
+      <AntdApp>{children}</AntdApp>
     </ConfigProvider>
   );
 }

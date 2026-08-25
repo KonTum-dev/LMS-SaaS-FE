@@ -1,11 +1,16 @@
 "use client";
 
 import { PlusOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Card, Checkbox, ColorPicker, Form, Input, Modal, Select, Space, Table, Tag } from "antd";
-import type { ColumnsType } from "antd/es/table";
-import { useCallback, useEffect, useState } from "react";
+import { Alert, App, Button, Card, Checkbox, ColorPicker, Form, Input, Modal, Select, Space, Tag } from "antd";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ColumnDef, StockFeatures } from "@tanstack/react-table";
+import { useState } from "react";
+import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
+import { isFormValidationError } from "@/components/form/validation-error";
 import { useAuth } from "@/components/providers/app-providers";
+import { DataTable } from "@/components/table/data-table";
 import { apiFetch } from "@/lib/api";
+import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import type { LmsModule, Organization, OrganizationStatus } from "@/lib/types";
 
 interface TenantForm {
@@ -27,25 +32,39 @@ const modules: Array<{ label: string; value: LmsModule }> = [
 
 export default function TenantsPage() {
   const { message } = App.useApp();
-  const { token, user } = useAuth();
+  const { organization, token, user } = useAuth();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm<TenantForm>();
-  const [items, setItems] = useState<Organization[]>([]);
   const [editing, setEditing] = useState<Organization | null>(null);
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const scope = getViewerScope(user, organization);
+  const tenantsKey = scope ? lmsQueryKeys.tenants(scope) : ["lms", "signed-out", "organizations"] as const;
+  const tenantsQuery = useQuery({
+    enabled: Boolean(token && scope && user?.role === "SUPER_ADMIN"),
+    queryKey: tenantsKey,
+    queryFn: () => apiFetch<Organization[]>("/organizations", { token }),
+  });
+  const items = tenantsQuery.data ?? [];
 
-  const load = useCallback(async () => {
-    if (!token || user?.role !== "SUPER_ADMIN") return;
-    try { setItems(await apiFetch<Organization[]>("/organizations", { token })); setError(""); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Không tải được tổ chức"); }
-    finally { setLoading(false); }
-  }, [token, user?.role]);
-  useEffect(() => {
-    const task = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(task);
-  }, [load]);
+  const saveMutation = useMutation({
+    mutationFn: async (values: TenantForm) => {
+      const primaryColor = typeof values.primaryColor === "string" ? values.primaryColor : values.primaryColor.toHexString();
+      return apiFetch<Organization>(editing ? `/organizations/${editing._id}` : "/organizations", {
+        token,
+        method: editing ? "PATCH" : "POST",
+        body: JSON.stringify({ ...values, primaryColor, logoUrl: values.logoUrl?.trim() || (editing ? null : undefined) }),
+      });
+    },
+    onSuccess: async () => {
+      message.success(editing ? "Đã cập nhật tổ chức" : "Đã tạo tổ chức");
+      setOpen(false);
+      await queryClient.invalidateQueries({ queryKey: tenantsKey });
+    },
+  });
+  const tanstackForm = useAntdTanStackForm<TenantForm>(
+    { enabledModules: modules.map((item) => item.value), name: "", primaryColor: "#5B5BD6", slug: "" },
+    (values) => saveMutation.mutateAsync(values).then(() => undefined),
+  );
 
   const showCreate = () => {
     setEditing(null);
@@ -59,32 +78,27 @@ export default function TenantsPage() {
     setOpen(true);
   };
   const save = async () => {
-    const values = await form.validateFields();
-    const color = typeof values.primaryColor === "string" ? values.primaryColor : values.primaryColor.toHexString();
-    setSaving(true);
-    try {
-      await apiFetch<Organization>(editing ? `/organizations/${editing._id}` : "/organizations", { token, method: editing ? "PATCH" : "POST", body: JSON.stringify({ ...values, primaryColor: color, logoUrl: values.logoUrl?.trim() || (editing ? null : undefined) }) });
-      message.success(editing ? "Đã cập nhật tổ chức" : "Đã tạo tổ chức");
-      setOpen(false);
-      await load();
-    } catch (caught) { message.error(caught instanceof Error ? caught.message : "Không thể lưu tổ chức"); }
-    finally { setSaving(false); }
+    try { await tanstackForm.submit(await form.validateFields()); }
+    catch (caught) {
+      if (!isFormValidationError(caught)) message.error(caught instanceof Error ? caught.message : "Không thể lưu tổ chức");
+    }
   };
 
-  const columns: ColumnsType<Organization> = [
-    { title: "Tổ chức", dataIndex: "name", render: (value, record) => <div><strong>{value}</strong><div className="table-muted">{record.slug}</div></div> },
-    { title: "Màu thương hiệu", dataIndex: "primaryColor", width: 170, render: (value) => <Space><span style={{ background: value, borderRadius: 6, height: 22, width: 22 }} />{value}</Space> },
-    { title: "Module", dataIndex: "enabledModules", responsive: ["md"], render: (value: LmsModule[]) => `${value.length}/${modules.length} đang bật` },
-    { title: "Trạng thái", dataIndex: "status", width: 140, render: (value) => <Tag color={value === "ACTIVE" ? "green" : "red"}>{value === "ACTIVE" ? "Hoạt động" : "Đã khóa"}</Tag> },
-    { title: "", key: "action", width: 90, render: (_, record) => <Button onClick={() => showEdit(record)} type="link">Sửa</Button> },
+  const columns: ColumnDef<StockFeatures, Organization>[] = [
+    { header: "Tổ chức", accessorKey: "name", cell: ({ row }) => <div><strong>{row.original.name}</strong><div className="table-muted">{row.original.slug}</div></div> },
+    { header: "Màu thương hiệu", accessorKey: "primaryColor", cell: ({ getValue }) => { const value = getValue<string>(); return <Space><span style={{ background: value, borderRadius: 6, height: 22, width: 22 }} />{value}</Space>; }, meta: { width: 170 } },
+    { header: "Module", accessorKey: "enabledModules", cell: ({ getValue }) => `${getValue<LmsModule[]>().length}/${modules.length} đang bật`, meta: { responsive: ["md"] } },
+    { header: "Trạng thái", accessorKey: "status", cell: ({ getValue }) => { const value = getValue<OrganizationStatus>(); return <Tag color={value === "ACTIVE" ? "green" : "red"}>{value === "ACTIVE" ? "Hoạt động" : "Đã khóa"}</Tag>; }, meta: { width: 140 } },
+    { id: "action", header: "", cell: ({ row }) => <Button onClick={() => showEdit(row.original)} type="link">Sửa</Button>, meta: { width: 90 } },
   ];
 
   if (user?.role !== "SUPER_ADMIN") return <Alert message="Bạn không có quyền truy cập khu vực quản trị nền tảng." showIcon type="warning" />;
   return <div className="page-shell">
     <div className="page-heading"><div><h1>Quản lý tổ chức</h1><p>Tạo workspace, kiểm soát trạng thái và cấu hình dịch vụ cho từng đơn vị.</p></div><Button icon={<PlusOutlined />} onClick={showCreate} type="primary">Thêm tổ chức</Button></div>
-    {error && <Alert message={error} showIcon style={{ marginBottom: 18 }} type="error" />}
-    <Card className="surface-card"><Table columns={columns} dataSource={items} loading={loading} locale={{ emptyText: "Chưa có tổ chức" }} pagination={{ pageSize: 8 }} rowKey="_id" scroll={{ x: 760 }} /></Card>
-    <Modal cancelText="Hủy" confirmLoading={saving} okText={editing ? "Lưu thay đổi" : "Tạo tổ chức"} onCancel={() => setOpen(false)} onOk={() => void save()} open={open} title={editing ? "Cập nhật tổ chức" : "Tạo tổ chức mới"}>
+    {tenantsQuery.error
+      ? <Alert message={tenantsQuery.error instanceof Error ? tenantsQuery.error.message : "Không tải được tổ chức"} showIcon type="error" />
+      : <Card className="surface-card"><DataTable columns={columns} data={items} emptyText="Chưa có tổ chức" loading={tenantsQuery.isLoading} pageSize={8} rowKey="_id" scrollX={760} /></Card>}
+    <Modal cancelText="Hủy" confirmLoading={saveMutation.isPending} okText={editing ? "Lưu thay đổi" : "Tạo tổ chức"} onCancel={() => setOpen(false)} onOk={() => void save()} open={open} title={editing ? "Cập nhật tổ chức" : "Tạo tổ chức mới"}>
       <Form form={form} layout="vertical" requiredMark={false} style={{ marginTop: 22 }}>
         <Form.Item label="Tên tổ chức" name="name" rules={[{ required: true, min: 2, message: "Tên cần ít nhất 2 ký tự" }]}><Input placeholder="Bright Academy" /></Form.Item>
         <Form.Item label="Slug" name="slug" rules={[{ required: true, pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/, message: "Dùng chữ thường, số và dấu gạch ngang" }]}><Input placeholder="bright-academy" /></Form.Item>

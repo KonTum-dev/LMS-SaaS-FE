@@ -4,6 +4,7 @@ import { LockOutlined, MailOutlined, SafetyCertificateOutlined } from "@ant-desi
 import { Alert, Button, Form, Input } from "antd";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
 import { useAuth } from "@/components/providers/app-providers";
 
 interface LoginValues { email: string; password: string }
@@ -13,6 +14,13 @@ export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const tanstackForm = useAntdTanStackForm<LoginValues>(
+    { email: "", password: "" },
+    async (values) => {
+      await login(values.email, values.password);
+      router.replace("/dashboard");
+    },
+  );
 
   useEffect(() => {
     if (!loading && user) router.replace("/dashboard");
@@ -22,8 +30,7 @@ export default function LoginPage() {
     setSubmitting(true);
     setError("");
     try {
-      await login(values.email, values.password);
-      router.replace("/dashboard");
+      await tanstackForm.submit(values);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Không thể đăng nhập");
     } finally {
