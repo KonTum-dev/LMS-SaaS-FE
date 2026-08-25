@@ -10,6 +10,7 @@ import { useAuth } from "@/components/providers/app-providers";
 import { apiFetch } from "@/lib/api";
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import type { LmsModule, Organization } from "@/lib/types";
+import { DEFAULT_PRIMARY_COLOR, organizationDisplayName, organizationInitial, tenantPrimaryColor } from "@/lib/workspace";
 
 interface SettingsForm { name: string; primaryColor: string | { toHexString: () => string }; logoUrl?: string; enabledModules: LmsModule[] }
 const moduleOptions: Array<{ label: string; value: LmsModule }> = [
@@ -40,7 +41,7 @@ export default function SettingsPage() {
     },
   });
   const tanstackForm = useAntdTanStackForm<SettingsForm>(
-    { enabledModules: [], name: "", primaryColor: "#5B5BD6" },
+    { enabledModules: [], name: "", primaryColor: DEFAULT_PRIMARY_COLOR },
     (values) => saveMutation.mutateAsync(values).then(() => undefined),
   );
 
@@ -52,6 +53,8 @@ export default function SettingsPage() {
   };
 
   if (user?.role !== "TENANT_ADMIN") return <Alert message="Chỉ quản trị tổ chức được thay đổi cấu hình." showIcon type="warning" />;
+  const organizationName = organizationDisplayName(organization?.name);
+  const primaryColor = tenantPrimaryColor(organization);
   return <div className="page-shell">
     <div className="page-heading"><div><h1>Tùy biến workspace</h1><p>Thiết lập nhận diện thương hiệu và các module phù hợp với cách tổ chức vận hành.</p></div></div>
     <div className="settings-grid">
@@ -65,8 +68,8 @@ export default function SettingsPage() {
         </Form>
       </Card>
       <Card className="surface-card" title="Xem trước">
-        <div style={{ background: organization?.primaryColor, borderRadius: 16, color: "white", minHeight: 190, padding: 24 }}>
-          <Space direction="vertical" size={20}><span className="brand-lockup"><Avatar shape="square" src={organization?.logoUrl || undefined} style={{ background: "white", color: organization?.primaryColor }}>N</Avatar><span>{organization?.name}</span></span><div><BgColorsOutlined style={{ fontSize: 28 }} /><h3 style={{ marginBottom: 6 }}>Không gian riêng của bạn</h3><span style={{ color: "rgba(255,255,255,.75)" }}>Màu chủ đạo được áp dụng cho nút, menu và các điểm nhấn.</span></div></Space>
+        <div style={{ background: primaryColor, borderRadius: 16, color: "white", minHeight: 190, padding: 24 }}>
+          <Space direction="vertical" size={20}><span className="brand-lockup"><Avatar shape="square" src={organization?.logoUrl || undefined} style={{ background: "white", color: primaryColor }}>{organizationInitial(organization?.name)}</Avatar><span>{organizationName}</span></span><div><BgColorsOutlined style={{ fontSize: 28 }} /><h3 style={{ marginBottom: 6 }}>Không gian riêng của bạn</h3><span style={{ color: "rgba(255,255,255,.82)" }}>Màu chủ đạo được áp dụng cho nút, menu và các điểm nhấn.</span></div></Space>
         </div>
         <Alert icon={<CheckCircleOutlined />} message="Cấu hình được lưu theo tenant và không ảnh hưởng tổ chức khác." showIcon style={{ marginTop: 18 }} type="success" />
       </Card>

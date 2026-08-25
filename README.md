@@ -1,4 +1,4 @@
-# NovaLMS Frontend
+# DX LMS Frontend
 
 Giao diện quản trị và học tập cho LMS SaaS đa tenant, xây bằng Next.js 16 App Router và Ant Design 6.
 

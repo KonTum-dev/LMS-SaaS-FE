@@ -16,7 +16,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/providers/app-providers";
 import type { LmsModule, UserRole } from "@/lib/types";
-import { tenantModuleEnabled } from "@/lib/workspace";
+import { organizationDisplayName, organizationInitial, tenantModuleEnabled, tenantPrimaryColor } from "@/lib/workspace";
 
 const roleLabels: Record<UserRole, string> = {
   SUPER_ADMIN: "Quản trị nền tảng",
@@ -64,10 +64,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     return <div style={{ display: "grid", minHeight: "100vh", placeItems: "center" }}><Spin size="large" tip="Đang mở workspace..." /></div>;
   }
 
+  const organizationName = organizationDisplayName(organization?.name);
+  const primaryColor = tenantPrimaryColor(organization);
   const menu = (
     <>
       <div className="sider-brand">
-        <div className="brand-lockup"><Avatar shape="square" src={organization?.logoUrl || undefined} style={{ background: organization?.primaryColor ?? "#5B5BD6" }}>N</Avatar><span>{organization?.name ?? "NovaLMS"}</span></div>
+        <div className="brand-lockup"><Avatar shape="square" src={organization?.logoUrl || undefined} style={{ background: primaryColor }}>{organizationInitial(organization?.name)}</Avatar><span>{organizationName}</span></div>
       </div>
       <div className="sider-tenant">
         <strong>{organization?.name ?? "Toàn nền tảng"}</strong>
@@ -98,7 +100,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <Dropdown menu={{ items: profileItems }} placement="bottomRight" trigger={["click"]}>
             <button className="header-profile" style={{ background: "none", border: 0, cursor: "pointer", padding: 0 }} type="button">
               <div className="header-profile-copy"><strong>{user.fullName}</strong><span>{roleLabels[user.role]}</span></div>
-              <Avatar style={{ background: organization?.primaryColor ?? "#5B5BD6" }}>{user.fullName.slice(0, 1).toUpperCase()}</Avatar>
+              <Avatar style={{ background: primaryColor }}>{Array.from(user.fullName.trim())[0]?.toLocaleUpperCase("vi") || "DX"}</Avatar>
             </button>
           </Dropdown>
         </Layout.Header>

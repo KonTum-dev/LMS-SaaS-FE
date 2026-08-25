@@ -12,6 +12,7 @@ import { DataTable } from "@/components/table/data-table";
 import { apiFetch } from "@/lib/api";
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import type { LmsModule, Organization, OrganizationStatus } from "@/lib/types";
+import { DEFAULT_PRIMARY_COLOR } from "@/lib/workspace";
 
 interface TenantForm {
   name: string;
@@ -62,14 +63,14 @@ export default function TenantsPage() {
     },
   });
   const tanstackForm = useAntdTanStackForm<TenantForm>(
-    { enabledModules: modules.map((item) => item.value), name: "", primaryColor: "#5B5BD6", slug: "" },
+    { enabledModules: modules.map((item) => item.value), name: "", primaryColor: DEFAULT_PRIMARY_COLOR, slug: "" },
     (values) => saveMutation.mutateAsync(values).then(() => undefined),
   );
 
   const showCreate = () => {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ primaryColor: "#5B5BD6", enabledModules: modules.map((item) => item.value) });
+    form.setFieldsValue({ primaryColor: DEFAULT_PRIMARY_COLOR, enabledModules: modules.map((item) => item.value) });
     setOpen(true);
   };
   const showEdit = (tenant: Organization) => {

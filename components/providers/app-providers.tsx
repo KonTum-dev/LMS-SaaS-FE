@@ -109,7 +109,7 @@ function ThemedAntd({ children }: { children: React.ReactNode }) {
   const { organization } = useAuth();
   const primary = tenantPrimaryColor(organization);
   return (
-    <ConfigProvider locale={viVN} theme={{ token: { borderRadius: 10, colorPrimary: primary, colorText: "#172033", fontFamily: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" } }}>
+    <ConfigProvider locale={viVN} theme={{ token: { borderRadius: 10, colorPrimary: primary, colorText: "#061A35", fontFamily: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" } }}>
       <AntdApp>{children}</AntdApp>
     </ConfigProvider>
   );

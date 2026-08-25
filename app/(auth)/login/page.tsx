@@ -41,16 +41,16 @@ export default function LoginPage() {
   return (
     <main className="auth-page">
       <section className="auth-hero">
-        <div className="brand-lockup"><span className="brand-mark light">N</span><span>NovaLMS</span></div>
+        <div className="brand-lockup"><span className="brand-mark light">DX</span><span>DX LMS</span></div>
         <div className="auth-copy">
-          <h1>Một không gian học tập. Theo cách của bạn.</h1>
-          <p>Quản lý trung tâm, trường học và lớp học thêm trên một nền tảng linh hoạt, an toàn và mang trọn bản sắc riêng.</p>
+          <h1>Vận hành đào tạo. Đúng người, đúng việc.</h1>
+          <p>Quản lý người dùng, khóa học, ghi danh và bài tập trong workspace riêng mang bản sắc của tổ chức.</p>
         </div>
         <div className="auth-proof"><span>● Dữ liệu tách biệt theo tổ chức</span><span>● Phân quyền rõ ràng</span><span>● Tùy biến thương hiệu</span></div>
       </section>
       <section className="auth-panel">
         <div className="auth-card">
-          <span className="brand-lockup"><span className="brand-mark">N</span><span>NovaLMS</span></span>
+          <span className="brand-lockup"><span className="brand-mark">DX</span><span>DX LMS</span></span>
           <h2>Chào mừng trở lại</h2>
           <span className="subtitle">Đăng nhập để tiếp tục vào không gian quản lý đào tạo.</span>
           {error && <Alert closable message={error} onClose={() => setError("")} showIcon style={{ marginBottom: 20 }} type="error" />}
@@ -63,7 +63,7 @@ export default function LoginPage() {
             </Form.Item>
             <Button block htmlType="submit" loading={submitting} style={{ height: 48, marginTop: 6 }} type="primary">Đăng nhập</Button>
           </Form>
-          <div style={{ alignItems: "center", color: "#667085", display: "flex", fontSize: 12, gap: 8, justifyContent: "center", marginTop: 26 }}><SafetyCertificateOutlined /> Phiên làm việc được bảo vệ bằng JWT</div>
+          <div style={{ alignItems: "center", color: "#58708F", display: "flex", fontSize: 12, gap: 8, justifyContent: "center", marginTop: 26 }}><SafetyCertificateOutlined /> Phiên làm việc được bảo vệ bằng JWT</div>
         </div>
       </section>
     </main>

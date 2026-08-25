@@ -1,9 +1,17 @@
 import type { LmsModule, Organization } from "@/lib/types";
 
-export const DEFAULT_PRIMARY_COLOR = "#5B5BD6";
+export const DEFAULT_PRIMARY_COLOR = "#176BFF";
 
 export function tenantPrimaryColor(organization: Organization | null) {
-  return organization?.primaryColor ?? DEFAULT_PRIMARY_COLOR;
+  return organization?.primaryColor?.trim() || DEFAULT_PRIMARY_COLOR;
+}
+
+export function organizationInitial(name?: string | null) {
+  return Array.from(name?.trim() ?? "")[0]?.toLocaleUpperCase("vi") || "DX";
+}
+
+export function organizationDisplayName(name?: string | null) {
+  return name?.trim() || "DX LMS";
 }
 
 export function tenantModuleEnabled(
