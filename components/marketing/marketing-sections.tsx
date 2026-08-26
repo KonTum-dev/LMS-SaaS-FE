@@ -127,7 +127,7 @@ export function ServicesSection() {
       data-section="services"
     >
       <div className={styles.serviceDecorationOne} aria-hidden="true" />
-      <div className={styles.serviceDecorationTwo} aria-hidden="true">✦</div>
+      <div className={styles.serviceDecorationTwo} aria-hidden="true" />
       <div className={styles.container}>
         <div className={styles.servicesHeading}>
           <span className={styles.sectionLabelLight}>Năng lực đang có</span>

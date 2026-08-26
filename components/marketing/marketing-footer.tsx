@@ -50,11 +50,6 @@ export function ContactCta() {
 export function MarketingFooter() {
   return (
     <footer className={styles.footer}>
-      <div className={styles.footerWave} aria-hidden="true">
-        <svg viewBox="0 0 1440 190" preserveAspectRatio="none">
-          <path d="M0 118C180 46 343 42 520 100c201 66 329 59 475 3 151-58 284-66 445-10v97H0Z" />
-        </svg>
-      </div>
       <div className={`${styles.container} ${styles.footerInner}`}>
         <div className={styles.footerBrand}>
           <Brand inverse />

@@ -6,7 +6,10 @@ export function Brand({ inverse = false }: { inverse?: boolean }) {
       <span className={`${styles.brandMark} ${inverse ? styles.brandMarkInverse : ""}`} aria-hidden="true">
         DX
       </span>
-      <span className={styles.brandName}>DX LMS</span>
+      <span className={styles.brandName}>
+        <strong>DX</strong>
+        <span>LMS</span>
+      </span>
     </span>
   );
 }

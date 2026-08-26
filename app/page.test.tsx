@@ -9,7 +9,7 @@ import Home, { metadata } from "./page";
 
 afterEach(cleanup);
 
-describe("DX LMS digital-agency landing", () => {
+describe("DX LMS landing theo ngôn ngữ hình học", () => {
   it("giữ đúng nhịp Hero → About → Motivation → Services → Pricing → CTA → Contact", () => {
     const { container } = render(<Home />);
     const sections = [...container.querySelectorAll<HTMLElement>("main [data-section]")]
@@ -140,7 +140,8 @@ describe("DX LMS digital-agency landing", () => {
     expect(mascot.getAttribute("src")).toContain("dx-lms-dolphin-mascot.png");
     expect(mascot.getAttribute("width")).toBe("1230");
     expect(mascot.getAttribute("height")).toBe("1278");
-    expect(mascot.getAttribute("sizes")).toContain("(max-width: 360px) 34vw");
+    expect(mascot.getAttribute("sizes")).toContain("(max-width: 360px) 42vw");
+    expect(mascot.getAttribute("sizes")).toContain("(max-width: 1050px) 28vw");
     expect(screen.getByText("DX LMS · Workspace tổ chức")).toBeTruthy();
 
     expect(metadata.title).toBe("DX LMS — Một workspace rõ ràng cho vận hành đào tạo");
@@ -148,37 +149,87 @@ describe("DX LMS digital-agency landing", () => {
     expect(readFileSync(resolve(process.cwd(), "app/page.tsx"), "utf8")).not.toContain('"use client"');
   });
 
-  it("có visual responsive, focus, overflow và reduced-motion từ 360 đến 1440px", () => {
+  it("desktop 1440px có header 64px, hero hai cột 64px và mosaic DX LMS", () => {
     const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
-    const header = readFileSync(resolve(process.cwd(), "components/marketing/marketing-header.tsx"), "utf8");
+    const hero = readFileSync(resolve(process.cwd(), "components/marketing/marketing-hero.tsx"), "utf8");
 
-    expect(css).toContain("min-height: max(720px, 100svh)");
-    expect(css).toContain("border-radius: 999px");
-    expect(css).toContain("overflow-x: clip");
-    expect(css).toContain(":focus-visible");
-    expect(css).toContain("scroll-margin-top");
+    expect(css).toContain("--marketing-blue: #0068ff");
+    expect(css).toContain("--marketing-ink: #141415");
+    expect(css).toMatch(/\.header\s*{[^}]*height: 64px/);
+    expect(css).toMatch(/\.heroInner\s*{[^}]*grid-template-columns: minmax\(0, \.88fr\) minmax\(540px, 1\.12fr\)/);
+    expect(css).toMatch(/\.heroCopy h1\s*{[^}]*font-size: clamp\(3\.4rem, 4\.45vw, 4rem\)/);
+    expect(css).toContain("@media (min-width: 1440px)");
+    expect(css).toMatch(/@media \(min-width: 1440px\)[\s\S]*?\.heroCopy h1\s*{ font-size: 4rem; }/);
+    expect(hero).toContain("styles.heroVisual");
+    expect(hero).toContain("styles.mosaicSquare");
+    expect(hero).toContain("styles.mosaicPill");
+    expect(hero).toContain("styles.mosaicDot");
+    expect(hero).toContain("<WorkspacePreview />");
+  });
+
+  it("tablet 769–1050px co hero và card theo grid trước khi tràn", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
+
     expect(css).toContain("@media (max-width: 1050px)");
+    expect(css).toMatch(/@media \(max-width: 1050px\)[\s\S]*?\.heroInner\s*{[^}]*grid-template-columns: minmax\(0, \.92fr\) minmax\(360px, 1\.08fr\)/);
+    expect(css).toMatch(/@media \(max-width: 1050px\)[\s\S]*?\.heroVisual\s*{ height: 500px; }/);
+    expect(css).toMatch(/\.valueGrid\s*{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(/\.serviceGrid\s*{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  });
+
+  it("mobile 360–768px xếp hero dọc, CTA đủ rộng và không tạo overflow ngang", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
+
+    expect(css).toContain("overflow-x: clip");
     expect(css).toContain("@media (max-width: 768px)");
-    expect(css).toContain("@media (max-width: 390px)");
+    expect(css).toMatch(/@media \(max-width: 768px\)[\s\S]*?\.heroInner\s*{[^}]*flex-direction: column/);
+    expect(css).toMatch(/@media \(max-width: 768px\)[\s\S]*?\.pricingGrid\s*{ grid-template-columns: 1fr; }/);
+    expect(css).toMatch(/@media \(max-width: 620px\)[\s\S]*?\.heroActions > a\s*{ width: 100%; }/);
     expect(css).toContain("@media (max-width: 360px)");
-    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(css).toContain(".footerWave");
-    expect(css).toMatch(/\.compactButton\s*{[^}]*background: var\(--marketing-blue-deep\)/);
-    expect(css).toMatch(/\.primaryButton\s*{[^}]*background: var\(--marketing-blue-deep\)/);
-    expect(css).toMatch(/\.servicesSection\s*{[^}]*background: var\(--marketing-blue-deep\)/);
-    expect(css).toMatch(/\.pricingGrid\s*{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
-    expect(css).toMatch(/@media \(max-width: 768px\)[\s\S]*?\.pricingGrid\s*{[^}]*grid-template-columns: 1fr/);
+    expect(css).toMatch(/@media \(max-width: 360px\)[\s\S]*?\.heroCopy h1\s*{[^}]*font-size: 2\.5rem/);
     expect(css).toMatch(/\.planCard\s*{[^}]*min-width: 0/);
     expect(css).toMatch(/\.planCard > :where\(a\)\s*{[^}]*width: 100%/);
-    expect(css).toMatch(/\.sectionLabelLight\s*{[^}]*background: rgba\(3, 30, 65, \.72\)/);
-    expect(css).toMatch(/\.scrollCue\s*{[^}]*color: var\(--marketing-muted\)/);
-    expect(css).toMatch(/\.mobileMenu nav a:last-child\s*{[^}]*background: var\(--marketing-blue-deep\)/);
-    expect(css).toMatch(/\.kickerMark\s*{[^}]*background: var\(--marketing-blue-deep\)/);
+  });
+
+  it("scope Be Vietnam Pro cho landing, giữ focus và dừng motion khi được yêu cầu", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
+    const page = readFileSync(resolve(process.cwd(), "app/page.tsx"), "utf8");
+    const header = readFileSync(resolve(process.cwd(), "components/marketing/marketing-header.tsx"), "utf8");
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
+
+    for (const weight of [400, 500, 700, 900]) {
+      expect(page).toContain(`@fontsource/be-vietnam-pro/${weight}.css`);
+    }
+    expect(packageJson.dependencies["@fontsource/be-vietnam-pro"]).toBeTruthy();
+    expect(existsSync(resolve(process.cwd(), "node_modules/@fontsource/be-vietnam-pro/LICENSE"))).toBe(true);
+    expect(css).toContain('font-family: "Be Vietnam Pro"');
+    expect(css).toContain("font-synthesis: none");
+    const fontWeights = [...new Set(
+      [...css.matchAll(/font-weight:\s*(\d+)/g)].map((match) => Number(match[1])),
+    )].sort((a, b) => a - b);
+    expect(fontWeights).toEqual([400, 500, 700, 900]);
+    expect(css).toContain("border-radius: 999px");
+    expect(css).toContain(":focus-visible");
+    expect(css).toContain("scroll-margin-top");
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("animation-duration: .01ms !important");
     expect(css).toContain("animation-iteration-count: 1 !important");
-    expect(css).not.toMatch(/font-size: [789]px/);
+    expect(css).toContain("transition-duration: .01ms !important");
     expect(header).toContain("<details");
     expect(header).toContain("<summary");
+  });
+
+  it("xen kẽ bề mặt trắng–navy–kem và kết thúc bằng footer xanh đặc", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
+    const footer = readFileSync(resolve(process.cwd(), "components/marketing/marketing-footer.tsx"), "utf8");
+
+    expect(css).toMatch(/\.hero\s*{[^}]*background: var\(--marketing-white\)/);
+    expect(css).toMatch(/\.motivationSection\s*{[^}]*background: var\(--marketing-cream\)/);
+    expect(css).toMatch(/\.servicesSection\s*{[^}]*background: var\(--marketing-navy\)/);
+    expect(css).toMatch(/\.pricingSection\s*{[^}]*background: var\(--marketing-cream\)/);
+    expect(css).toMatch(/\.footer\s*{[^}]*background: var\(--marketing-blue\)/);
+    expect(css).not.toContain("linear-gradient");
+    expect(footer).not.toContain("footerWave");
   });
 
   it("tiếp tục dùng icon PNG dẫn xuất từ mascot", () => {
