@@ -11,6 +11,7 @@ import {
   MotivationSection,
   ServicesSection,
 } from "@/components/marketing/marketing-sections";
+import { PricingSection } from "@/components/marketing/pricing-faq";
 import styles from "./marketing.module.css";
 
 export const metadata: Metadata = {
@@ -28,6 +29,7 @@ export default function Home() {
         <AboutSection />
         <MotivationSection />
         <ServicesSection />
+        <PricingSection />
         <FinalCta />
         <ContactCta />
       </main>

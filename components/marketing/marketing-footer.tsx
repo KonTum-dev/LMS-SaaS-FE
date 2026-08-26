@@ -64,6 +64,7 @@ export function MarketingFooter() {
           <a href="#gioi-thieu">Giới thiệu</a>
           <a href="#gia-tri">Giá trị</a>
           <a href="#nang-luc">Năng lực</a>
+          <a href="#bang-gia">Bảng giá</a>
           <Link href="/login">Đăng nhập</Link>
         </nav>
         <p className={styles.footerNote}>© 2026 DX LMS · DolphinX Studio</p>

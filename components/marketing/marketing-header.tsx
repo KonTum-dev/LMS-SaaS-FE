@@ -8,6 +8,7 @@ const navigation = [
   { href: "#gioi-thieu", label: "Giới thiệu" },
   { href: "#gia-tri", label: "Giá trị" },
   { href: "#nang-luc", label: "Năng lực" },
+  { href: "#bang-gia", label: "Bảng giá" },
   { href: "#lien-he", label: "Bắt đầu" },
 ];
 
