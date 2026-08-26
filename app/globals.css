@@ -78,6 +78,16 @@ a { color: inherit; text-decoration: none; }
 .course-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 18px; }
 .empty-block { padding: 34px 0; }
 .settings-grid { display: grid; gap: 20px; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+.billing-plan-card { height: 100%; }
+.billing-plan-card .ant-card-body { display: flex; min-height: 330px; flex-direction: column; }
+.billing-plan-card .ant-btn { margin-top: auto; }
+.billing-price { color: #0b4fd6; font-size: clamp(27px, 3vw, 36px); font-weight: 760; letter-spacing: -1px; }
+.billing-price small { margin-left: 5px; color: var(--muted); font-size: 14px; font-weight: 500; letter-spacing: 0; }
+.billing-status-card { max-width: 760px; margin: 30px auto; }
+.billing-order-summary { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 20px; border-radius: 14px; background: #f4f9ff; }
+.billing-order-summary > div { min-width: 0; }
+.billing-order-summary span, .billing-order-summary strong { display: block; }
+.billing-order-summary > div > span:first-child { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
 
 @media (max-width: 1000px) {
   .course-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -94,6 +104,7 @@ a { color: inherit; text-decoration: none; }
   .workspace-header { padding: 0 20px; }
   .workspace-content { padding: 24px 20px 36px; }
   .settings-grid { grid-template-columns: 1fr; }
+  .billing-order-summary { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
   .page-heading { flex-direction: column; }

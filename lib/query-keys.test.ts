@@ -27,4 +27,16 @@ describe("query keys theo tenant và viewer", () => {
     expect(lmsQueryKeys.assignments(scope).slice(0, root.length)).toEqual(root);
     expect(lmsQueryKeys.assignments(scope, "course-1").slice(0, root.length)).toEqual(root);
   });
+
+  it("cô lập cache billing theo tenant/viewer và gom order dưới billing root", () => {
+    const scopeA = getViewerScope(viewer("owner-a"), organization)!;
+    const scopeB = getViewerScope(
+      { ...viewer("owner-b"), tenantId: "tenant-b" },
+      { ...organization, _id: "tenant-b" },
+    )!;
+
+    expect(lmsQueryKeys.billingOrders(scopeA)).not.toEqual(lmsQueryKeys.billingOrders(scopeB));
+    expect(lmsQueryKeys.billingOrder(scopeA, "order-1").slice(0, lmsQueryKeys.billing(scopeA).length)).toEqual(lmsQueryKeys.billing(scopeA));
+    expect(lmsQueryKeys.adminSubscriptions(scopeA).slice(0, lmsQueryKeys.adminBilling(scopeA).length)).toEqual(lmsQueryKeys.adminBilling(scopeA));
+  });
 });

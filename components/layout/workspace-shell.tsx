@@ -4,6 +4,7 @@ import {
   ApartmentOutlined,
   BookOutlined,
   DashboardOutlined,
+  DollarOutlined,
   FileDoneOutlined,
   LogoutOutlined,
   MenuOutlined,
@@ -43,6 +44,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     ];
     if (user.role === "SUPER_ADMIN") {
       menu.push({ key: "/admin/tenants", icon: <ApartmentOutlined />, label: "Tổ chức" });
+      menu.push({ key: "/admin/billing", icon: <DollarOutlined />, label: "Thuê bao" });
       return menu;
     }
     if (user.role === "TENANT_ADMIN" && enabled("USERS")) {
@@ -55,6 +57,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       menu.push({ key: "/assignments", icon: <FileDoneOutlined />, label: "Bài tập" });
     }
     if (user.role === "TENANT_ADMIN") {
+      menu.push({ key: "/billing", icon: <DollarOutlined />, label: "Thanh toán" });
       menu.push({ key: "/settings", icon: <SettingOutlined />, label: "Tùy biến" });
     }
     return menu;
