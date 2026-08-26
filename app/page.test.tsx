@@ -2,50 +2,51 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup } from "@testing-library/react";
 import Home, { metadata } from "./page";
 
 afterEach(cleanup);
 
-describe("DX LMS marketing page", () => {
-  it("phục vụ landing public với đủ landmark, năng lực và CTA đăng nhập", () => {
-    render(<Home />);
+describe("DX LMS digital-agency landing", () => {
+  it("giữ đúng nhịp Hero → About → Motivation → Services → CTA → Contact", () => {
+    const { container } = render(<Home />);
+    const sections = [...container.querySelectorAll<HTMLElement>("main [data-section]")]
+      .map((section) => section.dataset.section);
 
+    expect(sections).toEqual(["hero", "about", "motivation", "services", "cta", "contact"]);
     expect(screen.getByRole("banner")).toBeTruthy();
-    const main = screen.getByRole("main");
-    expect(main.getAttribute("id")).toBe("noi-dung-chinh");
-    expect(main.getAttribute("tabindex")).toBe("-1");
+    expect(screen.getByRole("main").getAttribute("id")).toBe("noi-dung-chinh");
     expect(screen.getByRole("contentinfo")).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1, name: /Vận hành đào tạo rõ ràng trong một nơi/i })).toBeTruthy();
-    const problemSection = document.querySelector<HTMLElement>("#van-hanh");
-    expect(problemSection).toBeTruthy();
-    expect(within(problemSection!).getByRole("heading", { name: /Khi dữ liệu đào tạo rời rạc/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Đủ gọn để bắt đầu. Đủ rõ để cùng vận hành." })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Mỗi vai trò thấy điều họ cần." })).toBeTruthy();
-    expect(screen.getByText("Dữ liệu minh họa")).toBeTruthy();
-    const mascot = screen.getByRole("img", { name: "Mascot cá heo 3D của DX LMS" });
-    expect(mascot.getAttribute("src")).toContain("dx-lms-dolphin-mascot.png");
-    expect(mascot.getAttribute("width")).toBe("1230");
-    expect(mascot.getAttribute("height")).toBe("1278");
-    expect(mascot.getAttribute("sizes")).toContain("(max-width: 390px) 44vw");
-    const heroVisual = mascot.closest("figure")?.parentElement;
-    expect(heroVisual).toBeTruthy();
-    expect(within(heroVisual!).getByRole("img", { name: /Minh họa dashboard DX LMS/i })).toBeTruthy();
-    expect(screen.getByText("Hệ sinh thái DolphinX Studio")).toBeTruthy();
-
-    const loginLinks = screen.getAllByRole("link", { name: /Đăng nhập|Mở workspace/i });
-    expect(loginLinks.length).toBeGreaterThanOrEqual(4);
-    loginLinks.forEach((link) => expect(link.getAttribute("href")).toBe("/login"));
+    expect(screen.getByRole("heading", { level: 1, name: /Một nơi để vận hành đào tạo rõ ràng hơn/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Gọn để bắt đầu. Rõ để cùng vận hành." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Bớt phân mảnh. Thêm một nhịp làm việc chung." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Những module Web tạo nên DX LMS." })).toBeTruthy();
   });
 
-  it("khai báo metadata trang chủ có tên DX LMS rõ ràng", () => {
-    expect(metadata.title).toBe("DX LMS — Nền tảng LMS cho trung tâm đào tạo");
-    expect(metadata.description).toContain("DX LMS giúp trung tâm đào tạo nhỏ và vừa");
+  it("chỉ mô tả sáu module Web đang tồn tại và không chứa nội dung agency giả", () => {
+    const { container } = render(<Home />);
+    const services = container.querySelector<HTMLElement>("#nang-luc");
+
+    expect(services).toBeTruthy();
+    const cards = within(services!).getAllByRole("article");
+    expect(cards).toHaveLength(6);
+    expect(cards.map((card) => within(card).getByRole("heading").textContent)).toEqual([
+      "Người dùng",
+      "Khóa học",
+      "Ghi danh",
+      "Bài tập",
+      "Dashboard",
+      "Tùy biến tenant",
+    ]);
+
+    expect(screen.queryByText(/digital marketing|ui\/ux design|cloud solutions|e-commerce|machine learning/i)).toBeNull();
+    expect(screen.queryByText(/testimonial|khách hàng nói|tăng \d+%|giảm \d+%/i)).toBeNull();
+    expect(screen.queryByText(/Liên hệ theo phạm vi|trial|dùng thử|hello@example|\+62/i)).toBeNull();
+    expect(screen.queryByText(/điểm danh|học phí|phụ huynh|zalo|crm|đa chi nhánh/i)).toBeNull();
   });
 
-  it("giữ mọi điều hướng nội trang có đích thật và các điều khiển native dùng được bằng bàn phím", () => {
+  it("dùng anchor thật, CTA /login và menu native hoạt động bằng bàn phím", () => {
     const { container } = render(<Home />);
     const anchorLinks = [...container.querySelectorAll<HTMLAnchorElement>('a[href^="#"]')];
 
@@ -54,6 +55,10 @@ describe("DX LMS marketing page", () => {
       expect(container.querySelector(link.getAttribute("href")!)).toBeTruthy();
     });
 
+    const loginLinks = screen.getAllByRole("link", { name: /workspace|đăng nhập/i });
+    expect(loginLinks.length).toBeGreaterThanOrEqual(5);
+    loginLinks.forEach((link) => expect(link.getAttribute("href")).toBe("/login"));
+
     const skipLink = screen.getByRole("link", { name: "Bỏ qua điều hướng" });
     fireEvent.click(skipLink);
     expect(document.activeElement).toBe(screen.getByRole("main"));
@@ -61,63 +66,72 @@ describe("DX LMS marketing page", () => {
     const mobileMenu = container.querySelector<HTMLDetailsElement>("header details");
     const menuSummary = screen.getByLabelText("Menu điều hướng");
     expect(mobileMenu).toBeTruthy();
-    expect(menuSummary).toBeTruthy();
     menuSummary.focus();
     expect(document.activeElement).toBe(menuSummary);
     fireEvent.click(menuSummary);
     expect(mobileMenu!.open).toBe(true);
 
-    const mobileNav = within(mobileMenu!).getByRole("navigation", { name: "Điều hướng trên thiết bị di động" });
-    fireEvent.click(within(mobileNav).getByRole("link", { name: "Sản phẩm" }));
+    const mobileNav = within(mobileMenu!).getByRole("navigation", {
+      name: "Điều hướng trên thiết bị di động",
+    });
+    fireEvent.click(within(mobileNav).getByRole("link", { name: "Năng lực" }));
     expect(mobileMenu!.open).toBe(false);
-    expect(document.activeElement).toBe(container.querySelector("#san-pham"));
+    expect(document.activeElement).toBe(container.querySelector("#nang-luc"));
 
-    const faq = screen.getByText("Nền tảng hiện có những module nào?").closest("summary");
-    const faqDetails = faq?.closest("details");
-    expect(faqDetails?.open).toBe(false);
-    faq?.focus();
-    expect(document.activeElement).toBe(faq);
-    fireEvent.click(faq!);
-    expect(faqDetails?.open).toBe(true);
+    const hero = container.querySelector<HTMLElement>('[data-section="hero"]');
+    fireEvent.click(within(hero!).getByRole("link", { name: "Khám phá DX LMS" }));
+    expect(document.activeElement).toBe(container.querySelector("#gioi-thieu"));
+
+    const footer = screen.getByRole("contentinfo");
+    fireEvent.click(within(footer).getByRole("link", { name: "Giá trị" }));
+    expect(document.activeElement).toBe(container.querySelector("#gia-tri"));
   });
 
-  it("chỉ hiển thị giá Liên hệ và không quảng bá năng lực ngoài phạm vi Web", () => {
+  it("giữ mascot, dashboard và metadata DX LMS trong Server Component", () => {
     render(<Home />);
 
-    for (const planName of ["Pilot", "Vận hành"]) {
-      const plan = screen.getByRole("heading", { level: 3, name: planName }).closest("article");
-      expect(plan).toBeTruthy();
-      expect(within(plan!).getByText("Liên hệ")).toBeTruthy();
-    }
+    const mascot = screen.getByRole("img", { name: "Mascot cá heo 3D của DX LMS" });
+    expect(mascot.getAttribute("src")).toContain("dx-lms-dolphin-mascot.png");
+    expect(mascot.getAttribute("width")).toBe("1230");
+    expect(mascot.getAttribute("height")).toBe("1278");
+    expect(mascot.getAttribute("sizes")).toContain("(max-width: 360px) 34vw");
+    expect(screen.getByText("DX LMS · Workspace tổ chức")).toBeTruthy();
 
-    expect(screen.queryByText(/điểm danh|học phí|phụ huynh|zalo|crm|đa chi nhánh/i)).toBeNull();
-    expect(screen.queryByText(/testimonial|khách hàng nói|tăng \d+%/i)).toBeNull();
+    expect(metadata.title).toBe("DX LMS — Một workspace rõ ràng cho vận hành đào tạo");
+    expect(metadata.description).toContain("workspace riêng của từng tổ chức");
+    expect(readFileSync(resolve(process.cwd(), "app/page.tsx"), "utf8")).not.toContain('"use client"');
   });
 
-  it("có guard CSS cho 360px, focus, overflow và reduced motion", () => {
+  it("có visual responsive, focus, overflow và reduced-motion từ 360 đến 1440px", () => {
     const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
-    const hero = readFileSync(resolve(process.cwd(), "components/marketing/marketing-hero.tsx"), "utf8");
+    const header = readFileSync(resolve(process.cwd(), "components/marketing/marketing-header.tsx"), "utf8");
 
-    expect(css).toContain("--marketing-navy: #061a35");
-    expect(css).toContain("--marketing-blue: #176bff");
-    expect(css).toContain("--marketing-cyan: #19cfe8");
-    expect(css).toContain("linear-gradient(var(--marketing-grid) 1px, transparent 1px)");
-    expect(css).not.toContain("--marketing-orange");
-    expect(css).toContain("@media (max-width: 390px)");
+    expect(css).toContain("min-height: max(720px, 100svh)");
+    expect(css).toContain("border-radius: 999px");
     expect(css).toContain("overflow-x: clip");
     expect(css).toContain(":focus-visible");
-    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("scroll-margin-top");
-    expect(css).toContain(".dolphinFigure");
-    expect(css).toContain(".dolphinImage");
-    expect(css).toContain("@media (max-width: 1308px)");
-    expect(css).toContain("color: rgba(255, 255, 255, .68)");
+    expect(css).toContain("@media (max-width: 1050px)");
+    expect(css).toContain("@media (max-width: 768px)");
+    expect(css).toContain("@media (max-width: 390px)");
+    expect(css).toContain("@media (max-width: 360px)");
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(css).toContain(".footerWave");
+    expect(css).toMatch(/\.compactButton\s*{[^}]*background: var\(--marketing-blue-deep\)/);
+    expect(css).toMatch(/\.primaryButton\s*{[^}]*background: var\(--marketing-blue-deep\)/);
+    expect(css).toMatch(/\.servicesSection\s*{[^}]*background: var\(--marketing-blue-deep\)/);
+    expect(css).toMatch(/\.sectionLabelLight\s*{[^}]*background: rgba\(3, 30, 65, \.72\)/);
+    expect(css).toMatch(/\.scrollCue\s*{[^}]*color: var\(--marketing-muted\)/);
+    expect(css).toMatch(/\.mobileMenu nav a:last-child\s*{[^}]*background: var\(--marketing-blue-deep\)/);
+    expect(css).toMatch(/\.kickerMark\s*{[^}]*background: var\(--marketing-blue-deep\)/);
+    expect(css).toContain("animation-duration: .01ms !important");
+    expect(css).toContain("animation-iteration-count: 1 !important");
     expect(css).not.toMatch(/font-size: [789]px/);
-    expect(hero).toContain("sizes=");
-    expect(hero).not.toMatch(/\bpreload\b/);
+    expect(header).toContain("<details");
+    expect(header).toContain("<summary");
   });
 
-  it("dùng app icon PNG được dẫn xuất từ mascot thay cho favicon mặc định", () => {
+  it("tiếp tục dùng icon PNG dẫn xuất từ mascot", () => {
     const icon = readFileSync(resolve(process.cwd(), "app/icon.png"));
 
     expect(icon.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
@@ -125,6 +139,5 @@ describe("DX LMS marketing page", () => {
     expect(icon.readUInt32BE(20)).toBe(192);
     expect(icon.byteLength).toBeGreaterThan(10_000);
     expect(existsSync(resolve(process.cwd(), "public/graphics/dx-lms-dolphin-mascot.png"))).toBe(true);
-    expect(existsSync(resolve(process.cwd(), "app/favicon.ico"))).toBe(false);
   });
 });

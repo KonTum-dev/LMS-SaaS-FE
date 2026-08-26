@@ -5,11 +5,10 @@ import { MarketingHeaderEnhancement } from "./marketing-header-enhancement";
 import { MarketingIcon } from "./marketing-icon";
 
 const navigation = [
-  { href: "#san-pham", label: "Sản phẩm" },
-  { href: "#vai-tro", label: "Vai trò" },
-  { href: "#bao-mat", label: "Bảo mật" },
-  { href: "#bang-gia", label: "Gói triển khai" },
-  { href: "#faq", label: "Hỏi đáp" },
+  { href: "#gioi-thieu", label: "Giới thiệu" },
+  { href: "#gia-tri", label: "Giá trị" },
+  { href: "#nang-luc", label: "Năng lực" },
+  { href: "#lien-he", label: "Bắt đầu" },
 ];
 
 export function MarketingHeader() {
@@ -29,7 +28,7 @@ export function MarketingHeader() {
         <div className={styles.headerActions}>
           <Link className={styles.textLink} href="/login">Đăng nhập</Link>
           <Link className={styles.compactButton} href="/login">
-            Mở workspace <MarketingIcon name="right" />
+            Vào workspace <MarketingIcon name="right" />
           </Link>
         </div>
 
@@ -40,7 +39,7 @@ export function MarketingHeader() {
           </summary>
           <nav aria-label="Điều hướng trên thiết bị di động">
             {navigation.map((item) => <a href={item.href} key={item.href}>{item.label}</a>)}
-            <Link href="/login">Đăng nhập vào workspace</Link>
+            <Link href="/login">Vào workspace</Link>
           </nav>
         </details>
       </div>
