@@ -4,6 +4,12 @@ import { apiFetch, type ApiError } from "./api";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("apiFetch", () => {
+  it("xử lý response 200 rỗng như null thay vì ném lỗi JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+
+    await expect(apiFetch<null>("/empty")).resolves.toBeNull();
+  });
+
   it("Việt hóa lỗi và phát tín hiệu hết phiên khi API trả 401", async () => {
     const browser = new EventTarget();
     const expired = vi.fn();

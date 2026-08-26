@@ -61,7 +61,13 @@ export async function apiFetch<T>(
   }
 
   if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  const body = await response.text();
+  if (!body.trim()) return null as T;
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new ApiError("Máy chủ trả dữ liệu không hợp lệ", response.status);
+  }
 }
 
 interface BillingApiContext { token: string }
