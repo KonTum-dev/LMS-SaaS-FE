@@ -31,6 +31,12 @@ trên VPS. Frontend không cần Firebase hoặc khóa dịch vụ lưu trữ b�
 
 ## Kiểm tra production
 
+Với domain `lms.dolphinxstudio.com`, FE gọi URL public tuyệt đối
+`https://lms.dolphinxstudio.com/api/v1`; Nginx chuyển API sang BE nội bộ
+`127.0.0.1:4000`, còn giao diện sang FE `127.0.0.1:3000`.
+Xem [cấu hình domain chung và xử lý API 404 trên PM2](deploy/same-domain-pm2.md).
+Không đặt `localhost:4000` vào URL API của trình duyệt production.
+
 ```bash
 npm run lint
 npm test

@@ -1,5 +1,11 @@
 # Deploy frontend thủ công
 
+> Production hiện dùng domain chung `lms.dolphinxstudio.com` và PM2:
+> theo [hướng dẫn domain chung](same-domain-pm2.md). Các host, user và đường dẫn
+> systemd phía dưới là quy trình hai domain cũ, không áp dụng nguyên cho VPS
+> PM2 hiện tại. `lms-frontend.nginx.conf` nay là mẫu HTTP cho domain chung;
+> cần cài hai API snippet theo hướng dẫn mới, không ghi đè TLS đang hoạt động.
+
 Repo này không còn GitHub Actions CI/CD. Quy trình dưới đây build gói Linux
 x86_64 trên máy cá nhân, upload qua SSH và kích hoạt release bằng tay.
 
