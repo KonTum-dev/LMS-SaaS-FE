@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 352 96" role="img" aria-labelledby="dxLmsWordmarkInverseTitle">
+  <title id="dxLmsWordmarkInverseTitle">DX LMS</title>
+  <defs>
+    <linearGradient id="dxLmsInverseBackground" x1="10" y1="7" x2="78" y2="85" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0068D9"/>
+      <stop offset="1" stop-color="#12BFE2"/>
+    </linearGradient>
+    <linearGradient id="dxLmsInverseWave" x1="19" y1="61" x2="71" y2="77" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#9DEFF2"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(8 8) scale(.625)">
+    <rect width="128" height="128" rx="30" fill="url(#dxLmsInverseBackground)"/>
+    <rect x="1" y="1" width="126" height="126" rx="29" fill="none" stroke="#FFFFFF" stroke-opacity=".18" stroke-width="2"/>
+    <path d="M21 68c7-24 29-42 56-42 17 0 31 6 40 17-13-4-24-2-32 5-7 6-11 14-20 18-11 5-25 6-44 2Z" fill="#FFFFFF"/>
+    <path d="M55 37c-3-10 0-19 8-27 1 11 6 19 15 24-8-1-16 0-23 3ZM49 56c-11-9-22-12-34-10 7 10 16 17 28 20 1-4 3-7 6-10ZM26 66c-9-2-16-8-22-17 1 13 7 23 16 29-8 4-13 11-16 21 12-4 22-11 29-22l-7-11Z" fill="#FFFFFF"/>
+    <circle cx="83" cy="38" r="3.25" fill="#052757"/>
+    <circle cx="84.25" cy="36.75" r="1" fill="#FFFFFF"/>
+    <path d="M26 83c14-7 26-6 38 2 12-8 24-9 38-2v19c-14-6-26-5-38 3-12-8-24-9-38-3V83Z" fill="none" stroke="url(#dxLmsInverseWave)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M64 85v20" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <text x="108" y="61" fill="#FFFFFF" font-family="'Be Vietnam Pro', Inter, 'Segoe UI', Arial, sans-serif" font-size="46" font-weight="800" letter-spacing="-2">DX</text>
+  <text x="180" y="61" fill="#9DEFF2" font-family="'Be Vietnam Pro', Inter, 'Segoe UI', Arial, sans-serif" font-size="46" font-weight="700" letter-spacing="-2">LMS</text>
+  <text x="110" y="79" fill="#CDEEF7" font-family="'Be Vietnam Pro', Inter, 'Segoe UI', Arial, sans-serif" font-size="10" font-weight="600" letter-spacing="2.6">LEARNING, CONNECTED</text>
+</svg>

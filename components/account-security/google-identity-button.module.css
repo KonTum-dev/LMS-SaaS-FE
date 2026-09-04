@@ -1,0 +1,38 @@
+.root {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  width: 100%;
+}
+
+.surface {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 44px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  text-align: center;
+}
+
+.error {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  text-align: center;
+}
+
+.error span {
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.45;
+}

@@ -18,7 +18,6 @@ export interface TenantFormValues {
   slug: string;
   status?: OrganizationStatus;
   primaryColor: ColorValue;
-  logoUrl?: string;
   enabledModules: LmsModule[];
   adminEmail?: string;
   adminFullName?: string;
@@ -28,7 +27,6 @@ export interface TenantFormValues {
 export interface TenantSettingsFormValues {
   name: string;
   primaryColor: ColorValue;
-  logoUrl?: string;
 }
 
 export interface TenantProvisioningAttempt {
@@ -297,8 +295,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isLmsModule(value: unknown): value is LmsModule {
   return (
-    typeof value === "string" &&
-    ALL_LMS_MODULES.includes(value as LmsModule)
+    typeof value === "string" && ALL_LMS_MODULES.includes(value as LmsModule)
   );
 }
 
@@ -360,7 +357,6 @@ export function buildTenantCreatePayload(values: TenantFormValues) {
     adminFullName: values.adminFullName.trim(),
     adminPassword: values.adminPassword,
     enabledModules: includeLmsModulePrerequisites(values.enabledModules),
-    logoUrl: values.logoUrl?.trim() || undefined,
     name: values.name.trim(),
     primaryColor: normalizeColor(values.primaryColor),
     slug: values.slug.trim(),
@@ -370,7 +366,6 @@ export function buildTenantCreatePayload(values: TenantFormValues) {
 export function buildTenantUpdatePayload(values: TenantFormValues) {
   return {
     enabledModules: includeLmsModulePrerequisites(values.enabledModules),
-    logoUrl: values.logoUrl?.trim() || null,
     name: values.name.trim(),
     primaryColor: normalizeColor(values.primaryColor),
     slug: values.slug.trim(),
@@ -380,7 +375,6 @@ export function buildTenantUpdatePayload(values: TenantFormValues) {
 
 export function buildTenantSettingsPayload(values: TenantSettingsFormValues) {
   return {
-    logoUrl: values.logoUrl?.trim() || null,
     name: values.name.trim(),
     primaryColor: normalizeColor(values.primaryColor),
   };

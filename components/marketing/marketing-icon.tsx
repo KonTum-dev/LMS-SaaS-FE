@@ -3,6 +3,7 @@
 import {
   ApartmentOutlined,
   ArrowRightOutlined,
+  BarChartOutlined,
   BgColorsOutlined,
   BookOutlined,
   CheckCircleFilled,
@@ -22,6 +23,7 @@ import {
 const icons = {
   apartment: ApartmentOutlined,
   arrowRight: ArrowRightOutlined,
+  barChart: BarChartOutlined,
   bgColors: BgColorsOutlined,
   book: BookOutlined,
   check: CheckOutlined,

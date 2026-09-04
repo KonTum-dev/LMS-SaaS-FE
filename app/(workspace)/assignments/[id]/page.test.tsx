@@ -573,9 +573,13 @@ describe("learner assignment detail", () => {
             },
             upload: {
               expiresAt: new Date(Date.now() + 60_000).toISOString(),
-              headers: { "content-type": "application/pdf" },
+              headers: {
+                "content-type": "application/pdf",
+                "x-checksum-sha256": "CHECKSUM",
+                "x-media-upload-ticket": `UPLOAD_${currentId}`,
+              },
               method: "PUT",
-              url: `https://private-files.example.test/upload/${currentId}`,
+              url: "http://localhost:4000/api/v1/media/local/upload",
             },
           });
         }

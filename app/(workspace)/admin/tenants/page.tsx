@@ -27,6 +27,7 @@ import {
   useState,
 } from "react";
 import { isFormValidationError } from "@/components/form/validation-error";
+import { ProfileImageEditor } from "@/components/account-security/profile-image-editor";
 import { useAuth } from "@/components/providers/app-providers";
 import { DataTable } from "@/components/table/data-table";
 import { TenantMembersManager } from "@/components/users/tenant-members-manager";
@@ -37,6 +38,7 @@ import {
 } from "@/lib/entitlements";
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import { passwordValidationError } from "@/lib/password-security";
+import { organizationLogoApi } from "@/lib/profile-api";
 import {
   buildTenantCreatePayload,
   buildTenantUpdatePayload,
@@ -391,7 +393,6 @@ function PlatformTenantsPage({
     form.resetFields();
     form.setFieldsValue({
       enabledModules: tenant.enabledModules,
-      logoUrl: tenant.logoUrl ?? undefined,
       name: tenant.name,
       primaryColor: tenant.primaryColor,
       slug: tenant.slug,
@@ -432,6 +433,14 @@ function PlatformTenantsPage({
     setEditing(null);
     modalKind.current = "closed";
     setOpen(false);
+  };
+
+  const applyTenantLogo = async (updated: Organization) => {
+    setEditing((current) => (current?._id === updated._id ? updated : current));
+    queryClient.setQueryData<Organization[]>(tenantsKey, (current) =>
+      current?.map((tenant) => (tenant._id === updated._id ? updated : tenant)),
+    );
+    await queryClient.invalidateQueries({ queryKey: tenantsKey });
   };
 
   const save = async () => {
@@ -857,6 +866,46 @@ function PlatformTenantsPage({
             type={provisioningNotice.type}
           />
         )}
+        {editing ? (
+          <div style={{ marginTop: 22 }}>
+            <ProfileImageEditor
+              alt={`Logo của ${editing.name}`}
+              disabled={saving || checkingRecovery}
+              fallback={
+                Array.from(editing.name.trim())[0]?.toLocaleUpperCase("vi") ||
+                "DX"
+              }
+              help="JPEG, PNG hoặc WebP, tối đa 5 MiB. Logo được lưu trên máy chủ riêng."
+              imageUrl={editing.logoUrl}
+              label="Logo tổ chức"
+              onRemove={async () => {
+                await applyTenantLogo(
+                  await organizationLogoApi.removeTenant(token, editing._id),
+                );
+                message.success("Đã gỡ logo tổ chức");
+              }}
+              onUpload={async (file, options) => {
+                await applyTenantLogo(
+                  await organizationLogoApi.uploadTenant(
+                    token,
+                    editing._id,
+                    file,
+                    options,
+                  ),
+                );
+                message.success("Đã cập nhật logo tổ chức");
+              }}
+              shape="square"
+            />
+          </div>
+        ) : (
+          <Alert
+            showIcon
+            style={{ marginTop: 22 }}
+            title="Logo có thể tải lên sau khi tổ chức được tạo."
+            type="info"
+          />
+        )}
         <Form
           disabled={saving || checkingRecovery}
           form={form}
@@ -928,22 +977,6 @@ function PlatformTenantsPage({
             rules={[{ required: true }]}
           >
             <ColorPicker showText />
-          </Form.Item>
-          <Form.Item
-            label="Đường dẫn ảnh logo"
-            name="logoUrl"
-            rules={[
-              {
-                type: "url",
-                message: "Nhập đường dẫn đầy đủ gồm http/https",
-              },
-              {
-                max: 2048,
-                message: "Đường dẫn không được vượt quá 2.048 ký tự",
-              },
-            ]}
-          >
-            <Input maxLength={2048} placeholder="https://..." />
           </Form.Item>
           <Form.Item
             extra="Ghi danh và Tài liệu riêng tư cần Khóa học; Bài tập và Bài kiểm tra cần cả Ghi danh lẫn Khóa học. Các module bắt buộc sẽ được chọn tự động."

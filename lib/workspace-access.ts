@@ -9,7 +9,10 @@ import { effectiveModuleEnabled } from "@/lib/entitlements";
 
 export type WorkspaceRouteKey =
   | "dashboard"
+  | "account-integrations"
+  | "account-profile"
   | "account-security"
+  | "platform-crm"
   | "platform-audit"
   | "platform-tenants"
   | "platform-billing"
@@ -88,6 +91,12 @@ const ALL_TENANT_ROLES: readonly UserRole[] = [
 
 const WORKSPACE_ROUTE_RULES: readonly WorkspaceRouteRule[] = [
   { path: "/dashboard", roles: ALL_ROLES, route: "dashboard" },
+  {
+    path: "/account/integrations",
+    roles: ALL_ROLES,
+    route: "account-integrations",
+  },
+  { path: "/account/profile", roles: ALL_ROLES, route: "account-profile" },
   { path: "/account/security", roles: ALL_ROLES, route: "account-security" },
   { path: "/admin/audit", roles: ["SUPER_ADMIN"], route: "platform-audit" },
   { path: "/admin/tenants", roles: ["SUPER_ADMIN"], route: "platform-tenants" },
@@ -97,6 +106,7 @@ const WORKSPACE_ROUTE_RULES: readonly WorkspaceRouteRule[] = [
     roles: ["SUPER_ADMIN"],
     route: "platform-notification-events",
   },
+  { path: "/admin", roles: ["SUPER_ADMIN"], route: "platform-crm" },
   {
     module: "USERS",
     path: "/users",
@@ -254,6 +264,38 @@ function isRouteMatch(pathname: string, routePath: string): boolean {
   return pathname === routePath || pathname.startsWith(`${routePath}/`);
 }
 
+export function isScopedTenantAdmin(
+  user: Pick<CurrentUser, "orgUnitScopeMode" | "role"> | null,
+): boolean {
+  return Boolean(
+    user?.role === "TENANT_ADMIN" && user.orgUnitScopeMode === "SCOPED",
+  );
+}
+
+function hasTenantMembership(user: CurrentUser | null): user is CurrentUser & {
+  membershipId: string;
+  tenantId: string;
+} {
+  return Boolean(
+    user &&
+      user.role !== "SUPER_ADMIN" &&
+      user.tenantId &&
+      user.membershipId,
+  );
+}
+
+export function canPublishYouTube(user: CurrentUser | null): boolean {
+  return Boolean(
+    hasTenantMembership(user) &&
+      (user.role === "INSTRUCTOR" || user.role === "TENANT_ADMIN") &&
+      !isScopedTenantAdmin(user),
+  );
+}
+
+export function canRevokeYouTube(user: CurrentUser | null): boolean {
+  return hasTenantMembership(user);
+}
+
 export function getWorkspaceRouteAccess({
   effectiveAccess,
   organization,
@@ -272,8 +314,7 @@ export function getWorkspaceRouteAccess({
   }
   if (
     rule.denyScopedTenantAdmin &&
-    user.role === "TENANT_ADMIN" &&
-    user.orgUnitScopeMode === "SCOPED"
+    isScopedTenantAdmin(user)
   ) {
     return {
       allowed: false,

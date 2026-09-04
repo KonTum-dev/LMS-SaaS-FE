@@ -12,7 +12,7 @@ type PlanBase = {
   cta: string;
   scale: string;
   scaleNote: string;
-  href: "/login" | "#lien-he";
+  href: "/register" | "#lien-he";
 };
 
 type Plan = PlanBase;
@@ -31,8 +31,8 @@ const plans = [
       "Học viên, phụ huynh và học phí",
       "Khóa học, bài tập và kiểm tra",
     ],
-    cta: "Vào hệ thống",
-    href: "/login",
+    cta: "Bắt đầu dùng thử",
+    href: "/register",
   },
   {
     name: "Trung tâm nhỏ",
@@ -123,7 +123,7 @@ export function PricingSection() {
                   <li key={feature}><MarketingIcon name="check" />{feature}</li>
                 ))}
               </ul>
-              {plan.href === "/login" ? (
+              {plan.href === "/register" ? (
                 <Link className={styles.primaryButton} href={plan.href}>
                   {plan.cta} <MarketingIcon name="arrowRight" />
                 </Link>

@@ -1,0 +1,77 @@
+.root {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.jobStatus {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.jobRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.hint,
+.failure,
+.modalNote {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.failure {
+  color: #b42318;
+}
+
+.watchLink {
+  color: var(--brand-blue);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modalNote {
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+.consent {
+  align-items: flex-start;
+  line-height: 1.55;
+}
+
+.destination {
+  background: color-mix(in srgb, var(--brand-blue) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-blue) 22%, transparent);
+  border-radius: 10px;
+  color: var(--text);
+  display: grid;
+  font-size: 13px;
+  gap: 2px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+}
+
+.destination span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.policyLinks {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  margin: -8px 0 0;
+}
+
+.policyLinks a {
+  color: var(--brand-blue);
+}

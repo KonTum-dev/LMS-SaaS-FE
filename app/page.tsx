@@ -1,41 +1,23 @@
 import type { Metadata } from "next";
-import { MarketingHero } from "@/components/marketing/marketing-hero";
-import {
-  ContactCta,
-  FinalCta,
-  MarketingFooter,
-} from "@/components/marketing/marketing-footer";
-import { MarketingHeader } from "@/components/marketing/marketing-header";
-import { MarketingMotion } from "@/components/marketing/marketing-motion";
-import {
-  AboutSection,
-  MotivationSection,
-  ServicesSection,
-} from "@/components/marketing/marketing-sections";
-import { PricingSection } from "@/components/marketing/pricing-faq";
-import styles from "./marketing.module.css";
+import { HomeSections } from "@/components/marketing/home-sections";
+import { HomeHero, MarketingShell } from "@/components/marketing/site";
 
 export const metadata: Metadata = {
   title: "DX LMS — Từ một lớp học đến chuỗi trung tâm",
   description:
-    "DX LMS giúp giáo viên và trung tâm quản lý lớp học, điểm danh, phụ huynh, học phí, đội ngũ và nhiều chi nhánh trong một hệ thống.",
+    "DX LMS kết nối khóa học, lớp học, học viên, phụ huynh, học phí và báo cáo trong một workspace đa tổ chức.",
+  openGraph: {
+    title: "DX LMS — Nền tảng quản lý đào tạo đa tổ chức",
+    description: "Bắt đầu miễn phí 14 ngày và mở rộng theo đúng quy mô trung tâm.",
+    images: ["/marketing/og/dx-lms-og.svg"],
+  },
 };
 
 export default function Home() {
   return (
-    <div className={styles.marketingPage} data-marketing-page id="top">
-      <MarketingMotion />
-      <MarketingHeader />
-      <main id="noi-dung-chinh" tabIndex={-1}>
-        <MarketingHero />
-        <AboutSection />
-        <MotivationSection />
-        <ServicesSection />
-        <PricingSection />
-        <FinalCta />
-        <ContactCta />
-      </main>
-      <MarketingFooter />
-    </div>
+    <MarketingShell>
+      <HomeHero />
+      <HomeSections />
+    </MarketingShell>
   );
 }

@@ -1,0 +1,61 @@
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(290px, 0.75fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.profileForm {
+  max-width: 640px;
+}
+
+.profileForm :global(.ant-input[disabled]) {
+  color: #526177;
+  background: #f7f9fc;
+}
+
+.sideCard :global(.ant-card-body) {
+  display: grid;
+  gap: 18px;
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.detailIcon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--brand-blue);
+  background: color-mix(in srgb, var(--brand-blue) 9%, white);
+}
+
+.detail strong,
+.detail span {
+  display: block;
+}
+
+.detail strong {
+  color: #203751;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.detail span {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 920px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -79,6 +79,28 @@ describe("SecureAttachmentList authority lifecycle", () => {
 
   afterEach(() => cleanup());
 
+  it("chỉ truyền asset đã parse cho action sidecar", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <SecureAttachmentList
+          assetIds={[assetId]}
+          mediaEnabled
+          renderAssetAction={(asset) => (
+            <span>Action cho {asset.originalFileName}</span>
+          )}
+          scope={scope}
+          target={target}
+          token="tenant-token"
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Action cho bai-lam-rieng-tu.pdf")).toBeTruthy();
+  });
+
   it("thu hồi MEDIA ẩn metadata cache và chặn ticket stale mở sau revocation", async () => {
     let resolveTicket!: (ticket: { expiresAt: string; url: string }) => void;
     let ticketSignal: AbortSignal | undefined;
@@ -131,7 +153,7 @@ describe("SecureAttachmentList authority lifecycle", () => {
     await act(async () => {
       resolveTicket({
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        url: "https://private-files.example.test/download?signature=STALE",
+        url: "http://localhost:4000/api/v1/media/local/download?ticket=STALE",
       });
       await Promise.resolve();
     });

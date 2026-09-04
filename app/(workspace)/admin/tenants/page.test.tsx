@@ -325,6 +325,10 @@ describe("TenantsPage", () => {
     expect(screen.getByLabelText("Tên tổ chức")).toBeTruthy();
     expect(screen.getByLabelText("Email quản trị viên")).toBeTruthy();
     expect(screen.getByLabelText("Mật khẩu ban đầu")).toBeTruthy();
+    expect(screen.queryByLabelText("Đường dẫn ảnh logo")).toBeNull();
+    expect(dialog.textContent).toContain(
+      "Logo có thể tải lên sau khi tổ chức được tạo",
+    );
   });
 
   it("retry cùng payload dùng cùng key và không đưa secret vào cache, storage hay log", async () => {

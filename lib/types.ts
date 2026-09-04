@@ -53,6 +53,7 @@ export interface CurrentUser {
   sub: string;
   email: string;
   fullName: string;
+  avatarUrl?: string | null;
   role: UserRole;
   tenantId?: string;
   membershipId?: string;
@@ -77,6 +78,7 @@ export interface AppUser {
   membershipId?: string;
   email: string;
   fullName: string;
+  avatarUrl?: string | null;
   role: Exclude<UserRole, "SUPER_ADMIN">;
   status: "ACTIVE" | "INACTIVE";
   orgUnitId?: string;

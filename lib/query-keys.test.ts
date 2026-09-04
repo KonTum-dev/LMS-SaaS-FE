@@ -20,6 +20,48 @@ function viewer(sub: string): CurrentUser {
 }
 
 describe("query keys theo tenant và viewer", () => {
+  it("tách Google identity theo tài khoản và integrations theo authority workspace", () => {
+    const first = getViewerScope(viewer("owner-a"), organization)!;
+    const secondViewer = getViewerScope(viewer("owner-b"), organization)!;
+    const secondWorkspace = {
+      ...first,
+      membershipId: "membership-b",
+      tenantId: "tenant-b",
+    };
+
+    expect(lmsQueryKeys.googleIdentity(first.viewerId)).toEqual([
+      "lms",
+      "account",
+      "owner-a",
+      "google-identity",
+    ]);
+    expect(lmsQueryKeys.googleIdentity(first.viewerId)).not.toEqual(
+      lmsQueryKeys.googleIdentity(secondViewer.viewerId),
+    );
+    expect(lmsQueryKeys.googleDrive(first)).not.toEqual(
+      lmsQueryKeys.googleDrive(secondWorkspace),
+    );
+    expect(
+      lmsQueryKeys
+        .googleDrive(first)
+        .slice(0, lmsQueryKeys.viewer(first).length),
+    ).toEqual(lmsQueryKeys.viewer(first));
+    expect(lmsQueryKeys.youtube(first)).not.toEqual(
+      lmsQueryKeys.youtube(secondWorkspace),
+    );
+    expect(lmsQueryKeys.youtubeUpload(first, "job-1")).toEqual([
+      ...lmsQueryKeys.youtubeUploads(first),
+      "job-1",
+    ]);
+    expect(
+      lmsQueryKeys.youtubeUploads(first, {
+        assetId: "asset-1",
+        courseId: "course-1",
+        lessonId: "lesson-1",
+      }),
+    ).not.toEqual(lmsQueryKeys.youtubeUploads(first));
+  });
+
   it("không dùng chung cache giữa hai người xem trong cùng tenant", () => {
     const parentA = getViewerScope(viewer("parent-a"), organization)!;
     const parentB = getViewerScope(viewer("parent-b"), organization)!;
@@ -136,7 +178,9 @@ describe("query keys theo tenant và viewer", () => {
         .adminNotificationEvents(scopeA, filters)
         .slice(0, lmsQueryKeys.adminNotificationEventsRoot(scopeA).length),
     ).toEqual(lmsQueryKeys.adminNotificationEventsRoot(scopeA));
-    expect(lmsQueryKeys.adminNotificationEvents(scopeA, filters).at(-1)).toEqual([
+    expect(
+      lmsQueryKeys.adminNotificationEvents(scopeA, filters).at(-1),
+    ).toEqual([
       ["limit", 20],
       ["page", 1],
       ["tenantId", "64b000000000000000000002"],

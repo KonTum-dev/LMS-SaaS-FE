@@ -28,8 +28,8 @@ export function MarketingHero() {
           </p>
           <div className={styles.heroActionRail}>
             <div className={styles.heroActions}>
-              <Link className={styles.primaryButton} href="/login">
-                Vào hệ thống <MarketingIcon name="arrowRight" />
+              <Link className={styles.primaryButton} href="/register">
+                Tạo workspace dùng thử <MarketingIcon name="arrowRight" />
               </Link>
               <a className={styles.secondaryButton} href="#gioi-thieu">
                 Khám phá DX LMS

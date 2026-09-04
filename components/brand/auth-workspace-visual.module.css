@@ -1,0 +1,49 @@
+.visual {
+  overflow: hidden;
+  min-width: 270px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 24px;
+  color: #062347;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, .22);
+  transform: rotate(-2deg);
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid rgba(6, 55, 101, .1);
+  background: #f7fbfe;
+}
+
+.topbar img { width: 34px; height: 34px; }
+.topbar small,
+.topbar strong { display: block; }
+.topbar small { color: #6f8298; font-size: 7px; font-weight: 750; letter-spacing: .1em; }
+.topbar strong { margin-top: 3px; font-size: 11px; }
+.topbar > svg { color: #16a67d; }
+
+.body { padding: 19px; }
+.heroIcon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; color: #fff; background: linear-gradient(135deg, #0758b8, #12bfe2); font-size: 18px; }
+.body h2 { margin: 13px 0 16px; font-size: 18px; font-weight: 650; letter-spacing: -.03em; }
+.rows { display: grid; gap: 7px; }
+.rows > div { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 9px; padding: 10px; border: 1px solid rgba(6, 55, 101, .08); border-radius: 12px; background: #fbfdff; }
+.rows > div > span { display: grid; grid-row: span 2; width: 28px; height: 28px; place-items: center; border-radius: 9px; color: #0877dd; background: #eaf5ff; font-size: 12px; }
+.rows small,
+.rows strong { display: block; }
+.rows small { color: #6f8298; font-size: 7px; }
+.rows strong { font-size: 9px; }
+.rows i { grid-row: span 2; color: #08715e; font-size: 7px; font-style: normal; font-weight: 700; }
+.status { display: flex; align-items: center; gap: 8px; margin-top: 13px; padding: 10px; border-radius: 11px; color: #08715e; background: #ecfaf5; font-size: 9px; }
+.status i { width: 7px; height: 7px; border-radius: 50%; background: #16a67d; box-shadow: 0 0 0 4px rgba(22, 166, 125, .12); }
+
+@media (max-width: 900px) {
+  .visual { transform: rotate(-1deg) scale(.85); transform-origin: bottom right; }
+}
+
+@media (max-width: 420px) {
+  .visual { display: none; }
+}

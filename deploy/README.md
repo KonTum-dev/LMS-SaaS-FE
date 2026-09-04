@@ -1,248 +1,208 @@
-# Triển khai production frontend
+# Deploy frontend thủ công
 
-Tài liệu này chỉ áp dụng cho repository frontend `LMS-SaaS-FE`.
+Repo này không còn GitHub Actions CI/CD. Quy trình dưới đây build gói Linux
+x86_64 trên máy cá nhân, upload qua SSH và kích hoạt release bằng tay.
 
-Frontend và backend là hai GitHub repository độc lập. Vì vậy, các Secrets và
-Variables bên dưới phải được tạo trong **Settings của repo frontend này**. Việc
-tạo cùng tên ở repo backend không làm chúng xuất hiện trong repo frontend.
+## Thông tin production
 
-Workflow được sử dụng: [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
+- Domain: https://lms.dolphinx.com
+- Backend API: https://lms-be.dolphinx.com/api/v1
+- VPS: 103.72.97.24
+- SSH port: 24700
+- SSH user: deploy
+- Service: lms-frontend.service
+- App nội bộ: http://127.0.0.1:3000
 
-## 1. Workflow làm gì
+Không mở cổng 3000 ra Internet. Nginx nhận HTTPS rồi proxy về loopback.
 
-- Pull request: cài dependency, lint, test và build; không deploy.
-- Push vào `main`: kiểm tra cấu hình, build Next.js standalone, upload release,
-  kích hoạt release và kiểm tra health.
-- Chạy thủ công: chỉ deploy khi workflow chạy trên nhánh `main`.
-- VPS chỉ chạy artifact đã build bằng `node server.js`; VPS không chạy
-  `npm install` hoặc `npm run build`.
+## 1. Cấu hình build trên máy cá nhân
 
-Release được lưu tại `/srv/lms/frontend/releases/<revision>` và symlink đang
-chạy là `/srv/lms/frontend/current`.
-
-## 2. GitHub Repository Secrets của frontend
-
-Vào repo `LMS-SaaS-FE`:
-
-`Settings` → `Secrets and variables` → `Actions` → `Secrets` →
-`New repository secret`
-
-Tạo riêng trong repo frontend đủ năm secret:
-
-| Secret | Giá trị | Ghi chú |
-| --- | --- | --- |
-| `DEPLOY_HOST` | `103.72.97.24` | Chỉ IP/hostname; không thêm `ssh://`, user hoặc port |
-| `DEPLOY_PORT` | `24700` | Chỉ nhập số |
-| `DEPLOY_USER` | `deploy` | Không dùng `root` |
-| `DEPLOY_SSH_KEY` | Toàn bộ private key `lms_github_actions` | Nhiều dòng, không phải `.pub`, không Base64 |
-| `DEPLOY_KNOWN_HOSTS` | Toàn bộ dòng `[103.72.97.24]:24700 ssh-ed25519 ...` | Host key của VPS, không phải fingerprint |
-
-Workflow hiện tại đọc `${{ secrets.* }}` ở cấp repository. Có thể dùng
-Organization secrets sau này, nhưng phải cấp quyền cho repo frontend.
-
-### 2.1. Ba loại khóa không được nhầm lẫn
-
-| Khóa | Nơi lưu |
-| --- | --- |
-| Private key `lms_github_actions` | GitHub secret `DEPLOY_SSH_KEY` của repo frontend |
-| Public key `lms_github_actions.pub` | `/home/deploy/.ssh/authorized_keys` trên VPS |
-| VPS public host key `/etc/ssh/ssh_host_ed25519_key.pub` | GitHub secret `DEPLOY_KNOWN_HOSTS` |
-
-Private key chứng minh GitHub Actions có quyền vào VPS. `KNOWN_HOSTS` giúp
-GitHub Actions kiểm tra VPS không phải máy giả mạo.
-
-### 2.2. Tạo deploy key một lần
-
-Chạy trên máy quản trị đáng tin cậy:
-
-```bash
-ssh-keygen -t ed25519 -a 100 \
-  -C "github-actions-lms" \
-  -f "$HOME/.ssh/lms_github_actions"
-```
-
-Để trống passphrase bằng cách nhấn `Enter` hai lần. Workflow chạy không tương
-tác nên không mở được key có passphrase.
-
-Copy public key:
-
-```bash
-pbcopy < "$HOME/.ssh/lms_github_actions.pub"
-```
-
-Trên web console VPS, đăng nhập `root` rồi chạy:
-
-```bash
-id -u deploy >/dev/null 2>&1 || adduser --disabled-password --gecos "" deploy
-install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
-nano /home/deploy/.ssh/authorized_keys
-```
-
-Dán public key thành một dòng riêng, lưu file, rồi chạy:
-
-```bash
-chown deploy:deploy /home/deploy/.ssh/authorized_keys
-chmod 600 /home/deploy/.ssh/authorized_keys
-```
-
-Nếu backend đã dùng đúng cặp key này và public key đã nằm trong
-`authorized_keys`, không cần thêm lại dòng giống hệt.
-
-### 2.3. Lấy `DEPLOY_SSH_KEY`
-
-```bash
-pbcopy < "$HOME/.ssh/lms_github_actions"
-```
-
-Paste trực tiếp vào secret. Nội dung phải còn nguyên dạng:
-
-```text
------BEGIN OPENSSH PRIVATE KEY-----
-...
------END OPENSSH PRIVATE KEY-----
-```
-
-Không commit private key, không đặt private key trên VPS và không gửi nó trong
-chat/log. Repo backend có thể dùng cùng key nhưng vẫn phải tạo secret riêng
-trong Settings của repo backend.
-
-### 2.4. Lấy `DEPLOY_KNOWN_HOSTS`
-
-Trên web console VPS, kiểm tra fingerprint:
-
-```bash
-ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
-```
-
-Fingerprint đã xác minh tại thời điểm viết tài liệu:
-
-```text
-SHA256:L9VM/vEeX7wRagVJ4FpCSGpGZXs3SrBsEMfY3y2TFGA
-```
-
-Tạo dòng `known_hosts` từ chính VPS:
-
-```bash
-awk '{print "[103.72.97.24]:24700 " $1 " " $2}' \
-  /etc/ssh/ssh_host_ed25519_key.pub
-```
-
-Copy toàn bộ dòng kết quả có dạng:
-
-```text
-[103.72.97.24]:24700 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...
-```
-
-Paste dòng đó vào `DEPLOY_KNOWN_HOSTS`; không paste riêng `SHA256:...`. Nếu cài
-lại VPS, xác minh host key mới và cập nhật secret ở cả hai repo.
-
-## 3. GitHub Repository Variables chỉ dành cho frontend
-
-Vào repo `LMS-SaaS-FE`:
-
-`Settings` → `Secrets and variables` → `Actions` → `Variables` →
-`New repository variable`
-
-Không tạo các biến này trong repo backend.
-
-| Variable | Bắt buộc | Giá trị/nguồn |
-| --- | --- | --- |
-| `NEXT_PUBLIC_API_URL` | Có khi deploy production | URL public HTTPS của backend, kết thúc đúng bằng `/api/v1` |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` | Cần khi bật Firebase | Trường `apiKey` trong Firebase Web config |
-| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Cần khi bật Firebase | Trường `authDomain` |
-| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Cần khi bật Firebase | Trường `projectId` |
-| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Cần nếu dùng Storage | Trường `storageBucket` |
-| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Cần khi bật Firebase | Trường `messagingSenderId` |
-| `NEXT_PUBLIC_FIREBASE_APP_ID` | Cần khi bật Firebase | Trường `appId` |
-
-### 3.1. `NEXT_PUBLIC_API_URL`
-
-Giá trị này không lấy từ Firebase. Nó được tạo từ domain public mà Nginx dùng
-để reverse proxy tới backend đang nghe nội bộ tại `127.0.0.1:4000`.
-
-Ví dụ, nếu DNS `api.example.com` trỏ tới VPS và HTTPS đã hoạt động:
+Tạo file .env.production.local ở root repo. Frontend chỉ cần địa chỉ HTTPS của
+backend; không đặt private key hay backend secret trong file này.
 
 ```env
-NEXT_PUBLIC_API_URL=https://api.example.com/api/v1
+NEXT_PUBLIC_API_URL=https://lms-be.dolphinx.com/api/v1
 ```
 
-Thay `example.com` bằng domain thật. Workflow từ chối URL HTTP, credential,
-query, fragment hoặc dấu `/` cuối. Không đặt
-`http://103.72.97.24:4000/api/v1` cho production.
+Các biến NEXT_PUBLIC_* được nhúng vào bundle lúc build. Khi thay đổi giá trị,
+phải build và deploy lại frontend.
 
-### 3.2. Firebase Web config
+## 2. Build gói Linux trên Mac
 
-Trong Firebase Console, chọn project `demoauth-c3177`, sau đó vào:
+VPS hiện là Ubuntu 24.04 x86_64. Không đóng gói node_modules của macOS để chạy
+trên Linux. Cách an toàn là dùng Docker Desktop:
 
-`Project settings` → `General` → `Your apps` → Web App `</>` →
-`SDK setup and configuration` → `Config`
+```bash
+cd "/Users/nhatanh/LMS/LMS-SaaS-FE"
 
-Nếu chưa có Web App, chọn `Add app` → `Web` → `Register app`.
+release_id="$(git rev-parse --short HEAD)-$(date +%Y%m%d%H%M%S)"
 
-Cấu hình Web App hiện tại ánh xạ thành:
+docker run --rm --platform linux/amd64 \
+  -e RELEASE_ID="$release_id" \
+  -v "$PWD:/app" \
+  -v lms_fe_node_modules:/app/node_modules \
+  -w /app \
+  node:24-bookworm \
+  bash -lc '
+    set -Eeuo pipefail
+    npm ci
+    npm run lint
+    npm test
+    npm run build
+    test -s .next/standalone/server.js
+    mkdir -p .next/standalone/public .next/standalone/.next/static
+    cp -a public/. .next/standalone/public/
+    cp -a .next/static/. .next/standalone/.next/static/
+    printf "%s\n" "$RELEASE_ID" > .next/standalone/REVISION
+    tar -C .next/standalone \
+      -czf "/app/lms-frontend-$RELEASE_ID.tar.gz" .
+  '
 
-```env
-NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyDr_mci0WcmKgkiDettJ8sJC_bn1CWuKo8
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=demoauth-c3177.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=demoauth-c3177
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=demoauth-c3177.firebasestorage.app
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=1058209549286
-NEXT_PUBLIC_FIREBASE_APP_ID=1:1058209549286:web:7269656484d9c1ee526427
+archive="/tmp/lms-frontend-$release_id.tar.gz"
+mv "lms-frontend-$release_id.tar.gz" "$archive"
+test -s "$archive"
+printf "Release: %s\nArchive: %s\n" "$release_id" "$archive"
 ```
 
-Không thêm dấu nháy hoặc ký tự `\` trước dấu gạch dưới. Đây là Web config được
-nhúng vào browser bundle, không phải Firebase Admin service-account key. Không
-đặt `serviceAccountKey.json` trong biến `NEXT_PUBLIC_*`.
+## 3. Upload
 
-Firebase là tùy chọn ở thời điểm build. Nếu ứng dụng gọi `getFirebaseApp()`,
-cần tối thiểu `API_KEY`, `APP_ID`, `AUTH_DOMAIN`, `MESSAGING_SENDER_ID` và
-`PROJECT_ID`; thêm `STORAGE_BUCKET` khi dùng Storage.
+Giữ nguyên release_id từ bước build:
 
-Mọi `NEXT_PUBLIC_*` được nhúng vào artifact khi build. Sau khi đổi một biến,
-phải chạy deployment mới.
+```bash
+scp \
+  -i /Users/nhatanh/.ssh/lms_github_actions \
+  -P 24700 \
+  "$archive" \
+  "deploy@103.72.97.24:/tmp/lms-frontend-$release_id.tar.gz"
+```
 
-## 4. Cài đặt VPS một lần cho frontend
+Tên private key không còn liên quan tới GitHub Actions; có thể đổi tên sau nếu
+muốn. Không commit hoặc gửi private key lên server.
 
-Chạy trên VPS với quyền `root`, sau khi đã copy hai file cấu hình trong
-`deploy/` lên một thư mục làm việc:
+## 4. Kích hoạt release trên VPS
+
+SSH vào VPS bằng user deploy:
+
+```bash
+ssh \
+  -i /Users/nhatanh/.ssh/lms_github_actions \
+  -p 24700 \
+  deploy@103.72.97.24
+```
+
+Sau đó đặt đúng release_id vừa build và chạy:
+
+```bash
+set -Eeuo pipefail
+umask 0027
+
+release_id="DAN_RELEASE_ID_VAO_DAY"
+app_root="/srv/lms/frontend"
+release_dir="$app_root/releases/$release_id"
+archive="/tmp/lms-frontend-$release_id.tar.gz"
+candidate="$app_root/.current-$release_id"
+
+test -s "$archive"
+test ! -e "$release_dir"
+mkdir "$release_dir"
+tar -xzf "$archive" -C "$release_dir" --no-same-owner --no-same-permissions
+test -s "$release_dir/server.js"
+chmod -R g+rX,o-rwx "$release_dir"
+mkdir -p "$release_dir/.next/cache"
+chmod 2770 "$release_dir/.next/cache"
+
+ln -s "$release_dir" "$candidate"
+mv -Tf "$candidate" "$app_root/current"
+sudo -n /usr/bin/systemctl restart lms-frontend.service
+
+curl --fail --silent --show-error \
+  --max-time 5 \
+  http://127.0.0.1:3000/ >/dev/null
+
+rm -f "$archive"
+echo "Frontend release $release_id đang chạy."
+```
+
+Nếu curl lỗi, xem log trước khi thay đổi thêm:
+
+```bash
+systemctl status lms-frontend.service --no-pager -l
+journalctl -u lms-frontend.service -n 100 --no-pager
+```
+
+## 5. Cấu hình VPS một lần
+
+Các file vẫn được giữ trong thư mục này vì deploy tay vẫn cần:
+
+- lms-frontend.service: chạy Next.js bằng systemd.
+- lms-frontend.nginx.conf: reverse proxy domain frontend.
+- lms-frontend.sudoers: chỉ cho user deploy restart đúng service frontend.
+
+Với quyền root trên VPS:
 
 ```bash
 id -u lms >/dev/null 2>&1 || adduser --system --group --home /var/lib/lms lms
 usermod -aG lms deploy
-install -d -o deploy -g lms -m 2770 /srv/lms/frontend/releases
-install -o root -g root -m 0644 deploy/lms-frontend.service /etc/systemd/system/lms-frontend.service
-install -o root -g root -m 0440 deploy/lms-frontend.sudoers /etc/sudoers.d/lms-frontend-deploy
+install -d -o deploy -g lms -m 2750 /srv/lms/frontend
+install -d -o deploy -g lms -m 2750 /srv/lms/frontend/releases
+
+install -o root -g root -m 0644 \
+  lms-frontend.service \
+  /etc/systemd/system/lms-frontend.service
+install -o root -g root -m 0440 \
+  lms-frontend.sudoers \
+  /etc/sudoers.d/lms-frontend-deploy
+install -o root -g root -m 0644 \
+  lms-frontend.nginx.conf \
+  /etc/nginx/sites-available/lms-frontend
+
+ln -sfn \
+  /etc/nginx/sites-available/lms-frontend \
+  /etc/nginx/sites-enabled/lms-frontend
+
 visudo -cf /etc/sudoers.d/lms-frontend-deploy
 systemctl daemon-reload
 systemctl enable lms-frontend.service
+nginx -t
+systemctl reload nginx
 ```
 
-Các đường dẫn `deploy/...` là đường dẫn tới file đã copy lên VPS; điều chỉnh nếu
-bạn đặt chúng ở thư mục khác. Sau `usermod`, đăng nhập lại user `deploy` để
-group `lms` có hiệu lực.
+Chỉ start service sau khi /srv/lms/frontend/current đã trỏ tới một release hợp
+lệ.
 
-Không start service trước lần deploy đầu tiên vì chưa có
-`/srv/lms/frontend/current`. Frontend chỉ nghe `127.0.0.1:3000`; không mở port
-`3000` ra Internet, hãy reverse proxy qua Nginx.
+## 6. HTTPS
 
-## 5. Checklist riêng của repo frontend
+DNS phải trả đúng record:
 
-- [ ] Repo `LMS-SaaS-FE` có đủ năm `DEPLOY_*` Repository Secrets.
-- [ ] `DEPLOY_HOST` chỉ là `103.72.97.24`; port nằm riêng ở `DEPLOY_PORT`.
-- [ ] `DEPLOY_SSH_KEY` là private key nguyên bản nhiều dòng.
-- [ ] Public key tương ứng nằm trong `/home/deploy/.ssh/authorized_keys`.
-- [ ] `DEPLOY_KNOWN_HOSTS` chứa `[103.72.97.24]:24700`, loại key và Base64 key.
-- [ ] `NEXT_PUBLIC_API_URL` là URL HTTPS thật, kết thúc đúng bằng `/api/v1`.
-- [ ] Firebase Variables đã được tạo nếu frontend sử dụng Firebase.
-- [ ] Systemd unit và sudoers frontend đã được cài và kiểm tra bằng `visudo`.
-- [ ] Port `3000` chỉ nghe nội bộ và domain được proxy qua Nginx.
+```text
+lms.dolphinx.com  A  103.72.97.24
+```
 
-## 6. Lỗi thường gặp
+Sau khi DNS hoạt động và firewall mở 80/443:
 
-- `Repository secret ... is required`: secret đang thiếu trong chính repo frontend.
-- `NEXT_PUBLIC_API_URL must ...`: URL chưa là HTTPS hoặc không kết thúc đúng `/api/v1`.
-- `Load key ... invalid format`: đã paste `.pub`, Base64, literal `\n` hoặc thiếu đầu/cuối private key.
-- `Permission denied (publickey)`: private key không khớp `authorized_keys` hoặc permission SSH sai.
-- `DEPLOY_KNOWN_HOSTS does not contain ...`: đã paste fingerprint thay vì dòng `known_hosts` đầy đủ.
-- `Host key verification failed`: VPS đổi host key; xác minh qua console rồi cập nhật secret.
-- Restart yêu cầu mật khẩu sudo: chưa cài hoặc chưa kiểm tra `lms-frontend.sudoers`.
+```bash
+apt-get update
+apt-get install -y certbot python3-certbot-nginx
+certbot --nginx -d lms.dolphinx.com --redirect
+nginx -t
+systemctl reload nginx
+```
+
+## 7. Rollback tay
+
+Liệt kê release và chọn đúng thư mục đã chạy ổn:
+
+```bash
+ls -1dt /srv/lms/frontend/releases/*
+```
+
+Kích hoạt lại release đó:
+
+```bash
+old_release="/srv/lms/frontend/releases/DAN_RELEASE_CU_VAO_DAY"
+test -s "$old_release/server.js"
+ln -s "$old_release" /srv/lms/frontend/.rollback-manual
+mv -Tf /srv/lms/frontend/.rollback-manual /srv/lms/frontend/current
+sudo -n /usr/bin/systemctl restart lms-frontend.service
+curl --fail http://127.0.0.1:3000/ >/dev/null
+```

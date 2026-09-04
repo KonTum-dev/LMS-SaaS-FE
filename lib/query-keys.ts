@@ -114,6 +114,26 @@ const notificationScoped = (scope: NotificationViewerScope) =>
 export const lmsQueryKeys = {
   all: ["lms"] as const,
   viewer: scoped,
+  account: (viewerId: string) => ["lms", "account", viewerId] as const,
+  googleIdentity: (viewerId: string) =>
+    [...lmsQueryKeys.account(viewerId), "google-identity"] as const,
+  googleDrive: (scope: ViewerScope) =>
+    [...scoped(scope), "integrations", "google-drive"] as const,
+  youtube: (scope: ViewerScope) =>
+    [...scoped(scope), "integrations", "youtube"] as const,
+  youtubeUploads: (
+    scope: ViewerScope,
+    source?: { assetId: string; courseId: string; lessonId: string },
+  ) =>
+    source
+      ? ([
+          ...lmsQueryKeys.youtube(scope),
+          "uploads",
+          normalizeQueryFilters(source),
+        ] as const)
+      : ([...lmsQueryKeys.youtube(scope), "uploads"] as const),
+  youtubeUpload: (scope: ViewerScope, jobId: string) =>
+    [...lmsQueryKeys.youtubeUploads(scope), jobId] as const,
   dashboard: (scope: ViewerScope) => [...scoped(scope), "dashboard"] as const,
   users: (scope: ViewerScope) => [...scoped(scope), "users"] as const,
   invitations: (scope: ViewerScope) =>

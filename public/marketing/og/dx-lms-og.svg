@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="dxLmsOgTitle dxLmsOgDescription">
+  <title id="dxLmsOgTitle">DX LMS — Một hệ thống cho mọi quy mô đào tạo</title>
+  <desc id="dxLmsOgDescription">Ảnh chia sẻ của DX LMS với biểu tượng cá heo, trang sách và bản xem trước không gian đào tạo.</desc>
+  <defs>
+    <linearGradient id="dxLmsOgBackground" x1="72" y1="34" x2="1118" y2="605" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#03162F"/>
+      <stop offset="0.52" stop-color="#052757"/>
+      <stop offset="1" stop-color="#0068D9"/>
+    </linearGradient>
+    <radialGradient id="dxLmsOgGlow" cx="0" cy="0" r="1" gradientTransform="translate(998 99) rotate(133.4) scale(431 472)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12BFE2" stop-opacity=".4"/>
+      <stop offset="1" stop-color="#12BFE2" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dxLmsOgGrid" width="38" height="38" patternUnits="userSpaceOnUse">
+      <path d="M38 0H0V38" fill="none" stroke="#FFFFFF" stroke-opacity=".055"/>
+    </pattern>
+    <filter id="dxLmsOgShadow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="25" flood-color="#020D1E" flood-opacity=".32"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" rx="36" fill="url(#dxLmsOgBackground)"/>
+  <rect width="1200" height="630" rx="36" fill="url(#dxLmsOgGlow)"/>
+  <path d="M-80 562C167 433 291 686 527 546c209-124 333-70 494 5 100 47 180 15 259-37v116H-80V562Z" fill="#12BFE2" fill-opacity=".08"/>
+  <rect x="706" width="494" height="630" fill="url(#dxLmsOgGrid)"/>
+
+  <g transform="translate(72 58)">
+    <image href="/marketing/brand/dolphinx-dolphin-mark-192.webp" width="80" height="80" preserveAspectRatio="xMidYMid meet"/>
+    <text x="101" y="50" fill="#FFFFFF" font-family="Manrope, Inter, 'Segoe UI', Arial, sans-serif" font-size="39" font-weight="700" letter-spacing="-1.6">DX LMS</text>
+    <text x="102" y="70" fill="#CDEEF7" font-family="Manrope, Inter, 'Segoe UI', Arial, sans-serif" font-size="10" font-weight="600" letter-spacing="2.4">BY DOLPHINX STUDIO</text>
+  </g>
+
+  <g font-family="Manrope, Inter, 'Segoe UI', Arial, sans-serif">
+    <text x="72" y="230" fill="#9DEFF2" font-size="18" font-weight="700" letter-spacing="1.4">NỀN TẢNG QUẢN LÝ ĐÀO TẠO</text>
+    <text x="72" y="300" fill="#FFFFFF" font-size="54" font-weight="800" letter-spacing="-2.4">Một hệ thống cho mọi</text>
+    <text x="72" y="366" fill="#FFFFFF" font-size="54" font-weight="800" letter-spacing="-2.4">quy mô đào tạo.</text>
+    <text x="72" y="418" fill="#CDEEF7" font-size="20" font-weight="400">Từ lớp học nhỏ đến chuỗi trung tâm nhiều chi nhánh.</text>
+
+    <g transform="translate(72 474)">
+      <rect width="178" height="48" rx="14" fill="#0068D9" stroke="#60D9EF" stroke-opacity=".42"/>
+      <circle cx="27" cy="24" r="7" fill="#12BFE2"/>
+      <text x="47" y="31" fill="#FFFFFF" font-size="16" font-weight="700">Lớp &amp; điểm danh</text>
+    </g>
+    <g transform="translate(264 474)">
+      <rect width="185" height="48" rx="14" fill="#FFFFFF" fill-opacity=".08" stroke="#FFFFFF" stroke-opacity=".14"/>
+      <circle cx="27" cy="24" r="7" fill="#9DEFF2"/>
+      <text x="47" y="31" fill="#FFFFFF" font-size="16" font-weight="700">Học phí &amp; phụ huynh</text>
+    </g>
+  </g>
+
+  <g transform="translate(705 116)" filter="url(#dxLmsOgShadow)">
+    <rect width="421" height="394" rx="28" fill="#F8FCFE"/>
+    <rect width="421" height="62" rx="28" fill="#FFFFFF"/>
+    <path d="M0 62H421" stroke="#D9EAF2"/>
+    <circle cx="28" cy="31" r="5" fill="#0068D9"/>
+    <circle cx="46" cy="31" r="5" fill="#12BFE2"/>
+    <circle cx="64" cy="31" r="5" fill="#9DEFF2"/>
+    <text x="88" y="37" fill="#536981" font-family="Manrope, Inter, 'Segoe UI', Arial, sans-serif" font-size="14" font-weight="600">DX LMS · Không gian đào tạo</text>
+
+    <rect x="22" y="84" width="64" height="286" rx="19" fill="#052757"/>
+    <rect x="38" y="104" width="32" height="32" rx="10" fill="#FFFFFF"/>
+    <text x="44" y="125" fill="#0068D9" font-family="Arial, sans-serif" font-size="12" font-weight="800">DX</text>
+    <rect x="38" y="153" width="32" height="32" rx="10" fill="#0068D9"/>
+    <circle cx="54" cy="169" r="6" fill="none" stroke="#FFFFFF" stroke-width="2"/>
+    <path d="M54 160v4m0 10v4m-9-9h4m10 0h4" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+
+    <g transform="translate(112 92)" font-family="Manrope, Inter, 'Segoe UI', Arial, sans-serif">
+      <text y="14" fill="#0068D9" font-size="11" font-weight="700" letter-spacing="1.2">TỔNG QUAN</text>
+      <text y="46" fill="#052757" font-size="24" font-weight="800">Không gian đào tạo</text>
+
+      <g transform="translate(0 72)">
+        <rect width="91" height="98" rx="16" fill="#FFFFFF" stroke="#D9EAF2"/>
+        <circle cx="22" cy="24" r="9" fill="#E9F7FC"/>
+        <path d="M18 25h8m-6-4h4m-6 8h8" stroke="#0068D9" stroke-width="2" stroke-linecap="round"/>
+        <text x="13" y="57" fill="#052757" font-size="12" font-weight="700">Lớp học</text>
+        <text x="13" y="76" fill="#536981" font-size="9">Đang vận hành</text>
+      </g>
+      <g transform="translate(103 72)">
+        <rect width="91" height="98" rx="16" fill="#FFFFFF" stroke="#D9EAF2"/>
+        <circle cx="22" cy="24" r="9" fill="#E9F7FC"/>
+        <path d="m18 24 3 3 6-7" fill="none" stroke="#0068D9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="13" y="57" fill="#052757" font-size="12" font-weight="700">Điểm danh</text>
+        <text x="13" y="76" fill="#536981" font-size="9">Theo từng buổi</text>
+      </g>
+      <g transform="translate(206 72)">
+        <rect width="91" height="98" rx="16" fill="#FFFFFF" stroke="#D9EAF2"/>
+        <circle cx="22" cy="24" r="9" fill="#E9F7FC"/>
+        <path d="M18 20h8v9h-8zm2 3h4" fill="none" stroke="#0068D9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="13" y="57" fill="#052757" font-size="12" font-weight="700">Học phí</text>
+        <text x="13" y="76" fill="#536981" font-size="9">Theo dõi rõ ràng</text>
+      </g>
+
+      <g transform="translate(0 192)">
+        <rect width="297" height="36" rx="11" fill="#EAF5FA"/>
+        <circle cx="17" cy="18" r="4" fill="#0068D9"/>
+        <text x="30" y="23" fill="#536981" font-size="11" font-weight="600">Lịch học theo từng lớp</text>
+      </g>
+      <g transform="translate(0 240)">
+        <rect width="297" height="36" rx="11" fill="#EAF5FA"/>
+        <circle cx="17" cy="18" r="4" fill="#12BFE2"/>
+        <text x="30" y="23" fill="#536981" font-size="11" font-weight="600">Phân quyền theo từng chi nhánh</text>
+      </g>
+    </g>
+  </g>
+
+  <image href="/marketing/brand/dolphinx-dolphin-mark-192.webp" x="1000" y="42" width="116" height="116" opacity=".18" preserveAspectRatio="xMidYMid meet"/>
+</svg>

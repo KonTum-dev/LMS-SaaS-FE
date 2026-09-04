@@ -17,7 +17,6 @@ const base = {
   adminFullName: " Bright Owner ",
   adminPassword: "Owner@123",
   enabledModules: ["USERS", "COURSES"] as const,
-  logoUrl: " ",
   name: " Bright Academy ",
   primaryColor: { toHexString: () => "#176bff" },
   slug: "bright-academy",
@@ -37,7 +36,6 @@ describe("tenant management payloads", () => {
       adminFullName: "Bright Owner",
       adminPassword: "Owner@123",
       enabledModules: ["USERS", "COURSES"],
-      logoUrl: undefined,
       name: "Bright Academy",
       primaryColor: "#176bff",
       slug: "bright-academy",
@@ -53,7 +51,6 @@ describe("tenant management payloads", () => {
       }),
     ).toEqual({
       enabledModules: ["USERS", "COURSES"],
-      logoUrl: null,
       name: "Bright Academy",
       primaryColor: "#176bff",
       slug: "bright-academy",
@@ -64,12 +61,10 @@ describe("tenant management payloads", () => {
   it("tenant tự cập nhật workspace chỉ gửi nhận diện, không thể gửi module", () => {
     expect(
       buildTenantSettingsPayload({
-        logoUrl: " https://cdn.example.com/logo.png ",
         name: " Bright Academy ",
         primaryColor: "#5B5BD6",
       }),
     ).toEqual({
-      logoUrl: "https://cdn.example.com/logo.png",
       name: "Bright Academy",
       primaryColor: "#5B5BD6",
     });
@@ -361,7 +356,9 @@ describe("tenant management payloads", () => {
       status: "SUCCEEDED",
     } as const;
 
-    expect(parseTenantProvisioningOperation(success).organization).toMatchObject({
+    expect(
+      parseTenantProvisioningOperation(success).organization,
+    ).toMatchObject({
       enabledModules: [...ALL_LMS_MODULES],
     });
     expect(ALL_LMS_MODULES).toHaveLength(12);

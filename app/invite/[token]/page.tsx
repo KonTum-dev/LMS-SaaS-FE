@@ -4,6 +4,7 @@ import { SafetyCertificateOutlined, UserAddOutlined } from "@ant-design/icons";
 import { Alert, Avatar, Button, Form, Input, Spin, Tag } from "antd";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { DxBrandLockup } from "@/components/brand/dx-brand-lockup";
 import { useAuth } from "@/components/providers/app-providers";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { AuthResponse, InvitationInspection, UserRole } from "@/lib/types";
@@ -216,7 +217,7 @@ export default function InvitationPage() {
       <meta content="no-referrer" name="referrer" />
       <main className="auth-page">
         <section className="auth-hero">
-          <div className="brand-lockup"><span className="brand-mark light">DX</span><span>DX LMS</span></div>
+          <DxBrandLockup variant="inverse" />
           <div className="auth-copy">
             <h1>{currentInspection ? `Tham gia ${currentInspection.organization.name}` : "Bạn được mời vào DX LMS"}</h1>
             <p>Lời mời chỉ có thể được dùng cho đúng email và tổ chức đã chỉ định.</p>
@@ -225,7 +226,7 @@ export default function InvitationPage() {
         </section>
         <section className="auth-panel">
           <div className="auth-card">
-            <span className="brand-lockup"><span className="brand-mark">DX</span><span>DX LMS</span></span>
+            <DxBrandLockup />
             <Avatar icon={<UserAddOutlined />} size={54} style={{ background: currentInspection?.organization.primaryColor || "#176BFF", marginTop: 28 }} />
             <h2>Lời mời tham gia</h2>
             {currentInspection && (

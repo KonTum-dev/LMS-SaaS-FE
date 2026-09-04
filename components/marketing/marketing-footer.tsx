@@ -11,12 +11,12 @@ export function FinalCta() {
         <div className={styles.ctaPanel} data-reveal>
           <span className={styles.ctaOrb} aria-hidden="true" />
           <div>
-            <span className={styles.sectionLabelLight}>Đã có tài khoản DX LMS?</span>
-            <h2 id="cta-title">Đăng nhập và tiếp tục công việc của bạn.</h2>
+            <span className={styles.sectionLabelLight}>Sẵn sàng bắt đầu?</span>
+            <h2 id="cta-title">Tạo workspace và đưa lớp học vào guồng.</h2>
           </div>
           <SectionMascot variant="cta" />
-          <Link className={styles.lightButton} href="/login">
-            Đăng nhập DX LMS <MarketingIcon name="arrowRight" />
+          <Link className={styles.lightButton} href="/register">
+            Tạo workspace dùng thử <MarketingIcon name="arrowRight" />
           </Link>
         </div>
       </div>
@@ -63,6 +63,7 @@ export function MarketingFooter() {
           <a href="#gia-tri">Giá trị</a>
           <a href="#nang-luc">Tính năng</a>
           <a href="#quy-mo">Quy mô</a>
+          <Link href="/register">Dùng thử</Link>
           <Link href="/login">Đăng nhập</Link>
         </nav>
         <p className={styles.footerNote}>© 2026 DX LMS · DolphinX Studio</p>

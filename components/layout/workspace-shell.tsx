@@ -2,6 +2,7 @@
 
 import {
   ApartmentOutlined,
+  AppstoreOutlined,
   AuditOutlined,
   BarChartOutlined,
   BellOutlined,
@@ -18,6 +19,7 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
   TeamOutlined,
+  UserOutlined,
   WalletOutlined,
 } from "@ant-design/icons";
 import {
@@ -34,6 +36,7 @@ import {
 import type { MenuProps } from "antd";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DxBrandLockup } from "@/components/brand/dx-brand-lockup";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { useAuth } from "@/components/providers/app-providers";
 import type { UserRole } from "@/lib/types";
@@ -133,6 +136,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         key: "/dashboard",
         icon: <DashboardOutlined />,
         label: "Tổng quan",
+      });
+    }
+    if (canOpen("/admin")) {
+      menu.push({
+        key: "/admin",
+        icon: <ContactsOutlined />,
+        label: "CRM nền tảng",
       });
     }
     if (canOpen("/admin/tenants")) {
@@ -410,13 +420,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const menu = (
     <>
       <div className="sider-brand">
-        <span className="brand-mark" aria-hidden="true">
-          DX
-        </span>
-        <span className="sider-brand-copy">
-          <strong>DX LMS</strong>
-          <small>Nền tảng đào tạo</small>
-        </span>
+        <DxBrandLockup subtitle="Nền tảng đào tạo" />
       </div>
       {canSwitchWorkspace ? (
         <Dropdown
@@ -484,10 +488,22 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   const profileItems: MenuProps["items"] = [
     {
+      key: "account-profile",
+      icon: <UserOutlined />,
+      label: "Hồ sơ cá nhân",
+      onClick: () => router.push("/account/profile"),
+    },
+    {
       key: "account-security",
       icon: <SafetyCertificateOutlined />,
       label: "Bảo mật tài khoản",
       onClick: () => router.push("/account/security"),
+    },
+    {
+      key: "account-integrations",
+      icon: <AppstoreOutlined />,
+      label: "Ứng dụng kết nối",
+      onClick: () => router.push("/account/integrations"),
     },
     {
       key: "logout",
@@ -559,7 +575,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     <strong>{user.fullName}</strong>
                     <span>{roleLabel(user.role, user.orgUnitScopeMode)}</span>
                   </div>
-                  <Avatar style={{ background: primaryColor }}>
+                  <Avatar
+                    alt={`Ảnh đại diện của ${user.fullName}`}
+                    src={user.avatarUrl || undefined}
+                    style={{ background: primaryColor }}
+                  >
                     {Array.from(user.fullName.trim())[0]?.toLocaleUpperCase(
                       "vi",
                     ) || "DX"}

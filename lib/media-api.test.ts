@@ -42,6 +42,12 @@ function future(milliseconds: number) {
   return new Date(Date.now() + milliseconds).toISOString();
 }
 
+function localTicket(kind: "download" | "upload", ticket: string) {
+  return kind === "upload"
+    ? "http://localhost:4000/api/v1/media/local/upload"
+    : `http://localhost:4000/api/v1/media/local/download?ticket=${encodeURIComponent(ticket)}`;
+}
+
 describe("secure media API and browser workflow", () => {
   beforeEach(() => {
     mocks.apiFetch.mockReset();
@@ -60,7 +66,7 @@ describe("secure media API and browser workflow", () => {
       .mockResolvedValueOnce(asset({ status: "DELETING" }))
       .mockResolvedValueOnce({
         expiresAt: future(60_000),
-        url: "https://private-files.example.test/download?sig=secret",
+        url: localTicket("download", "secret"),
       });
 
     await mediaApi.getAsset(context, target, assetId);
@@ -118,6 +124,90 @@ describe("secure media API and browser workflow", () => {
     expect(serialized).not.toContain("HEADER_SECRET");
   });
 
+  it.each([
+    {
+      headers: {
+        "content-type": "application/pdf",
+        "x-checksum-sha256": "CHECKSUM",
+      },
+      label: "thiếu x-media-upload-ticket",
+      url: localTicket("upload", "SAFE"),
+    },
+    {
+      headers: {
+        "content-length": "4",
+        "content-type": "application/pdf",
+        "x-checksum-sha256": "CHECKSUM",
+        "x-media-upload-ticket": "SAFE",
+      },
+      label: "content-length do trình duyệt quản lý",
+      url: localTicket("upload", "SAFE"),
+    },
+    {
+      headers: {
+        "content-type": "application/pdf",
+        "x-checksum-sha256": "CHECKSUM",
+        "x-media-upload-ticket": "SAFE",
+      },
+      label: "origin bên thứ ba",
+      url: "https://files.attacker.test/api/v1/media/local/upload",
+    },
+    {
+      headers: {
+        "content-type": "application/pdf",
+        "x-checksum-sha256": "CHECKSUM",
+        "x-media-upload-ticket": "SAFE",
+      },
+      label: "sai đường dẫn local media",
+      url: "http://localhost:4000/api/v1/media/local/download?ticket=SAFE",
+    },
+    {
+      headers: {
+        "content-type": "application/pdf",
+        "x-checksum-sha256": "CHECKSUM",
+        "x-media-upload-ticket": "SAFE",
+      },
+      label: "query trên upload endpoint",
+      url: "http://localhost:4000/api/v1/media/local/upload?ticket=SAFE",
+    },
+  ])("từ chối upload ticket có $label", async ({ headers, url }) => {
+    mocks.apiFetch.mockResolvedValueOnce({
+      asset: asset({ status: "PENDING_UPLOAD" }),
+      upload: {
+        expiresAt: future(60_000),
+        headers,
+        method: "PUT",
+        url,
+      },
+    });
+
+    await expect(
+      mediaApi.initiateUpload(context, target, {
+        clientMutationId: "ed0ce85a-7043-4eed-9cf4-0cba8bf60882",
+        contentType: "application/pdf",
+        originalFileName: "bai-lam.pdf",
+        sha256Base64: `${"A".repeat(43)}=`,
+        sizeBytes: 4,
+      }),
+    ).rejects.toMatchObject({ code: "MEDIA_RESPONSE_INVALID" });
+  });
+
+  it.each([
+    "http://localhost:4000/api/v1/media/local/download",
+    "http://localhost:4000/api/v1/media/local/download?ticket=SAFE&ticket=SECOND",
+    "http://localhost:4000/api/v1/media/local/download?ticket=SAFE&next=outside",
+    "http://localhost:4000/api/v1/media/local/upload",
+  ])("từ chối download ticket sai path/query: %s", async (url) => {
+    mocks.apiFetch.mockResolvedValueOnce({
+      expiresAt: future(60_000),
+      url,
+    });
+
+    await expect(
+      mediaApi.requestDownload(context, target, assetId),
+    ).rejects.toMatchObject({ code: "MEDIA_RESPONSE_INVALID" });
+  });
+
   it("fail closed nếu metadata asset không đúng purpose của target", async () => {
     mocks.apiFetch.mockResolvedValue(asset({ purpose: "LESSON_CONTENT" }));
 
@@ -135,8 +225,7 @@ describe("secure media API and browser workflow", () => {
     });
     const checksum = await sha256Base64(file);
     expect(checksum).toMatch(/^[A-Za-z0-9+/]{43}=$/u);
-    const signedUrl =
-      "https://private-files.example.test/upload?signature=DO_NOT_LOG";
+    const signedUrl = localTicket("upload", "DO_NOT_LOG");
     mocks.apiFetch
       .mockResolvedValueOnce({
         asset: asset({ status: "PENDING_UPLOAD" }),
@@ -145,6 +234,7 @@ describe("secure media API and browser workflow", () => {
           headers: {
             "content-type": "application/pdf",
             "x-checksum-sha256": checksum,
+            "x-media-upload-ticket": "UPLOAD_TICKET",
           },
           method: "PUT",
           url: signedUrl,
@@ -183,11 +273,19 @@ describe("secure media API and browser workflow", () => {
       body: file,
       cache: "no-store",
       credentials: "omit",
+      headers: {
+        "content-type": "application/pdf",
+        "x-checksum-sha256": checksum,
+        "x-media-upload-ticket": "UPLOAD_TICKET",
+      },
       method: "PUT",
       mode: "cors",
       redirect: "error",
       referrerPolicy: "no-referrer",
     });
+    expect(
+      Object.keys(options.headers as Record<string, string>),
+    ).not.toContain("content-length");
     expect(stages).toEqual([
       "HASHING",
       "INITIATING",
@@ -212,9 +310,13 @@ describe("secure media API and browser workflow", () => {
       }),
       upload: {
         expiresAt: future(1_100),
-        headers: { "content-type": "text/plain" },
+        headers: {
+          "content-type": "text/plain",
+          "x-checksum-sha256": "CHECKSUM",
+          "x-media-upload-ticket": "UPLOAD_TICKET",
+        },
         method: "PUT",
-        url: "https://private-files.example.test/upload?signature=SHORT",
+        url: localTicket("upload", "SHORT"),
       },
     });
     let storageSignal: AbortSignal | undefined;
@@ -262,9 +364,13 @@ describe("secure media API and browser workflow", () => {
         }),
         upload: {
           expiresAt: future(60_000),
-          headers: { "content-type": "text/plain" },
+          headers: {
+            "content-type": "text/plain",
+            "x-checksum-sha256": "CHECKSUM",
+            "x-media-upload-ticket": "UPLOAD_TICKET",
+          },
           method: "PUT",
-          url: "https://private-files.example.test/upload?signature=SHORT",
+          url: localTicket("upload", "SHORT"),
         },
       })
       .mockResolvedValueOnce(
@@ -307,9 +413,13 @@ describe("secure media API and browser workflow", () => {
       }),
       upload: {
         expiresAt: future(60_000),
-        headers: { "x-provider-signature": headerSecret },
+        headers: {
+          "content-type": "text/plain",
+          "x-checksum-sha256": "CHECKSUM",
+          "x-media-upload-ticket": headerSecret,
+        },
         method: "PUT",
-        url: `https://private-files.example.test/upload?signature=${ticketSecret}`,
+        url: localTicket("upload", ticketSecret),
       },
     });
     vi.stubGlobal(
@@ -369,8 +479,7 @@ describe("secure media API and browser workflow", () => {
   });
 
   it("download ticket chỉ tồn tại trong event, mở no-referrer rồi xóa href khỏi DOM", async () => {
-    const signedUrl =
-      "https://private-files.example.test/download?signature=SHORT_LIVED";
+    const signedUrl = localTicket("download", "SHORT_LIVED");
     mocks.apiFetch.mockResolvedValue({
       expiresAt: future(60_000),
       url: signedUrl,

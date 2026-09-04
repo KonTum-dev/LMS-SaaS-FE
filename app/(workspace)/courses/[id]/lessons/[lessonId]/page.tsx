@@ -27,6 +27,7 @@ import { useAuth } from "@/components/providers/app-providers";
 import styles from "@/components/curriculum/curriculum.module.css";
 import { SecureAttachmentList } from "@/components/media/secure-attachment-list";
 import { SecureMediaUploader } from "@/components/media/secure-media-uploader";
+import { YouTubePublishAction } from "@/components/media/youtube-publish-action";
 import { curriculumApi } from "@/lib/curriculum-api";
 import { effectiveModuleEnabled } from "@/lib/entitlements";
 import {
@@ -45,9 +46,11 @@ import {
   type ViewerScope,
 } from "@/lib/query-keys";
 import type { LessonDetail, LessonType, UserRole } from "@/lib/types";
+import { canPublishYouTube } from "@/lib/workspace-access";
 
 interface LessonViewerProps {
   courseId: string;
+  canPublishYouTube: boolean;
   lessonId: string;
   mediaEnabled: boolean;
   readOnly: boolean;
@@ -189,6 +192,7 @@ export default function LessonPage() {
   return (
     <LessonViewer
       courseId={id}
+      canPublishYouTube={canPublishYouTube(user)}
       key={authorityKey}
       lessonId={lessonId}
       mediaEnabled={mediaEnabled}
@@ -201,6 +205,7 @@ export default function LessonPage() {
 }
 
 function LessonViewer({
+  canPublishYouTube,
   courseId,
   lessonId,
   mediaEnabled,
@@ -571,6 +576,29 @@ function LessonViewer({
                   await replaceAttachments.mutateAsync(attachmentIds);
                 }}
                 replacing={replaceAttachments.isPending}
+                renderAssetAction={
+                  canPublishYouTube && mediaEnabled
+                    ? (asset) => (
+                        <YouTubePublishAction
+                          asset={asset}
+                          courseId={courseId}
+                          description={lesson.summary}
+                          disabled={
+                            readOnly ||
+                            busy ||
+                            Boolean(lesson.archivedAt) ||
+                            Boolean(lesson.section.archivedAt) ||
+                            lesson.course.status === "ARCHIVED"
+                          }
+                          lessonId={lessonId}
+                          mediaEnabled={mediaEnabled}
+                          scope={scope}
+                          title={lesson.title}
+                          token={token}
+                        />
+                      )
+                    : undefined
+                }
                 scope={scope}
                 target={{ courseId, kind: "LESSON", lessonId }}
                 token={token}

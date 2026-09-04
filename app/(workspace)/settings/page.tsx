@@ -17,6 +17,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
 import { isFormValidationError } from "@/components/form/validation-error";
+import { ProfileImageEditor } from "@/components/account-security/profile-image-editor";
 import { useAuth } from "@/components/providers/app-providers";
 import { apiFetch } from "@/lib/api";
 import {
@@ -25,6 +26,7 @@ import {
   lmsModuleLabels,
 } from "@/lib/entitlements";
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
+import { organizationLogoApi } from "@/lib/profile-api";
 import {
   buildTenantSettingsPayload,
   normalizeColor,
@@ -50,13 +52,11 @@ export default function SettingsPage() {
       form.setFieldsValue({
         name: organization.name,
         primaryColor: organization.primaryColor,
-        logoUrl: organization.logoUrl ?? undefined,
       });
   }, [form, organization]);
 
   const previewName = Form.useWatch("name", form);
   const previewColorValue = Form.useWatch("primaryColor", form);
-  const previewLogoUrl = Form.useWatch("logoUrl", form);
 
   const scope = getViewerScope(user, organization);
   const saveMutation = useMutation({
@@ -79,6 +79,15 @@ export default function SettingsPage() {
     { name: "", primaryColor: DEFAULT_PRIMARY_COLOR },
     (values) => saveMutation.mutateAsync(values).then(() => undefined),
   );
+
+  const applyOrganization = async (updated: Organization) => {
+    updateOrganization(updated);
+    if (scope) {
+      await queryClient.invalidateQueries({
+        queryKey: lmsQueryKeys.viewer(scope),
+      });
+    }
+  };
 
   const save = async () => {
     try {
@@ -124,11 +133,33 @@ export default function SettingsPage() {
       </div>
       <div className="settings-grid">
         <Card className="surface-card" title="Thương hiệu tổ chức">
+          <ProfileImageEditor
+            alt={`Logo của ${organizationName}`}
+            disabled={!organization}
+            fallback={organizationInitial(previewName ?? organization?.name)}
+            help="JPEG, PNG hoặc WebP, tối đa 5 MiB. Logo được xử lý và lưu trên máy chủ riêng."
+            imageUrl={organization?.logoUrl}
+            label="Logo workspace"
+            onRemove={async () => {
+              await applyOrganization(
+                await organizationLogoApi.removeCurrent(token),
+              );
+              message.success("Đã gỡ logo workspace");
+            }}
+            onUpload={async (file, options) => {
+              await applyOrganization(
+                await organizationLogoApi.uploadCurrent(token, file, options),
+              );
+              message.success("Đã cập nhật logo workspace");
+            }}
+            shape="square"
+          />
           <Form
             form={form}
             layout="vertical"
             onFinish={() => void save()}
             requiredMark={false}
+            style={{ marginTop: 28 }}
           >
             <Form.Item
               label="Tên hiển thị"
@@ -146,20 +177,6 @@ export default function SettingsPage() {
               rules={[{ required: true }]}
             >
               <ColorPicker showText />
-            </Form.Item>
-            <Form.Item
-              extra="Dùng đường dẫn ảnh công khai, có đầy đủ http/https."
-              label="Đường dẫn ảnh logo"
-              name="logoUrl"
-              rules={[
-                { type: "url", message: "Đường dẫn chưa đúng định dạng" },
-                {
-                  max: 2048,
-                  message: "Đường dẫn không được vượt quá 2.048 ký tự",
-                },
-              ]}
-            >
-              <Input maxLength={2048} placeholder="https://..." />
             </Form.Item>
             <Button
               htmlType="submit"
@@ -220,9 +237,7 @@ export default function SettingsPage() {
               <Avatar
                 shape="square"
                 size={30}
-                src={
-                  previewLogoUrl?.trim() || organization?.logoUrl || undefined
-                }
+                src={organization?.logoUrl || undefined}
                 style={{ background: primaryColor }}
               >
                 {organizationInitial(previewName ?? organization?.name)}

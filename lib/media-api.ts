@@ -1,4 +1,4 @@
-import { ApiError, apiFetch } from "@/lib/api";
+import { ApiError, apiFetch, apiRequestUrl } from "@/lib/api";
 
 export const LESSON_MEDIA_CONTENT_TYPES = [
   "application/pdf",
@@ -126,12 +126,18 @@ const CONTENT_TYPE_PATTERN = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/iu;
 const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/u;
 const FORBIDDEN_UPLOAD_HEADERS = new Set([
   "authorization",
+  "content-length",
   "cookie",
   "host",
   "origin",
   "proxy-authorization",
   "referer",
   "user-agent",
+]);
+const ALLOWED_UPLOAD_HEADERS = new Set([
+  "content-type",
+  "x-checksum-sha256",
+  "x-media-upload-ticket",
 ]);
 const UPLOAD_EXPIRY_SAFETY_MARGIN_MS = 1_000;
 
@@ -200,7 +206,18 @@ export function parseMediaAsset(value: unknown): MediaAsset {
   };
 }
 
-function assertSafeTicketUrl(value: unknown): string {
+function configuredMediaEndpoint(kind: "download" | "upload") {
+  const apiUrl = new URL(apiRequestUrl(""));
+  return {
+    origin: apiUrl.origin,
+    pathname: `${apiUrl.pathname.replace(/\/+$/u, "")}/media/local/${kind}`,
+  };
+}
+
+function assertSafeTicketUrl(
+  value: unknown,
+  kind: "download" | "upload",
+): string {
   if (typeof value !== "string" || value.length > 16_384)
     invalidMediaResponse();
   let parsed: URL;
@@ -209,19 +226,31 @@ function assertSafeTicketUrl(value: unknown): string {
   } catch {
     invalidMediaResponse();
   }
+  const expected = configuredMediaEndpoint(kind);
   const host = parsed.hostname.toLowerCase();
-  const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/u.test(host);
-  const ipv6 = host.includes(":");
+  const localHost =
+    host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  const safeProtocol =
+    parsed.protocol === "https:" ||
+    (process.env.NODE_ENV !== "production" &&
+      parsed.protocol === "http:" &&
+      localHost);
+  const tickets = parsed.searchParams.getAll("ticket");
+  const validQuery =
+    kind === "upload"
+      ? parsed.search === ""
+      : [...parsed.searchParams.keys()].every((key) => key === "ticket") &&
+        tickets.length === 1 &&
+        Boolean(tickets[0]) &&
+        tickets[0].length <= 8_192;
   if (
-    parsed.protocol !== "https:" ||
+    !safeProtocol ||
     parsed.username ||
     parsed.password ||
-    !host ||
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    ipv4 ||
-    ipv6
+    parsed.origin !== expected.origin ||
+    parsed.pathname !== expected.pathname ||
+    parsed.hash ||
+    !validQuery
   ) {
     invalidMediaResponse();
   }
@@ -246,11 +275,14 @@ function parseUploadHeaders(value: unknown): Record<string, string> {
   if (!isRecord(value) || Object.keys(value).length > 32)
     invalidMediaResponse();
   const headers: Record<string, string> = {};
+  const seen = new Set<string>();
   for (const [name, raw] of Object.entries(value)) {
     const normalizedName = name.toLowerCase();
     if (
       !HEADER_NAME_PATTERN.test(name) ||
       FORBIDDEN_UPLOAD_HEADERS.has(normalizedName) ||
+      !ALLOWED_UPLOAD_HEADERS.has(normalizedName) ||
+      seen.has(normalizedName) ||
       normalizedName.startsWith("sec-") ||
       typeof raw !== "string" ||
       raw.length > 8_192 ||
@@ -258,7 +290,16 @@ function parseUploadHeaders(value: unknown): Record<string, string> {
     ) {
       invalidMediaResponse();
     }
+    seen.add(normalizedName);
     headers[name] = raw;
+  }
+  if (
+    !seen.has("content-type") ||
+    !seen.has("x-checksum-sha256") ||
+    !seen.has("x-media-upload-ticket") ||
+    seen.size !== ALLOWED_UPLOAD_HEADERS.size
+  ) {
+    invalidMediaResponse();
   }
   return headers;
 }
@@ -295,7 +336,7 @@ function parseInitiatedUpload(
       expiresAt: assertBoundedExpiry(value.upload.expiresAt, 3_605_000),
       headers: parseUploadHeaders(value.upload.headers),
       method: "PUT",
-      url: assertSafeTicketUrl(value.upload.url),
+      url: assertSafeTicketUrl(value.upload.url, "upload"),
     },
   };
 }
@@ -304,7 +345,7 @@ function parseDownloadTicket(value: unknown): MediaDownloadTicket {
   if (!isRecord(value)) invalidMediaResponse();
   return {
     expiresAt: assertBoundedExpiry(value.expiresAt, 305_000),
-    url: assertSafeTicketUrl(value.url),
+    url: assertSafeTicketUrl(value.url, "download"),
   };
 }
 
@@ -480,6 +521,11 @@ async function directPut(
   signal?: AbortSignal,
 ) {
   throwIfAborted(signal);
+  const headers = Object.fromEntries(
+    Object.entries(ticket.headers).filter(([name]) =>
+      ALLOWED_UPLOAD_HEADERS.has(name.toLowerCase()),
+    ),
+  );
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort(signal?.reason);
   if (signal?.aborted) abortFromCaller();
@@ -504,7 +550,7 @@ async function directPut(
       body: file,
       cache: "no-store",
       credentials: "omit",
-      headers: ticket.headers,
+      headers,
       method: "PUT",
       mode: "cors",
       redirect: "error",

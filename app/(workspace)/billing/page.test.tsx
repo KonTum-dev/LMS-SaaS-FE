@@ -56,9 +56,15 @@ const appUi = vi.hoisted(() => ({
     success: vi.fn(),
   },
 }));
+const navigation = vi.hoisted(() => ({
+  searchParam: vi.fn(),
+}));
 
 vi.mock("@/lib/api", () => ({ billingApi: api, submitCheckoutForm }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => ({ get: navigation.searchParam }),
+}));
 vi.mock("@/components/providers/app-providers", () => ({
   useAuth: () => ({
     effectiveAccess: auth.effectiveAccess,
@@ -197,6 +203,8 @@ describe("BillingPage mock reload", () => {
     Object.values(api).forEach((mock) => mock.mockReset());
     auth.effectiveAccess = null;
     auth.updateEffectiveAccess.mockReset();
+    navigation.searchParam.mockReset();
+    navigation.searchParam.mockReturnValue(null);
     appUi.confirm.mockReset();
     Object.values(appUi.message).forEach((mock) => mock.mockReset());
     vi.spyOn(AntdApp, "useApp").mockReturnValue({
@@ -240,6 +248,24 @@ describe("BillingPage mock reload", () => {
       ),
     );
     await waitFor(() => expect(appUi.message.success).toHaveBeenCalled());
+  });
+
+  it("hướng dẫn bước chọn gói sau khi vừa tạo workspace mà không tự tạo đơn", async () => {
+    navigation.searchParam.mockImplementation((key: string) =>
+      key === "onboarding" ? "1" : null,
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <BillingPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Workspace đã sẵn sàng")).toBeTruthy();
+    expect(screen.getByText(/chỉ tạo đơn khi bạn xác nhận thanh toán/i)).toBeTruthy();
+    expect(api.createCheckout).not.toHaveBeenCalled();
   });
 
   it("click CTA SePay tạo checkout rồi submit form đúng một lần", async () => {

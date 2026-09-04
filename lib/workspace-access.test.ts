@@ -7,7 +7,12 @@ import type {
   SubscriptionAccessState,
   UserRole,
 } from "@/lib/types";
-import { getWorkspaceRouteAccess } from "./workspace-access";
+import {
+  canPublishYouTube,
+  canRevokeYouTube,
+  getWorkspaceRouteAccess,
+  isScopedTenantAdmin,
+} from "./workspace-access";
 
 function user(
   role: UserRole,
@@ -74,6 +79,23 @@ const allModules: LmsModule[] = [
 ];
 
 describe("workspace route access policy", () => {
+  it("tách quyền xuất bản khỏi quyền xem và thu hồi YouTube", () => {
+    expect(isScopedTenantAdmin(user("TENANT_ADMIN", "SCOPED"))).toBe(true);
+    expect(canPublishYouTube(user("TENANT_ADMIN", "SCOPED"))).toBe(false);
+    expect(canPublishYouTube(user("TENANT_ADMIN", "GLOBAL"))).toBe(true);
+    expect(canPublishYouTube(user("INSTRUCTOR", "SCOPED"))).toBe(true);
+    expect(canPublishYouTube(user("LEARNER"))).toBe(false);
+    expect(canPublishYouTube(user("SUPER_ADMIN"))).toBe(false);
+
+    expect(canRevokeYouTube(user("TENANT_ADMIN", "SCOPED"))).toBe(true);
+    expect(canRevokeYouTube(user("LEARNER"))).toBe(true);
+    expect(canRevokeYouTube(user("GUARDIAN"))).toBe(true);
+    expect(canRevokeYouTube(user("SUPER_ADMIN"))).toBe(false);
+    expect(canRevokeYouTube({ ...user("LEARNER"), tenantId: undefined })).toBe(
+      false,
+    );
+  });
+
   it.each<UserRole>([
     "SUPER_ADMIN",
     "TENANT_ADMIN",
@@ -81,17 +103,32 @@ describe("workspace route access policy", () => {
     "LEARNER",
     "GUARDIAN",
   ])(
-    "cho phép %s mở bảo mật tài khoản không phụ thuộc tenant, module hay READ_ONLY",
+    "cho phép %s mở hồ sơ/bảo mật/tích hợp không phụ thuộc tenant, module hay READ_ONLY",
     (role) => {
+      const shared = {
+        effectiveAccess:
+          role === "SUPER_ADMIN" ? null : effectiveAccess([], "READ_ONLY"),
+        organization: null,
+        user: user(role),
+      };
       expect(
         getWorkspaceRouteAccess({
-          effectiveAccess:
-            role === "SUPER_ADMIN" ? null : effectiveAccess([], "READ_ONLY"),
-          organization: null,
+          ...shared,
           pathname: "/account/security",
-          user: user(role),
         }),
       ).toEqual({ allowed: true, route: "account-security" });
+      expect(
+        getWorkspaceRouteAccess({
+          ...shared,
+          pathname: "/account/profile",
+        }),
+      ).toEqual({ allowed: true, route: "account-profile" });
+      expect(
+        getWorkspaceRouteAccess({
+          ...shared,
+          pathname: "/account/integrations",
+        }),
+      ).toEqual({ allowed: true, route: "account-integrations" });
     },
   );
 
@@ -114,6 +151,14 @@ describe("workspace route access policy", () => {
   });
 
   it("chỉ cho quản trị nền tảng mở các route nền tảng", () => {
+    expect(
+      getWorkspaceRouteAccess({
+        effectiveAccess: null,
+        organization: null,
+        pathname: "/admin",
+        user: user("SUPER_ADMIN"),
+      }),
+    ).toEqual({ allowed: true, route: "platform-crm" });
     expect(
       getWorkspaceRouteAccess({
         effectiveAccess: null,
@@ -157,6 +202,14 @@ describe("workspace route access policy", () => {
       allowed: false,
       reason: "ROLE_NOT_ALLOWED",
     });
+    expect(
+      getWorkspaceRouteAccess({
+        effectiveAccess: effectiveAccess(allModules),
+        organization: organization(allModules),
+        pathname: "/admin",
+        user: user("TENANT_ADMIN"),
+      }),
+    ).toMatchObject({ allowed: false, reason: "ROLE_NOT_ALLOWED" });
     expect(
       getWorkspaceRouteAccess({
         effectiveAccess: effectiveAccess(allModules),

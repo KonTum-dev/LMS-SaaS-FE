@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   effectiveAccess: null as EffectiveAccess | null,
   role: "LEARNER" as UserRole,
+  scopeMode: "GLOBAL" as "GLOBAL" | "SCOPED",
   tenantId: "tenant-1" as string | undefined,
 }));
 
@@ -43,11 +44,26 @@ vi.mock("@/components/providers/app-providers", () => ({
       email: "viewer@example.test",
       fullName: "Viewer",
       membershipId: mocks.tenantId ? "membership-1" : undefined,
+      orgUnitScopeMode: mocks.scopeMode,
       role: mocks.role,
       sub: "viewer-1",
       tenantId: mocks.tenantId,
     },
   }),
+}));
+vi.mock("@/components/media/youtube-publish-action", () => ({
+  YouTubePublishAction: ({
+    asset,
+    mediaEnabled,
+  }: {
+    asset: { contentType: string; originalFileName: string; status: string };
+    mediaEnabled: boolean;
+  }) =>
+    mediaEnabled &&
+    asset.status === "AVAILABLE" &&
+    asset.contentType === "video/mp4" ? (
+      <button type="button">Xuất bản {asset.originalFileName} lên YouTube</button>
+    ) : null,
 }));
 vi.mock("@ant-design/icons", () => ({
   ArrowLeftOutlined: () => null,
@@ -106,6 +122,7 @@ describe("lesson viewer route", () => {
     notifyManager.setScheduler((callback) => queueMicrotask(callback));
     mocks.apiFetch.mockReset();
     mocks.role = "LEARNER";
+    mocks.scopeMode = "GLOBAL";
     mocks.tenantId = "tenant-1";
     mocks.effectiveAccess = {
       graceEndsAt: null,
@@ -451,6 +468,50 @@ describe("lesson viewer route", () => {
     expect(screen.getByLabelText("Thêm tệp cho bài học")).toBeTruthy();
   });
 
+  it.each([
+    ["INSTRUCTOR" as const, "SCOPED" as const, true],
+    ["TENANT_ADMIN" as const, "GLOBAL" as const, true],
+    ["TENANT_ADMIN" as const, "SCOPED" as const, false],
+  ])(
+    "role %s/%s chỉ nhận sidecar YouTube khi policy cho phép = %s",
+    async (role, scopeMode, allowed) => {
+      mocks.role = role;
+      mocks.scopeMode = scopeMode;
+      mocks.effectiveAccess = {
+        ...mocks.effectiveAccess!,
+        modules: ["COURSES", "MEDIA"],
+      };
+      const attachmentId = "64b000000000000000000011";
+      mocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+        if (path === "/courses/course-1/lessons/lesson-1" && !options?.method) {
+          return Promise.resolve({
+            ...baseLesson,
+            attachmentIds: [attachmentId],
+          });
+        }
+        if (path.endsWith(`/assets/${attachmentId}`) && !options?.method) {
+          return Promise.resolve({
+            _id: attachmentId,
+            contentType: "video/mp4",
+            originalFileName: "lesson-video.mp4",
+            purpose: "LESSON_CONTENT",
+            revision: 1,
+            sizeBytes: 1_024,
+            status: "AVAILABLE",
+          });
+        }
+        return Promise.reject(new Error(`Unexpected request: ${path}`));
+      });
+      renderPage();
+
+      await screen.findByText("lesson-video.mp4");
+      const publish = screen.queryByRole("button", {
+        name: "Xuất bản lesson-video.mp4 lên YouTube",
+      });
+      expect(Boolean(publish)).toBe(allowed);
+    },
+  );
+
   it("READ_ONLY vẫn GET metadata và cấp download ticket nhưng khóa attachment mutation", async () => {
     mocks.role = "TENANT_ADMIN";
     mocks.effectiveAccess = {
@@ -484,7 +545,7 @@ describe("lesson viewer route", () => {
       ) {
         return Promise.resolve({
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          url: "https://private-files.example.test/download?signature=short",
+          url: "http://localhost:4000/api/v1/media/local/download?ticket=short",
         });
       }
       return Promise.reject(new Error(`Unexpected request: ${path}`));

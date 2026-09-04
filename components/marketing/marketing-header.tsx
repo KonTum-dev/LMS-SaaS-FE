@@ -28,8 +28,8 @@ export function MarketingHeader() {
 
         <div className={styles.headerActions}>
           <Link className={styles.textLink} href="/login">Đăng nhập</Link>
-          <Link className={styles.compactButton} href="/login">
-            Vào hệ thống <MarketingIcon name="right" />
+          <Link className={styles.compactButton} href="/register">
+            Dùng thử miễn phí <MarketingIcon name="right" />
           </Link>
         </div>
 
@@ -40,7 +40,8 @@ export function MarketingHeader() {
           </summary>
           <nav aria-label="Điều hướng trên thiết bị di động">
             {navigation.map((item) => <a href={item.href} key={item.href}>{item.label}</a>)}
-            <Link href="/login">Vào hệ thống</Link>
+            <Link href="/login">Đăng nhập</Link>
+            <Link href="/register">Tạo workspace dùng thử</Link>
           </nav>
         </details>
       </div>

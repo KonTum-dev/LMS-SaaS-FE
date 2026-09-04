@@ -15,6 +15,12 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000/api/v1");
 const API_TIMEOUT_MS = 15_000;
+const API_MAX_TIMEOUT_MS = 120_000;
+
+export function apiRequestUrl(path: string): string {
+  if (!API_URL) throw new ApiError("Thiếu cấu hình NEXT_PUBLIC_API_URL", 0);
+  return `${API_URL}${path}`;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -29,7 +35,27 @@ export class ApiError extends Error {
   }
 }
 
-function boundedRequestSignal(callerSignal?: AbortSignal) {
+function resolveRequestTimeoutMs(timeoutMs: number | undefined): number {
+  const resolved = timeoutMs ?? API_TIMEOUT_MS;
+  if (
+    !Number.isSafeInteger(resolved) ||
+    resolved < 1_000 ||
+    resolved > API_MAX_TIMEOUT_MS
+  ) {
+    throw new ApiError(
+      "Cấu hình thời gian chờ yêu cầu không hợp lệ",
+      0,
+      "API_TIMEOUT_INVALID",
+    );
+  }
+  return resolved;
+}
+
+function boundedRequestSignal(
+  callerSignal?: AbortSignal,
+  timeoutMs?: number,
+) {
+  const resolvedTimeoutMs = resolveRequestTimeoutMs(timeoutMs);
   const controller = new AbortController();
   const forwardCallerAbort = () => controller.abort(callerSignal?.reason);
   if (callerSignal?.aborted) forwardCallerAbort();
@@ -37,7 +63,7 @@ function boundedRequestSignal(callerSignal?: AbortSignal) {
     callerSignal?.addEventListener("abort", forwardCallerAbort, { once: true });
   const timeout = setTimeout(() => {
     controller.abort(new DOMException("Request timeout", "TimeoutError"));
-  }, API_TIMEOUT_MS);
+  }, resolvedTimeoutMs);
   return {
     cleanup: () => {
       clearTimeout(timeout);
@@ -49,13 +75,23 @@ function boundedRequestSignal(callerSignal?: AbortSignal) {
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { token?: string } = {},
+  options: RequestInit & {
+    preserveSessionOnUnauthorizedCodes?: readonly string[];
+    timeoutMs?: number;
+    token?: string;
+  } = {},
 ): Promise<T> {
   if (!API_URL) throw new ApiError("Thiếu cấu hình NEXT_PUBLIC_API_URL", 0);
-  const { signal: callerSignal, token, ...request } = options;
-  const bounded = boundedRequestSignal(callerSignal ?? undefined);
+  const {
+    preserveSessionOnUnauthorizedCodes = [],
+    signal: callerSignal,
+    timeoutMs,
+    token,
+    ...request
+  } = options;
+  const bounded = boundedRequestSignal(callerSignal ?? undefined, timeoutMs);
   try {
-    const response = await fetch(`${API_URL}${path}`, {
+    const response = await fetch(apiRequestUrl(path), {
       ...request,
       signal: bounded.signal,
       headers: {
@@ -66,11 +102,6 @@ export async function apiFetch<T>(
     });
 
     if (!response.ok) {
-      if (response.status === 401 && token && typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("auth:expired", { detail: { token } }),
-        );
-      }
       let message = "Không thể hoàn tất yêu cầu";
       let code: string | undefined;
       let operationId: string | undefined;
@@ -107,6 +138,16 @@ export async function apiFetch<T>(
             : undefined;
       } catch {
         // Preserve a safe generic message when the server does not return JSON.
+      }
+      if (
+        response.status === 401 &&
+        token &&
+        typeof window !== "undefined" &&
+        (!code || !preserveSessionOnUnauthorizedCodes.includes(code))
+      ) {
+        window.dispatchEvent(
+          new CustomEvent("auth:expired", { detail: { token } }),
+        );
       }
       throw new ApiError(
         message,

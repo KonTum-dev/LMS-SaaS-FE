@@ -22,8 +22,8 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/providers/app-providers";
 import { billingApi, submitCheckoutForm } from "@/lib/api";
 import {
@@ -55,6 +55,20 @@ function entityId(
 ): string | null {
   if (!value) return null;
   return typeof value === "string" ? value : value._id;
+}
+
+function BillingOnboardingNotice() {
+  const searchParams = useSearchParams();
+  if (searchParams.get("onboarding") !== "1") return null;
+  return (
+    <Alert
+      className="billing-notice"
+      description="Kỳ dùng thử đã được gắn với workspace này. Bạn có thể tiếp tục dùng thử hoặc chọn một gói bên dưới; hệ thống chỉ tạo đơn khi bạn xác nhận thanh toán."
+      showIcon
+      title="Workspace đã sẵn sàng"
+      type="success"
+    />
+  );
 }
 
 export default function BillingPage() {
@@ -369,6 +383,9 @@ export default function BillingPage() {
           value={cycle}
         />
       </div>
+      <Suspense fallback={null}>
+        <BillingOnboardingNotice />
+      </Suspense>
       {error && (
         <Alert
           className="billing-notice"

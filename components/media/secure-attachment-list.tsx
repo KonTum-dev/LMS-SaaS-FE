@@ -3,6 +3,7 @@
 import { Alert, Button, Spin, Tag } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   mediaApi,
   openMediaDownload,
@@ -19,6 +20,7 @@ interface SecureAttachmentListProps {
   minCount?: number;
   onReplace?: (assetIds: string[]) => Promise<void>;
   replacing?: boolean;
+  renderAssetAction?: (asset: MediaAsset) => ReactNode;
   scope: ViewerScope;
   target: MediaTarget;
   token: string;
@@ -72,6 +74,7 @@ function AttachmentRow({
   onRemove,
   removeDisabled,
   replacing,
+  renderAssetAction,
   scope,
   target,
   token,
@@ -85,6 +88,7 @@ function AttachmentRow({
   onRemove: (index: number) => void;
   removeDisabled: boolean;
   replacing: boolean;
+  renderAssetAction?: (asset: MediaAsset) => ReactNode;
   scope: ViewerScope;
   target: MediaTarget;
   token: string;
@@ -255,6 +259,7 @@ function AttachmentRow({
             </Button>
           </>
         )}
+        {asset && renderAssetAction?.(asset)}
       </div>
     </li>
   );
@@ -267,6 +272,7 @@ export function SecureAttachmentList({
   minCount = 0,
   onReplace,
   replacing = false,
+  renderAssetAction,
   scope,
   target,
   token,
@@ -318,6 +324,7 @@ export function SecureAttachmentList({
             onRemove={remove}
             removeDisabled={assetIds.length <= minCount}
             replacing={replacing}
+            renderAssetAction={renderAssetAction}
             scope={scope}
             target={target}
             token={token}

@@ -225,6 +225,23 @@ describe("WorkspaceShell route access boundary", () => {
     expect(mocks.push).toHaveBeenCalledWith("/admin/audit");
   });
 
+  it("hiện CRM nền tảng ở đầu khu vực quản trị và mở trực tiếp không cần tenant", () => {
+    mocks.pathname = "/admin";
+    mocks.session.effectiveAccess = null;
+    mocks.session.organization = null;
+    mocks.session.user = currentUser("SUPER_ADMIN");
+    render(
+      <WorkspaceShell>
+        <QueryPage />
+      </WorkspaceShell>,
+    );
+
+    expect(screen.getByText("Nội dung trang có truy vấn")).toBeTruthy();
+    const crm = screen.getByRole("menuitem", { name: /CRM nền tảng/ });
+    fireEvent.click(crm);
+    expect(mocks.push).toHaveBeenCalledWith("/admin");
+  });
+
   it("chỉ hiện vận hành notification events cho SUPER_ADMIN", () => {
     mocks.pathname = "/admin/notification-events";
     mocks.session.effectiveAccess = null;
@@ -313,7 +330,7 @@ describe("WorkspaceShell route access boundary", () => {
     "LEARNER",
     "GUARDIAN",
   ])(
-    "hiện lối vào bảo mật tài khoản cho %s và không gate theo thuê bao",
+    "hiện lối vào hồ sơ, bảo mật và tích hợp cho %s, không gate theo thuê bao",
     async (role) => {
       mocks.pathname = "/account/security";
       mocks.session.effectiveAccess =
@@ -330,8 +347,18 @@ describe("WorkspaceShell route access boundary", () => {
       fireEvent.click(
         screen.getByRole("button", { name: "Mở menu tài khoản" }),
       );
+      fireEvent.click(await screen.findByText("Hồ sơ cá nhân"));
+      expect(mocks.push).toHaveBeenCalledWith("/account/profile");
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mở menu tài khoản" }),
+      );
       fireEvent.click(await screen.findByText("Bảo mật tài khoản"));
       expect(mocks.push).toHaveBeenCalledWith("/account/security");
+      fireEvent.click(
+        screen.getByRole("button", { name: "Mở menu tài khoản" }),
+      );
+      fireEvent.click(await screen.findByText("Ứng dụng kết nối"));
+      expect(mocks.push).toHaveBeenCalledWith("/account/integrations");
     },
   );
 
