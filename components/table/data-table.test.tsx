@@ -1,63 +1,122 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ColumnDef, StockFeatures } from "@tanstack/react-table";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DataTable } from "./data-table";
 
-interface Row { id: string; name: string }
+interface TestRow {
+  _id: string;
+  name: string;
+}
 
-beforeAll(() => {
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: vi.fn().mockImplementation(() => ({
-      addEventListener: vi.fn(),
-      addListener: vi.fn(),
-      matches: false,
-      removeEventListener: vi.fn(),
-      removeListener: vi.fn(),
-    })),
-  });
+interface CapturedPagination {
+  current?: number;
+  hideOnSinglePage?: boolean;
+  onChange?: (page: number, pageSize: number) => void;
+  pageSize?: number;
+  showLessItems?: boolean;
+  showSizeChanger?: boolean;
+  showTotal?: (total: number, range: [number, number]) => string;
+  total?: number;
+}
+
+interface CapturedTableProps {
+  dataSource?: TestRow[];
+  loading?: boolean;
+  pagination?: CapturedPagination;
+  rowKey?: keyof TestRow | ((row: TestRow) => React.Key);
+  scroll?: { x: number };
+}
+
+const mocks = vi.hoisted(() => ({
+  props: null as CapturedTableProps | null,
+}));
+
+vi.mock("antd", () => {
+  function Table(props: CapturedTableProps) {
+    mocks.props = props;
+    return <div data-testid="antd-table" />;
+  }
+  const Empty = Object.assign(
+    ({ description }: { description?: React.ReactNode }) => <div>{description}</div>,
+    { PRESENTED_IMAGE_SIMPLE: null },
+  );
+  return { Empty, Table };
 });
 
-describe("DataTable", () => {
-  it("render row model của TanStack bằng giao diện Ant Design", () => {
-    const columns: ColumnDef<StockFeatures, Row>[] = [
-      { accessorKey: "name", header: "Học viên", cell: ({ getValue }) => <strong>{getValue<string>()}</strong> },
-    ];
+const columns: ColumnDef<StockFeatures, TestRow>[] = [
+  { accessorKey: "name", cell: ({ getValue }) => getValue<string>(), header: "Tên" },
+];
+const rows: TestRow[] = [
+  { _id: "row-1", name: "Một" },
+  { _id: "row-2", name: "Hai" },
+];
 
-    render(<DataTable columns={columns} data={[{ id: "1", name: "Nguyễn Minh An" }]} rowKey="id" />);
+describe("DataTable pagination contract", () => {
+  beforeEach(() => { mocks.props = null; });
+  afterEach(cleanup);
 
-    expect(screen.getByText("Học viên")).toBeTruthy();
-    expect(screen.getByText("Nguyễn Minh An")).toBeTruthy();
+  it("giữ client pagination hiện hữu khi chỉ truyền pageSize", () => {
+    render(<DataTable columns={columns} data={rows} pageSize={5} rowKey="_id" />);
+
+    expect(mocks.props?.dataSource).toEqual(rows);
+    expect(mocks.props?.rowKey).toBe("_id");
+    expect(mocks.props?.pagination).toMatchObject({
+      hideOnSinglePage: true,
+      pageSize: 5,
+      showLessItems: true,
+      showSizeChanger: false,
+    });
+    expect(mocks.props?.pagination).not.toHaveProperty("current");
+    expect(mocks.props?.pagination).not.toHaveProperty("total");
+    expect(mocks.props?.pagination).not.toHaveProperty("onChange");
+    expect(mocks.props?.pagination?.showTotal?.(12, [1, 5])).toBe("1–5 trên 12 mục");
   });
 
-  it("giữ đúng record và action khi chuyển sang trang tiếp theo", async () => {
-    const onSelect = vi.fn();
-    const data = Array.from({ length: 12 }, (_, index) => ({
-      id: String(index + 1),
-      name: `Học viên ${index + 1}`,
-    }));
-    const columns: ColumnDef<StockFeatures, Row>[] = [
-      { accessorKey: "name", header: "Học viên", cell: ({ row }) => <span>{row.original.name}</span> },
-      {
-        id: "action",
-        header: "Thao tác",
-        cell: ({ row }) => (
-          <button type="button" onClick={() => onSelect(row.original.id)}>
-            Chọn {row.original.name}
-          </button>
-        ),
-      },
-    ];
+  it("giữ default pageSize=10 và các props table không liên quan", () => {
+    render(<DataTable columns={columns} data={rows} loading rowKey={(row) => row._id} scrollX={720} />);
 
-    render(<DataTable columns={columns} data={data} pageSize={5} rowKey="id" />);
+    expect(mocks.props?.pagination?.pageSize).toBe(10);
+    expect(mocks.props?.loading).toBe(true);
+    expect(mocks.props?.scroll).toEqual({ x: 720 });
+    expect(typeof mocks.props?.rowKey).toBe("function");
+  });
 
-    fireEvent.click(screen.getByTitle("2"));
+  it("forward đầy đủ server-controlled page/pageSize/total và callback", () => {
+    const onPageChange = vi.fn();
+    const { rerender } = render(<DataTable
+      columns={columns}
+      data={rows}
+      onPageChange={onPageChange}
+      page={3}
+      pageSize={20}
+      rowKey="_id"
+      total={63}
+    />);
 
-    await waitFor(() => expect(screen.getByText("Học viên 6")).toBeTruthy());
-    expect(screen.queryByText("Học viên 1")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Chọn Học viên 6" }));
-    expect(onSelect).toHaveBeenCalledWith("6");
+    expect(mocks.props?.dataSource).toEqual(rows);
+    expect(mocks.props?.pagination).toMatchObject({
+      current: 3,
+      hideOnSinglePage: true,
+      pageSize: 20,
+      showLessItems: true,
+      showSizeChanger: false,
+      total: 63,
+    });
+    mocks.props?.pagination?.onChange?.(4, 20);
+    expect(onPageChange).toHaveBeenCalledOnce();
+    expect(onPageChange).toHaveBeenCalledWith(4, 20);
+
+    rerender(<DataTable
+      columns={columns}
+      data={rows}
+      onPageChange={onPageChange}
+      page={4}
+      pageSize={20}
+      rowKey="_id"
+      total={63}
+    />);
+    expect(mocks.props?.pagination?.current).toBe(4);
   });
 });

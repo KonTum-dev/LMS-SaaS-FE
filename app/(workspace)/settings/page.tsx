@@ -1,78 +1,266 @@
 "use client";
 
-import { BgColorsOutlined, CheckCircleOutlined } from "@ant-design/icons";
-import { Alert, App, Avatar, Button, Card, Checkbox, ColorPicker, Form, Input, Space } from "antd";
+import { CheckCircleOutlined } from "@ant-design/icons";
+import {
+  Alert,
+  App,
+  Avatar,
+  Button,
+  Card,
+  ColorPicker,
+  Form,
+  Input,
+  Space,
+  Tag,
+} from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
 import { isFormValidationError } from "@/components/form/validation-error";
 import { useAuth } from "@/components/providers/app-providers";
 import { apiFetch } from "@/lib/api";
+import {
+  formatEntitlementLimit,
+  getSubscriptionAccessPresentation,
+  lmsModuleLabels,
+} from "@/lib/entitlements";
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
-import type { LmsModule, Organization } from "@/lib/types";
-import { DEFAULT_PRIMARY_COLOR, organizationDisplayName, organizationInitial, tenantPrimaryColor } from "@/lib/workspace";
-
-interface SettingsForm { name: string; primaryColor: string | { toHexString: () => string }; logoUrl?: string; enabledModules: LmsModule[] }
-const moduleOptions: Array<{ label: string; value: LmsModule }> = [
-  { label: "Người dùng", value: "USERS" }, { label: "Khóa học", value: "COURSES" },
-  { label: "Ghi danh", value: "ENROLLMENTS" }, { label: "Bài tập", value: "ASSIGNMENTS" },
-];
+import {
+  buildTenantSettingsPayload,
+  normalizeColor,
+  type TenantSettingsFormValues,
+} from "@/lib/tenant-management";
+import type { Organization } from "@/lib/types";
+import {
+  DEFAULT_PRIMARY_COLOR,
+  organizationDisplayName,
+  organizationInitial,
+  tenantPrimaryColor,
+} from "@/lib/workspace";
 
 export default function SettingsPage() {
   const { message } = App.useApp();
-  const { organization, token, updateOrganization, user } = useAuth();
+  const { effectiveAccess, organization, token, updateOrganization, user } =
+    useAuth();
   const queryClient = useQueryClient();
-  const [form] = Form.useForm<SettingsForm>();
+  const [form] = Form.useForm<TenantSettingsFormValues>();
 
   useEffect(() => {
-    if (organization) form.setFieldsValue({ name: organization.name, primaryColor: organization.primaryColor, logoUrl: organization.logoUrl ?? undefined, enabledModules: organization.enabledModules });
+    if (organization)
+      form.setFieldsValue({
+        name: organization.name,
+        primaryColor: organization.primaryColor,
+        logoUrl: organization.logoUrl ?? undefined,
+      });
   }, [form, organization]);
+
+  const previewName = Form.useWatch("name", form);
+  const previewColorValue = Form.useWatch("primaryColor", form);
+  const previewLogoUrl = Form.useWatch("logoUrl", form);
 
   const scope = getViewerScope(user, organization);
   const saveMutation = useMutation({
-    mutationFn: async (values: SettingsForm) => {
-      const primaryColor = typeof values.primaryColor === "string" ? values.primaryColor : values.primaryColor.toHexString();
-      return apiFetch<Organization>("/organizations/current", { token, method: "PATCH", body: JSON.stringify({ ...values, primaryColor, logoUrl: values.logoUrl?.trim() || null }) });
-    },
+    mutationFn: (values: TenantSettingsFormValues) =>
+      apiFetch<Organization>("/organizations/current", {
+        body: JSON.stringify(buildTenantSettingsPayload(values)),
+        method: "PATCH",
+        token,
+      }),
     onSuccess: async (updated) => {
       updateOrganization(updated);
       message.success("Đã áp dụng cấu hình thương hiệu");
-      if (scope) await queryClient.invalidateQueries({ queryKey: lmsQueryKeys.viewer(scope) });
+      if (scope)
+        await queryClient.invalidateQueries({
+          queryKey: lmsQueryKeys.viewer(scope),
+        });
     },
   });
-  const tanstackForm = useAntdTanStackForm<SettingsForm>(
-    { enabledModules: [], name: "", primaryColor: DEFAULT_PRIMARY_COLOR },
+  const tanstackForm = useAntdTanStackForm<TenantSettingsFormValues>(
+    { name: "", primaryColor: DEFAULT_PRIMARY_COLOR },
     (values) => saveMutation.mutateAsync(values).then(() => undefined),
   );
 
   const save = async () => {
-    try { await tanstackForm.submit(await form.validateFields()); }
-    catch (caught) {
-      if (!isFormValidationError(caught)) message.error(caught instanceof Error ? caught.message : "Không thể lưu cấu hình");
+    try {
+      await tanstackForm.submit(await form.validateFields());
+    } catch (caught) {
+      if (!isFormValidationError(caught))
+        message.error(
+          caught instanceof Error ? caught.message : "Không thể lưu cấu hình",
+        );
     }
   };
 
-  if (user?.role !== "TENANT_ADMIN") return <Alert message="Chỉ quản trị tổ chức được thay đổi cấu hình." showIcon type="warning" />;
-  const organizationName = organizationDisplayName(organization?.name);
-  const primaryColor = tenantPrimaryColor(organization);
-  return <div className="page-shell">
-    <div className="page-heading"><div><h1>Tùy biến workspace</h1><p>Thiết lập nhận diện thương hiệu và các module phù hợp với cách tổ chức vận hành.</p></div></div>
-    <div className="settings-grid">
-      <Card className="surface-card" title="Thương hiệu & module">
-        <Form form={form} layout="vertical" onFinish={() => void save()} requiredMark={false}>
-          <Form.Item label="Tên hiển thị" name="name" rules={[{ required: true, min: 2, message: "Tên cần ít nhất 2 ký tự" }]}><Input /></Form.Item>
-          <Form.Item label="Màu chủ đạo" name="primaryColor" rules={[{ required: true }]}><ColorPicker showText /></Form.Item>
-          <Form.Item extra="URL ảnh công khai, có đầy đủ http/https." label="Logo URL" name="logoUrl" rules={[{ type: "url", message: "URL chưa đúng định dạng" }]}><Input placeholder="https://..." /></Form.Item>
-          <Form.Item extra="Menu sẽ thay đổi ngay sau khi lưu. Cần bật ít nhất một module." label="Module hoạt động" name="enabledModules" rules={[{ required: true, message: "Chọn ít nhất một module" }]}><Checkbox.Group options={moduleOptions} /></Form.Item>
-          <Button htmlType="submit" loading={saveMutation.isPending} type="primary">Lưu và áp dụng</Button>
-        </Form>
-      </Card>
-      <Card className="surface-card" title="Xem trước">
-        <div style={{ background: primaryColor, borderRadius: 16, color: "white", minHeight: 190, padding: 24 }}>
-          <Space direction="vertical" size={20}><span className="brand-lockup"><Avatar shape="square" src={organization?.logoUrl || undefined} style={{ background: "white", color: primaryColor }}>{organizationInitial(organization?.name)}</Avatar><span>{organizationName}</span></span><div><BgColorsOutlined style={{ fontSize: 28 }} /><h3 style={{ marginBottom: 6 }}>Không gian riêng của bạn</h3><span style={{ color: "rgba(255,255,255,.82)" }}>Màu chủ đạo được áp dụng cho nút, menu và các điểm nhấn.</span></div></Space>
+  if (user?.role !== "TENANT_ADMIN")
+    return (
+      <Alert
+        showIcon
+        title="Chỉ quản trị tổ chức được thay đổi cấu hình."
+        type="warning"
+      />
+    );
+  const organizationName = organizationDisplayName(
+    previewName ?? organization?.name,
+  );
+  const primaryColor = previewColorValue
+    ? normalizeColor(previewColorValue)
+    : tenantPrimaryColor(organization);
+  const accessPresentation = effectiveAccess
+    ? getSubscriptionAccessPresentation(effectiveAccess.state)
+    : null;
+  const missingSubscription =
+    effectiveAccess?.state === "READ_ONLY" &&
+    effectiveAccess.graceEndsAt === null;
+  return (
+    <div className="page-shell">
+      <div className="page-heading">
+        <div>
+          <h1>Nhận diện workspace</h1>
+          <p>
+            Thiết lập tên, màu sắc và logo riêng cho không gian đào tạo của tổ
+            chức.
+          </p>
         </div>
-        <Alert icon={<CheckCircleOutlined />} message="Cấu hình được lưu theo tenant và không ảnh hưởng tổ chức khác." showIcon style={{ marginTop: 18 }} type="success" />
-      </Card>
+      </div>
+      <div className="settings-grid">
+        <Card className="surface-card" title="Thương hiệu tổ chức">
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={() => void save()}
+            requiredMark={false}
+          >
+            <Form.Item
+              label="Tên hiển thị"
+              name="name"
+              rules={[
+                { required: true, min: 2, message: "Tên cần ít nhất 2 ký tự" },
+                { max: 160, message: "Tên không được vượt quá 160 ký tự" },
+              ]}
+            >
+              <Input maxLength={160} />
+            </Form.Item>
+            <Form.Item
+              label="Màu chủ đạo"
+              name="primaryColor"
+              rules={[{ required: true }]}
+            >
+              <ColorPicker showText />
+            </Form.Item>
+            <Form.Item
+              extra="Dùng đường dẫn ảnh công khai, có đầy đủ http/https."
+              label="Đường dẫn ảnh logo"
+              name="logoUrl"
+              rules={[
+                { type: "url", message: "Đường dẫn chưa đúng định dạng" },
+                {
+                  max: 2048,
+                  message: "Đường dẫn không được vượt quá 2.048 ký tự",
+                },
+              ]}
+            >
+              <Input maxLength={2048} placeholder="https://..." />
+            </Form.Item>
+            <Button
+              htmlType="submit"
+              loading={saveMutation.isPending}
+              type="primary"
+            >
+              Lưu và áp dụng
+            </Button>
+          </Form>
+          <div className="settings-module-summary">
+            <strong>Quyền workspace hiệu lực</strong>
+            <p>
+              Danh sách này là phần giao giữa gói thuê bao và module quản trị
+              nền tảng cấp riêng cho tenant.
+            </p>
+            <Space wrap>
+              {(effectiveAccess?.modules ?? []).map((module) => (
+                <Tag color="blue" key={module}>
+                  {lmsModuleLabels[module]}
+                </Tag>
+              ))}
+              {!effectiveAccess?.modules.length && (
+                <Tag>Chưa có module hiệu lực</Tag>
+              )}
+            </Space>
+            {effectiveAccess && (
+              <Space orientation="vertical" size={4}>
+                {missingSubscription ? (
+                  <Tag>Chưa có thuê bao</Tag>
+                ) : (
+                  <>
+                    <span>
+                      {formatEntitlementLimit(
+                        effectiveAccess.limits.maxUsers,
+                        "users",
+                      )}
+                    </span>
+                    <span>
+                      {formatEntitlementLimit(
+                        effectiveAccess.limits.maxCourses,
+                        "courses",
+                      )}
+                    </span>
+                    {accessPresentation && (
+                      <Tag color={accessPresentation.color}>
+                        {accessPresentation.label}
+                      </Tag>
+                    )}
+                  </>
+                )}
+              </Space>
+            )}
+          </div>
+        </Card>
+        <Card className="surface-card" title="Xem trước">
+          <div className="settings-preview-shell">
+            <div className="settings-preview-header">
+              <Avatar
+                shape="square"
+                size={30}
+                src={
+                  previewLogoUrl?.trim() || organization?.logoUrl || undefined
+                }
+                style={{ background: primaryColor }}
+              >
+                {organizationInitial(previewName ?? organization?.name)}
+              </Avatar>
+              <strong>{organizationName}</strong>
+            </div>
+            <div className="settings-preview-body">
+              <div
+                className="settings-preview-nav"
+                style={{ color: primaryColor }}
+                aria-hidden="true"
+              >
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="settings-preview-content">
+                <small>Không gian đào tạo</small>
+                <h3>Giao diện mang nhận diện của tổ chức</h3>
+                <span
+                  className="settings-preview-action"
+                  style={{ background: primaryColor }}
+                >
+                  Hành động chính
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="settings-note">
+            <CheckCircleOutlined />
+            <span>
+              <strong>Cấu hình tách biệt</strong>
+              <small>Thay đổi chỉ áp dụng cho tổ chức hiện tại.</small>
+            </span>
+          </div>
+        </Card>
+      </div>
     </div>
-  </div>;
+  );
 }

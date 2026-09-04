@@ -1,4 +1,5 @@
-import type { LmsModule, Organization } from "@/lib/types";
+import type { EffectiveAccess, LmsModule, Organization } from "@/lib/types";
+import { normalizeEffectiveModules } from "@/lib/entitlements";
 
 export const DEFAULT_PRIMARY_COLOR = "#176BFF";
 
@@ -17,6 +18,12 @@ export function organizationDisplayName(name?: string | null) {
 export function tenantModuleEnabled(
   organization: Organization | null,
   module: LmsModule,
+  effectiveAccess?: EffectiveAccess | null,
 ) {
-  return organization?.enabledModules?.includes(module) ?? true;
+  if (!organization) return false;
+  return effectiveAccess === undefined
+    ? normalizeEffectiveModules(organization.enabledModules).includes(module)
+    : effectiveAccess
+      ? normalizeEffectiveModules(effectiveAccess.modules).includes(module)
+      : false;
 }

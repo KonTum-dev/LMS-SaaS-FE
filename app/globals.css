@@ -47,6 +47,12 @@ a { color: inherit; text-decoration: none; }
 .auth-card { width: 100%; max-width: 410px; }
 .auth-card h2 { margin: 32px 0 8px; font-size: 30px; letter-spacing: -.7px; }
 .auth-card .subtitle { display: block; margin-bottom: 32px; color: var(--muted); line-height: 1.6; }
+.auth-form-link { margin: -8px 0 18px; text-align: right; }
+.auth-form-link a { color: var(--primary); font-size: 13px; font-weight: 600; }
+.auth-return-link { margin-top: 22px; text-align: center; }
+.auth-return-link a { color: var(--primary); font-size: 13px; font-weight: 600; }
+.auth-token-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 28px 0; color: var(--muted); }
+.account-security-page { max-width: 760px; margin-left: 0; }
 
 .brand-lockup { display: inline-flex; align-items: center; gap: 11px; font-weight: 750; font-size: 19px; letter-spacing: -.3px; }
 .brand-mark { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(135deg, #061a35, #176bff 68%, #19cfe8); box-shadow: 0 8px 24px rgba(23,107,255,.25); }
@@ -62,7 +68,12 @@ a { color: inherit; text-decoration: none; }
 .stat-card .ant-statistic-content { font-weight: 720; letter-spacing: -1px; }
 .workspace-sider { position: sticky !important; top: 0; height: 100vh; overflow: auto; border-right: 1px solid var(--line); }
 .sider-brand { display: flex; height: 76px; align-items: center; padding: 0 22px; }
-.sider-tenant { margin: 2px 14px 18px; padding: 12px 14px; border-radius: 12px; background: #f4f9ff; }
+.sider-tenant { display: flex; width: calc(100% - 28px); align-items: center; gap: 10px; margin: 2px 14px 18px; padding: 12px 14px; border: 0; border-radius: 12px; color: inherit; text-align: left; background: #f4f9ff; }
+.workspace-selector { cursor: pointer; }
+.workspace-selector:disabled { cursor: wait; opacity: .72; }
+.workspace-selector > span:nth-child(2) { min-width: 0; flex: 1; }
+.workspace-option { display: grid; min-width: 220px; gap: 3px; }
+.workspace-option small { color: var(--muted); }
 .sider-tenant strong, .sider-tenant span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sider-tenant span { margin-top: 4px; color: var(--muted); font-size: 12px; }
 .workspace-header { position: sticky; top: 0; z-index: 10; display: flex; height: 76px; align-items: center; justify-content: space-between; padding: 0 34px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.94); backdrop-filter: blur(14px); }

@@ -7,10 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaymentOrder } from "@/lib/types";
 import BillingStatusPage from "./page";
 
-const { auth, getOrder, invalidateQueries } = vi.hoisted(() => ({
+const { auth, getOrder, invalidateQueries, refreshSession } = vi.hoisted(() => ({
   auth: { role: "TENANT_ADMIN" },
   getOrder: vi.fn(),
   invalidateQueries: vi.fn(),
+  refreshSession: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({ billingApi: { getOrder } }));
@@ -20,9 +21,10 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/providers/app-providers", () => ({
   useAuth: () => ({
-    organization: { _id: "tenant-001" },
-    token: "tenant-token",
-    user: { role: auth.role, sub: "user-001", tenantId: "tenant-001" },
+      organization: { _id: "tenant-001" },
+      refreshSession,
+      token: "tenant-token",
+    user: { membershipId: "membership-001", role: auth.role, sub: "user-001", tenantId: "tenant-001" },
   }),
 }));
 
@@ -42,6 +44,13 @@ function order(status: PaymentOrder["status"]): PaymentOrder {
       billingCycle: "MONTHLY",
       code: "standard",
       durationMonths: 1,
+    entitlements: {
+      maxActiveLearners: null,
+      maxBranches: null,
+      maxCourses: 25,
+        maxUsers: 250,
+        modules: ["USERS", "COURSES", "ASSIGNMENTS"],
+      },
       formula: "FULL",
       fullPeriodMs: null,
       name: "Standard",
@@ -81,6 +90,7 @@ describe("BillingStatusPage polling", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     getOrder.mockReset();
     invalidateQueries.mockReset().mockResolvedValue(undefined);
+    refreshSession.mockReset().mockResolvedValue(undefined);
     auth.role = "TENANT_ADMIN";
   });
 
@@ -98,6 +108,7 @@ describe("BillingStatusPage polling", () => {
     await screen.findAllByText("Đã thanh toán");
     expect(getOrder).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(refreshSession).toHaveBeenCalledTimes(1));
 
     await vi.advanceTimersByTimeAsync(4000);
     expect(getOrder).toHaveBeenCalledTimes(2);
@@ -149,7 +160,7 @@ describe("BillingStatusPage polling", () => {
   it("vai trò khác TENANT_ADMIN chỉ thấy cảnh báo và không gọi API", async () => {
     auth.role = "LEARNER";
     renderPage();
-    await screen.findByText("Bạn không có quyền xem order billing.");
+    await screen.findByText("Bạn không có quyền xem đơn thanh toán này.");
     expect(getOrder).not.toHaveBeenCalled();
   });
 });

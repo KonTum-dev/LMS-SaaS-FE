@@ -41,6 +41,11 @@ describe("tenant workspace configuration", () => {
     expect(tenantModuleEnabled(organization, "USERS")).toBe(false);
   });
 
+  it("ẩn module phụ thuộc nếu cấu hình legacy thiếu Khóa học", () => {
+    const inconsistent: Organization = { ...organization, enabledModules: ["ASSIGNMENTS"] };
+    expect(tenantModuleEnabled(inconsistent, "ASSIGNMENTS")).toBe(false);
+  });
+
   it("dùng chung palette DX và helper fallback trên các Web surface", () => {
     const globals = readFileSync(resolve(process.cwd(), "app/globals.css"), "utf8");
     const settings = readFileSync(resolve(process.cwd(), "app/(workspace)/settings/page.tsx"), "utf8");
@@ -51,7 +56,7 @@ describe("tenant workspace configuration", () => {
     expect(globals).toContain("#19cfe8");
     expect(globals).not.toMatch(/#5b5bd6|#4b4dc8|#8d7cf2|#4447c7/i);
     expect(settings).toContain("primaryColor: DEFAULT_PRIMARY_COLOR");
-    expect(settings).toContain("organizationInitial(organization?.name)");
+    expect(settings).toContain("organizationInitial(previewName ?? organization?.name)");
     expect(tenants).toContain("primaryColor: DEFAULT_PRIMARY_COLOR");
     expect(shell).toContain("organizationInitial(organization?.name)");
     expect(shell).not.toContain("#5B5BD6");

@@ -1,0 +1,103 @@
+.attachmentList {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.attachmentRow {
+  align-items: center;
+  background: var(--dx-color-fill-alter, #f7f9fc);
+  border: 1px solid var(--dx-color-border-secondary, #e8edf3);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.attachmentName {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.attachmentMeta {
+  color: var(--dx-color-text-description, #64748b);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  gap: 6px 10px;
+  margin-top: 3px;
+}
+
+.attachmentActions,
+.uploadActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.uploadPanel {
+  border: 1px dashed var(--dx-color-border, #dde4ec);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.fileInput {
+  border: 1px solid var(--dx-color-border, #dde4ec);
+  border-radius: 8px;
+  color: var(--dx-color-text, #10233f);
+  max-width: 100%;
+  padding: 8px;
+  width: 100%;
+}
+
+.uploadJobs {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.uploadJob {
+  align-items: center;
+  background: var(--dx-color-fill-alter, #f7f9fc);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px;
+}
+
+.jobStatus {
+  color: var(--dx-color-text-description, #64748b);
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+
+.jobHint {
+  color: var(--dx-color-text-description, #64748b);
+  display: block;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  margin-top: 4px;
+}
+
+@media (max-width: 620px) {
+  .attachmentRow,
+  .uploadJob {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .attachmentActions,
+  .uploadActions {
+    justify-content: flex-start;
+  }
+}

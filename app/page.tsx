@@ -1,8 +1,4 @@
 import type { Metadata } from "next";
-import "@fontsource/be-vietnam-pro/400.css";
-import "@fontsource/be-vietnam-pro/500.css";
-import "@fontsource/be-vietnam-pro/700.css";
-import "@fontsource/be-vietnam-pro/900.css";
 import { MarketingHero } from "@/components/marketing/marketing-hero";
 import {
   ContactCta,
@@ -10,6 +6,7 @@ import {
   MarketingFooter,
 } from "@/components/marketing/marketing-footer";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
+import { MarketingMotion } from "@/components/marketing/marketing-motion";
 import {
   AboutSection,
   MotivationSection,
@@ -19,14 +16,15 @@ import { PricingSection } from "@/components/marketing/pricing-faq";
 import styles from "./marketing.module.css";
 
 export const metadata: Metadata = {
-  title: "DX LMS — Một workspace rõ ràng cho vận hành đào tạo",
+  title: "DX LMS — Từ một lớp học đến chuỗi trung tâm",
   description:
-    "DX LMS kết nối người dùng, khóa học, ghi danh, bài tập và dashboard trong workspace riêng của từng tổ chức.",
+    "DX LMS giúp giáo viên và trung tâm quản lý lớp học, điểm danh, phụ huynh, học phí, đội ngũ và nhiều chi nhánh trong một hệ thống.",
 };
 
 export default function Home() {
   return (
-    <div className={styles.marketingPage} id="top">
+    <div className={styles.marketingPage} data-marketing-page id="top">
+      <MarketingMotion />
       <MarketingHeader />
       <main id="noi-dung-chinh" tabIndex={-1}>
         <MarketingHero />

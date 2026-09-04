@@ -19,35 +19,38 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
     expect(screen.getByRole("banner")).toBeTruthy();
     expect(screen.getByRole("main").getAttribute("id")).toBe("noi-dung-chinh");
     expect(screen.getByRole("contentinfo")).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1, name: /Một nơi để vận hành đào tạo rõ ràng hơn/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Gọn để bắt đầu. Rõ để cùng vận hành." })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Bớt phân mảnh. Thêm một nhịp làm việc chung." })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Những module Web tạo nên DX LMS." })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: /Một hệ thống cho mọi quy mô đào tạo/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Bắt đầu gọn. Mở rộng mà không phải đổi hệ thống." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Việc hôm nay đơn giản. Quy mô ngày mai vẫn kiểm soát được." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Đủ cho lớp học. Có chiều sâu cho trung tâm." })).toBeTruthy();
   });
 
-  it("chỉ mô tả sáu module Web đang tồn tại và không chứa nội dung agency giả", () => {
+  it("mô tả đúng tám năng lực đã triển khai và không chứa nội dung agency giả", () => {
     const { container } = render(<Home />);
     const services = container.querySelector<HTMLElement>("#nang-luc");
 
     expect(services).toBeTruthy();
     const cards = within(services!).getAllByRole("article");
-    expect(cards).toHaveLength(6);
+    expect(cards).toHaveLength(8);
     expect(cards.map((card) => within(card).getByRole("heading").textContent)).toEqual([
-      "Người dùng",
-      "Khóa học",
-      "Ghi danh",
-      "Bài tập",
-      "Dashboard",
-      "Tùy biến tenant",
+      "Lớp học & lịch học",
+      "Điểm danh theo buổi",
+      "Học viên & phụ huynh",
+      "Học phí & thu tiền",
+      "Cơ cấu nhiều chi nhánh",
+      "Phân quyền theo phạm vi",
+      "Báo cáo vận hành",
+      "Thông báo & nhập dữ liệu",
     ]);
 
     expect(screen.queryByText(/digital marketing|ui\/ux design|cloud solutions|e-commerce|machine learning/i)).toBeNull();
     expect(screen.queryByText(/testimonial|khách hàng nói|tăng \d+%|giảm \d+%/i)).toBeNull();
-    expect(screen.queryByText(/trial|dùng thử|hello@example|\+62/i)).toBeNull();
-    expect(screen.queryByText(/điểm danh|học phí|phụ huynh|zalo|crm|đa chi nhánh/i)).toBeNull();
+    expect(screen.queryByText(/hello@example|\+62|zalo|crm/i)).toBeNull();
+    expect(within(services!).getByText("Điểm danh theo buổi")).toBeTruthy();
+    expect(within(services!).getByText("Cơ cấu nhiều chi nhánh")).toBeTruthy();
   });
 
-  it("hiển thị ba hướng mua với giá khởi đầu và CTA thật", () => {
+  it("hiển thị đủ bốn mô hình vận hành, không tự đặt giá và có CTA thật", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
     try {
@@ -63,27 +66,29 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
       expect(pricing!.querySelector(`.${styles.pricingGrid}`)).toBeTruthy();
 
       const cards = within(pricing!).getAllByRole("article");
-      expect(cards).toHaveLength(3);
+      expect(cards).toHaveLength(4);
       expect(cards.map((card) => within(card).getByRole("heading").textContent)).toEqual([
-        "Lớp học thêm",
-        "Trung tâm",
-        "Trường học",
+        "Lớp một giáo viên",
+        "Trung tâm nhỏ",
+        "Trung tâm lớn",
+        "Chuỗi trung tâm",
       ]);
-      expect(within(pricing!).getByRole("article", { name: "Lớp học thêm" })).toBe(cards[0]);
-      expect(within(pricing!).getByRole("article", { name: "Trung tâm" })).toBe(cards[1]);
-      expect(within(pricing!).getByRole("article", { name: "Trường học" })).toBe(cards[2]);
+      expect(within(pricing!).getByRole("article", { name: "Lớp một giáo viên" })).toBe(cards[0]);
+      expect(within(pricing!).getByRole("article", { name: "Trung tâm nhỏ" })).toBe(cards[1]);
+      expect(within(pricing!).getByRole("article", { name: "Trung tâm lớn" })).toBe(cards[2]);
+      expect(within(pricing!).getByRole("article", { name: "Chuỗi trung tâm" })).toBe(cards[3]);
 
-      expect(within(cards[0]).getByText("199.000đ")).toBeTruthy();
-      expect(within(cards[0]).getByText("hoặc 1.990.000đ/năm")).toBeTruthy();
-      expect(within(cards[0]).getByRole("link", { name: /Bắt đầu với gói này/i }).getAttribute("href")).toBe("/login");
-
-      for (const card of cards.slice(1)) {
-        expect(within(card).getByText("Liên hệ")).toBeTruthy();
-        expect(within(card).getByText("Chi phí theo phạm vi")).toBeTruthy();
-        expect(card.textContent).not.toMatch(/\d[\d.]*đ/i);
-      }
-      expect(within(cards[1]).getByRole("link", { name: /Trao đổi phạm vi/i }).getAttribute("href")).toBe("#lien-he");
-      expect(within(cards[2]).getByRole("link", { name: /Liên hệ trao đổi/i }).getAttribute("href")).toBe("#lien-he");
+      cards.forEach((card) => expect(card.textContent).not.toMatch(/\d[\d.]*đ/i));
+      expect(within(cards[0]).getByRole("link", { name: /Vào hệ thống/i }).getAttribute("href")).toBe("/login");
+      expect(within(cards[1]).getByRole("link", { name: /Trao đổi cấu hình/i }).getAttribute("href")).toBe("#lien-he");
+      expect(within(cards[2]).getByRole("link", { name: /Thiết kế mô hình/i }).getAttribute("href")).toBe("#lien-he");
+      expect(within(cards[3]).getByRole("link", { name: /Trao đổi kiến trúc/i }).getAttribute("href")).toBe("#lien-he");
+      expect(
+        within(pricing!).getByText(
+          /Mỗi workspace mới.*dùng thử tự động/i,
+        ),
+      ).toBeTruthy();
+      expect(pricing!.querySelector('a[href="/register"]')).toBeNull();
     } finally {
       fetchSpy.mockRestore();
     }
@@ -98,7 +103,7 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
       expect(container.querySelector(link.getAttribute("href")!)).toBeTruthy();
     });
 
-    const loginLinks = screen.getAllByRole("link", { name: /workspace|đăng nhập/i });
+    const loginLinks = screen.getAllByRole("link", { name: /hệ thống|đăng nhập/i });
     expect(loginLinks.length).toBeGreaterThanOrEqual(5);
     loginLinks.forEach((link) => expect(link.getAttribute("href")).toBe("/login"));
 
@@ -117,20 +122,20 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
     const mobileNav = within(mobileMenu!).getByRole("navigation", {
       name: "Điều hướng trên thiết bị di động",
     });
-    fireEvent.click(within(mobileNav).getByRole("link", { name: "Bảng giá" }));
+    fireEvent.click(within(mobileNav).getByRole("link", { name: "Quy mô" }));
     expect(mobileMenu!.open).toBe(false);
-    expect(document.activeElement).toBe(container.querySelector("#bang-gia"));
+    expect(document.activeElement).toBe(container.querySelector("#quy-mo"));
 
     const hero = container.querySelector<HTMLElement>('[data-section="hero"]');
     fireEvent.click(within(hero!).getByRole("link", { name: "Khám phá DX LMS" }));
     expect(document.activeElement).toBe(container.querySelector("#gioi-thieu"));
 
     const footer = screen.getByRole("contentinfo");
-    fireEvent.click(within(footer).getByRole("link", { name: "Bảng giá" }));
-    expect(document.activeElement).toBe(container.querySelector("#bang-gia"));
+    fireEvent.click(within(footer).getByRole("link", { name: "Quy mô" }));
+    expect(document.activeElement).toBe(container.querySelector("#quy-mo"));
 
     const desktopNav = screen.getByRole("navigation", { name: "Điều hướng chính" });
-    expect(within(desktopNav).getByRole("link", { name: "Bảng giá" }).getAttribute("href")).toBe("#bang-gia");
+    expect(within(desktopNav).getByRole("link", { name: "Quy mô" }).getAttribute("href")).toBe("#quy-mo");
   });
 
   it("giữ mascot, dashboard và metadata DX LMS trong Server Component", () => {
@@ -142,24 +147,41 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
     expect(mascot.getAttribute("height")).toBe("1278");
     expect(mascot.getAttribute("sizes")).toContain("(max-width: 360px) 42vw");
     expect(mascot.getAttribute("sizes")).toContain("(max-width: 1050px) 28vw");
-    expect(screen.getByText("DX LMS · Workspace tổ chức")).toBeTruthy();
+    expect(screen.getByText("DX LMS · Không gian tổ chức")).toBeTruthy();
 
-    expect(metadata.title).toBe("DX LMS — Một workspace rõ ràng cho vận hành đào tạo");
-    expect(metadata.description).toContain("workspace riêng của từng tổ chức");
+    expect(metadata.title).toBe("DX LMS — Từ một lớp học đến chuỗi trung tâm");
+    expect(metadata.description).toContain("nhiều chi nhánh");
     expect(readFileSync(resolve(process.cwd(), "app/page.tsx"), "utf8")).not.toContain('"use client"');
   });
 
-  it("desktop 1440px có header 64px, hero hai cột 64px và mosaic DX LMS", () => {
+  it("phân bổ sáu mascot trang trí riêng cho sáu section sau hero", () => {
+    const { container } = render(<Home />);
+    const variants = [...container.querySelectorAll<HTMLElement>("[data-section-mascot]")]
+      .map((mascot) => mascot.dataset.sectionMascot);
+
+    expect(variants).toEqual(["about", "motivation", "services", "pricing", "cta", "contact"]);
+
+    for (const variant of variants) {
+      expect(existsSync(resolve(
+        process.cwd(),
+        `public/graphics/dx-lms-dolphin-${variant}.png`,
+      ))).toBe(true);
+    }
+  });
+
+  it("desktop 1440px có header kính 72px, hero hai cột lớn và mosaic DX LMS", () => {
     const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
     const hero = readFileSync(resolve(process.cwd(), "components/marketing/marketing-hero.tsx"), "utf8");
 
-    expect(css).toContain("--marketing-blue: #0068ff");
-    expect(css).toContain("--marketing-ink: #141415");
-    expect(css).toMatch(/\.header\s*{[^}]*height: 64px/);
-    expect(css).toMatch(/\.heroInner\s*{[^}]*grid-template-columns: minmax\(0, \.88fr\) minmax\(540px, 1\.12fr\)/);
-    expect(css).toMatch(/\.heroCopy h1\s*{[^}]*font-size: clamp\(3\.4rem, 4\.45vw, 4rem\)/);
+    expect(css).toContain("--marketing-blue: #0068d9");
+    expect(css).toContain("--marketing-cyan: #12bfe2");
+    expect(css).toContain("--marketing-ink: #062347");
+    expect(css).toMatch(/\.header\s*{[^}]*height: 72px/);
+    expect(css).toMatch(/\.heroInner\s*{[^}]*grid-template-columns: minmax\(0, \.9fr\) minmax\(540px, 1\.1fr\)/);
+    expect(css).toMatch(/\.heroCopy h1\s*{[^}]*font-size: clamp\(2\.3rem, 2\.8vw, 2\.75rem\)/);
+    expect(css).toMatch(/\.sectionLead h2,[\s\S]*?font-size: clamp\(1\.7rem, 1\.9vw, 2rem\)/);
     expect(css).toContain("@media (min-width: 1440px)");
-    expect(css).toMatch(/@media \(min-width: 1440px\)[\s\S]*?\.heroCopy h1\s*{ font-size: 4rem; }/);
+    expect(css).toMatch(/@media \(min-width: 1440px\)[\s\S]*?\.heroCopy h1\s*{ font-size: 2\.75rem; }/);
     expect(hero).toContain("styles.heroVisual");
     expect(hero).toContain("styles.mosaicSquare");
     expect(hero).toContain("styles.mosaicPill");
@@ -172,9 +194,11 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
 
     expect(css).toContain("@media (max-width: 1050px)");
     expect(css).toMatch(/@media \(max-width: 1050px\)[\s\S]*?\.heroInner\s*{[^}]*grid-template-columns: minmax\(0, \.92fr\) minmax\(360px, 1\.08fr\)/);
-    expect(css).toMatch(/@media \(max-width: 1050px\)[\s\S]*?\.heroVisual\s*{ height: 500px; }/);
+    expect(css).toMatch(/@media \(max-width: 1050px\)[\s\S]*?\.heroVisual\s*{ height: 510px; }/);
     expect(css).toMatch(/\.valueGrid\s*{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
-    expect(css).toMatch(/\.serviceGrid\s*{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(/\.serviceGrid\s*{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(/\.pricingGrid\s*{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(/@media \(max-width: 1050px\)[\s\S]*?\.pricingGrid\s*{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   });
 
   it("mobile 360–768px xếp hero dọc, CTA đủ rộng và không tạo overflow ngang", () => {
@@ -186,7 +210,7 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
     expect(css).toMatch(/@media \(max-width: 768px\)[\s\S]*?\.pricingGrid\s*{ grid-template-columns: 1fr; }/);
     expect(css).toMatch(/@media \(max-width: 620px\)[\s\S]*?\.heroActions > a\s*{ width: 100%; }/);
     expect(css).toContain("@media (max-width: 360px)");
-    expect(css).toMatch(/@media \(max-width: 360px\)[\s\S]*?\.heroCopy h1\s*{[^}]*font-size: 2\.5rem/);
+    expect(css).toMatch(/@media \(max-width: 360px\)[\s\S]*?\.heroCopy h1\s*{[^}]*font-size: 1\.82rem/);
     expect(css).toMatch(/\.planCard\s*{[^}]*min-width: 0/);
     expect(css).toMatch(/\.planCard > :where\(a\)\s*{[^}]*width: 100%/);
   });
@@ -194,12 +218,15 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
   it("scope Be Vietnam Pro cho landing, giữ focus và dừng motion khi được yêu cầu", () => {
     const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
     const page = readFileSync(resolve(process.cwd(), "app/page.tsx"), "utf8");
+    const layout = readFileSync(resolve(process.cwd(), "app/layout.tsx"), "utf8");
     const header = readFileSync(resolve(process.cwd(), "components/marketing/marketing-header.tsx"), "utf8");
+    const motion = readFileSync(resolve(process.cwd(), "components/marketing/marketing-motion.tsx"), "utf8");
     const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
 
-    for (const weight of [400, 500, 700, 900]) {
-      expect(page).toContain(`@fontsource/be-vietnam-pro/${weight}.css`);
+    for (const weight of [400, 500, 600, 700, 900]) {
+      expect(layout).toContain(`@fontsource/be-vietnam-pro/${weight}.css`);
     }
+    expect(layout).toContain('data-scroll-behavior="smooth"');
     expect(packageJson.dependencies["@fontsource/be-vietnam-pro"]).toBeTruthy();
     expect(existsSync(resolve(process.cwd(), "node_modules/@fontsource/be-vietnam-pro/LICENSE"))).toBe(true);
     expect(css).toContain('font-family: "Be Vietnam Pro"');
@@ -207,7 +234,7 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
     const fontWeights = [...new Set(
       [...css.matchAll(/font-weight:\s*(\d+)/g)].map((match) => Number(match[1])),
     )].sort((a, b) => a - b);
-    expect(fontWeights).toEqual([400, 500, 700, 900]);
+    expect(fontWeights).toEqual([400, 500, 600, 700, 900]);
     expect(css).toContain("border-radius: 999px");
     expect(css).toContain(":focus-visible");
     expect(css).toContain("scroll-margin-top");
@@ -217,18 +244,23 @@ describe("DX LMS landing theo ngôn ngữ hình học", () => {
     expect(css).toContain("transition-duration: .01ms !important");
     expect(header).toContain("<details");
     expect(header).toContain("<summary");
+    expect(page).toContain("<MarketingMotion />");
+    expect(motion).toContain("IntersectionObserver");
+    expect(motion).toContain("prefers-reduced-motion: reduce");
   });
 
-  it("xen kẽ bề mặt trắng–navy–kem và kết thúc bằng footer xanh đặc", () => {
+  it("dùng hệ màu đại dương nhưng tiết chế lưới, glow và chuyển động trang trí", () => {
     const css = readFileSync(resolve(process.cwd(), "app/marketing.module.css"), "utf8");
     const footer = readFileSync(resolve(process.cwd(), "components/marketing/marketing-footer.tsx"), "utf8");
 
-    expect(css).toMatch(/\.hero\s*{[^}]*background: var\(--marketing-white\)/);
-    expect(css).toMatch(/\.motivationSection\s*{[^}]*background: var\(--marketing-cream\)/);
-    expect(css).toMatch(/\.servicesSection\s*{[^}]*background: var\(--marketing-navy\)/);
-    expect(css).toMatch(/\.pricingSection\s*{[^}]*background: var\(--marketing-cream\)/);
-    expect(css).toMatch(/\.footer\s*{[^}]*background: var\(--marketing-blue\)/);
-    expect(css).not.toContain("linear-gradient");
+    expect(css).toContain(".headlineGradient");
+    expect(css).toContain("linear-gradient(100deg, #0a3f88");
+    expect(css).toContain("@keyframes marketingDolphinFloat");
+    expect(css).toContain("@keyframes marketingMarquee");
+    expect(css).toMatch(/\.heroMarquee\s*{ display: none; }/);
+    expect(css).toMatch(/\.servicesSection::before\s*{[\s\S]*?display: none;/);
+    expect(css).toMatch(/\.sectionMascot img\s*{[\s\S]*?animation: none;/);
+    expect(css).toContain("background: #f6fafc");
     expect(footer).not.toContain("footerWave");
   });
 

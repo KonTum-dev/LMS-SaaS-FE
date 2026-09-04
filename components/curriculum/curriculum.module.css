@@ -1,0 +1,121 @@
+.pageHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.toolbar,
+.resourceActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sectionList,
+.lessonList {
+  display: grid;
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lessonList {
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.lessonItem {
+  align-items: center;
+  background: var(--dx-color-fill-alter, #f7f9fc);
+  border: 1px solid var(--dx-color-border-secondary, #e8edf3);
+  border-radius: 12px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.lessonCopy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lessonTitle {
+  color: inherit;
+  font-weight: 600;
+}
+
+.lessonSummary {
+  color: var(--dx-color-text-secondary, #64748b);
+  margin: 0;
+}
+
+.emptyLessons {
+  color: var(--dx-color-text-secondary, #64748b);
+  margin: 14px 0 0;
+}
+
+.modalFields {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.fieldLabel {
+  color: var(--dx-color-text-label, #46566d);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lessonContent {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.externalCard {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.externalLink {
+  align-items: center;
+  background: var(--dx-color-primary, #176bff);
+  border-radius: 10px;
+  color: #fff;
+  display: inline-flex;
+  font-weight: 600;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 16px;
+  text-decoration: none;
+}
+
+.externalLink:hover,
+.externalLink:focus-visible {
+  color: #fff;
+  filter: brightness(0.94);
+}
+
+.progressReport {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .pageHeader,
+  .lessonItem {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

@@ -13,8 +13,8 @@ describe("billing status UI", () => {
     expect(getBillingStatusPresentation(status)).toMatchObject({ label, terminal });
   });
 
-  it("nói rõ trạng thái paid đến từ IPN backend", () => {
-    expect(getBillingStatusPresentation("PAID").description).toContain("IPN");
+  it("mô tả trạng thái đã thanh toán bằng ngôn ngữ dễ hiểu", () => {
+    expect(getBillingStatusPresentation("PAID").description).toContain("đã được xác nhận");
   });
 
   it("poll nhanh pending, poll chậm expired và chỉ dừng lỗi ban đầu/terminal khác", () => {

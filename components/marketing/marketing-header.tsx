@@ -7,8 +7,8 @@ import { MarketingIcon } from "./marketing-icon";
 const navigation = [
   { href: "#gioi-thieu", label: "Giới thiệu" },
   { href: "#gia-tri", label: "Giá trị" },
-  { href: "#nang-luc", label: "Năng lực" },
-  { href: "#bang-gia", label: "Bảng giá" },
+  { href: "#nang-luc", label: "Tính năng" },
+  { href: "#quy-mo", label: "Quy mô" },
   { href: "#lien-he", label: "Bắt đầu" },
 ];
 
@@ -29,7 +29,7 @@ export function MarketingHeader() {
         <div className={styles.headerActions}>
           <Link className={styles.textLink} href="/login">Đăng nhập</Link>
           <Link className={styles.compactButton} href="/login">
-            Vào workspace <MarketingIcon name="right" />
+            Vào hệ thống <MarketingIcon name="right" />
           </Link>
         </div>
 
@@ -40,7 +40,7 @@ export function MarketingHeader() {
           </summary>
           <nav aria-label="Điều hướng trên thiết bị di động">
             {navigation.map((item) => <a href={item.href} key={item.href}>{item.label}</a>)}
-            <Link href="/login">Vào workspace</Link>
+            <Link href="/login">Vào hệ thống</Link>
           </nav>
         </details>
       </div>

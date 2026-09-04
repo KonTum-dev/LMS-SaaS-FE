@@ -9,21 +9,21 @@ export interface BillingStatusPresentation {
 
 export function getBillingStatusPresentation(status: PaymentOrderStatus): BillingStatusPresentation {
   if (status === "PAID") {
-    return { color: "green", description: "Thanh toán đã được IPN xác nhận và thuê bao đã cập nhật.", label: "Đã thanh toán", terminal: true };
+    return { color: "green", description: "Thanh toán đã được xác nhận và gói thuê bao đã cập nhật.", label: "Đã thanh toán", terminal: true };
   }
   if (status === "CANCELED") {
     return { color: "red", description: "Đơn đã hủy và không làm thay đổi thuê bao.", label: "Đã hủy", terminal: true };
   }
   if (status === "EXPIRED") {
-    return { color: "default", description: "Checkout đã hết hạn sau 30 phút. IPN đến muộn vẫn sẽ được backend xác minh.", label: "Đã hết hạn", terminal: true };
+    return { color: "default", description: "Yêu cầu thanh toán đã hết hạn sau 30 phút. Giao dịch đến muộn vẫn sẽ được hệ thống kiểm tra.", label: "Đã hết hạn", terminal: true };
   }
   if (status === "REVIEW_REQUIRED") {
-    return { color: "orange", description: "SePay đã xác nhận giao dịch nhưng snapshot thuê bao đã thay đổi. Quản trị nền tảng cần đối soát.", label: "Cần đối soát", terminal: true };
+    return { color: "orange", description: "Cổng thanh toán đã xác nhận giao dịch nhưng thông tin thuê bao đã thay đổi. Quản trị nền tảng cần kiểm tra.", label: "Cần đối soát", terminal: true };
   }
   if (status === "REFUND_REQUIRED") {
-    return { color: "gold", description: "Giao dịch đã được gắn cờ cần hoàn tiền thủ công; hệ thống chưa thực hiện refund.", label: "Cần hoàn tiền", terminal: true };
+    return { color: "gold", description: "Giao dịch cần được hoàn tiền thủ công; hệ thống chưa tự động hoàn tiền.", label: "Cần hoàn tiền", terminal: true };
   }
-  return { color: "blue", description: "Đang chờ SePay gửi xác nhận. Bạn có thể giữ trang này mở.", label: "Đang chờ", terminal: false };
+  return { color: "blue", description: "Đang chờ cổng thanh toán xác nhận. Bạn có thể giữ trang này mở.", label: "Đang chờ", terminal: false };
 }
 
 export function billingRefetchInterval(status?: PaymentOrderStatus, hasError = false): number | false {
