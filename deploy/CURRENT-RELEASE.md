@@ -1,16 +1,19 @@
 # Release đang chạy — DX LMS
 
-Cập nhật: 05/09/2026, sau khi triển khai cổng phụ huynh và tạo tài khoản tenant.
+Cập nhật: 05/09/2026, sau khi triển khai CRM tenant và giao diện login/workspace.
 Trial vẫn là 30 ngày cho workspace mới, không đổi chính sách của release trước.
 
 ## Runtime và đường quay lại
 
 | Vai trò | Đường dẫn |
 | --- | --- |
-| Frontend hiện hành | `/root/lms-releases/20260905-guardian-portal/frontend` |
-| PM2 config frontend | `/root/lms-releases/20260905-guardian-portal/ecosystem.config.cjs` |
-| Frontend rollback gần nhất | `/root/lms-releases/20260905-email-design/frontend` |
-| Backend hiện hành | `/root/LMS-SaaS-BE` |
+| Frontend hiện hành | `/root/lms-releases/20260905-tenant-crm/frontend` |
+| PM2 config frontend | `/root/lms-releases/20260905-tenant-crm/frontend.ecosystem.config.cjs` |
+| Frontend rollback gần nhất | `/root/lms-releases/20260905-guardian-portal/frontend` |
+| Backend source/build hiện hành | `/root/lms-releases/20260905-tenant-crm/backend` |
+| Backend cwd và `.env` giữ nguyên | `/root/LMS-SaaS-BE` |
+| PM2 config backend | `/root/lms-releases/20260905-tenant-crm/backend.ecosystem.config.cjs` |
+| Backup/rollback CRM | `/root/lms-ops-backups/tenant-crm-20260905` |
 | Backup cổng phụ huynh | `/root/lms-ops-backups/guardian-portal-20260905` |
 | Công cụ triển khai cổng phụ huynh | `/root/lms-ops-tools/guardian-portal-20260905` |
 | Backup email HTML/notification | `/root/lms-ops-backups/email-design-20260905` |
@@ -18,7 +21,7 @@ Trial vẫn là 30 ngày cho workspace mới, không đổi chính sách của r
 | Backup thay UI login | `/root/lms-ops-backups/login-clean-20260905` |
 | Backup thay policy | `/root/lms-ops-backups/trial30-20260905` |
 
-Build frontend: `AeCETfmpQN5j1-Zt84p9l`. PM2: `LMS-SaaS-FE` và
+Build frontend: `dTD3jq8oQy-9zIQKR2sZp`. PM2: `LMS-SaaS-FE` và
 `LMS-SaaS-BE`; cổng loopback lần lượt 3000 và 4000. PM2 đã lưu cấu hình.
 Website/API public: `https://lms.dolphinxstudio.com` và `/api/v1`.
 
@@ -26,7 +29,51 @@ Website/API public: `https://lms.dolphinxstudio.com` và `/api/v1`.
 `/root/LMS-SaaS-BE.rollback-20260905-google-auth-v1` vẫn được giữ; PM2 daemon
 còn dùng thư mục đó làm cwd, không tự ý xóa/di chuyển.
 
-## Cổng phụ huynh — release hiện tại
+## CRM tenant — release hiện tại
+
+- Code đã push lên `main` và VPS pull qua checkout sạch. BE code commit
+  `07114623dabba6bd7483cf87775d7c2f9c925788`; FE code commit
+  `e39e1fa213fe0759e4017063d54cfbd5b6fc8857`. Các commit chỉ cập nhật tài liệu
+  sau đó không thay đổi bundle đã build.
+- CRM thuộc tenant: liên hệ, trạng thái tư vấn, lịch chăm sóc, ghi chú, lọc và
+  phân trang; giới hạn theo tenant/chi nhánh/quyền ghi. Không thêm CRM khách hàng
+  toàn nền tảng. Login có nền minh họa và workspace đã chỉnh khoảng cách.
+- Backend executable: `/root/lms-releases/20260905-tenant-crm/backend/dist/main.js`.
+  Cwd vẫn là `/root/LMS-SaaS-BE` để giữ đường dẫn env/storage. Checkout cũ và mọi
+  chỉnh sửa chưa commit trên VPS được giữ nguyên; `git pull` ở checkout cũ **không**
+  cập nhật executable đang chạy. Lần release kế tiếp cần build rồi chuyển PM2.
+- Giữ nguyên toàn bộ `.env`, override trial/email/Zalo CORS, Nginx/TLS, storage
+  và các tích hợp đang chạy. Backend PID `103258`, frontend PID `103387`; PM2
+  đã save, mỗi process chỉ listen loopback và restart count sau smoke là 0.
+- CRM tạo bốn index ứng dụng, gồm hai partial unique index đã verify; collection
+  không có contact trước/sau migration. Không drop index hay sửa dữ liệu khách hàng.
+- Linux: 2.241 BE tests/196 suites, 163 FE tests/6 suites và cả hai build đạt.
+  Local FE: 1.519 tests/132 suites đạt. Sửa test inventory để nhận catalog tạo
+  tài khoản đã được UI sử dụng; không thay đổi chính sách mật khẩu.
+- HTTPS smoke: `/`, `/login`, `/crm`, `/family`, `/pricing`, API health 200;
+  CRM/Zalo/guardian API thiếu JWT trả 401; readiness nội bộ đạt và vẫn bị chặn
+  public. 29 static assets và hash minh họa login khớp release. Browser login
+  desktop/mobile 390px tải đúng, không lỗi console, không tràn ngang khi tải mới.
+- Zalo profile sync **chưa bật**: production thiếu `ZALO_APP_ID` và
+  `ZALO_APP_SECRET`. Mini App local chưa có CLI developer authentication;
+  chưa upload/phát hành Zalo, chưa xác nhận quyền số điện thoại/native-device QA.
+  Manual CRM không phụ thuộc việc bật Zalo.
+- Không đăng nhập tài khoản LMS thật, tạo contact/học viên, gửi email hay giao
+  dịch production để smoke test. Kiểm thử CRUD và tenant isolation dùng fixture
+  cùng database local cách ly, không phải bằng chứng CRUD bằng tài khoản live.
+
+Rollback riêng từng process bằng config tương ứng trong backup:
+`backend.rollback.config.cjs` hoặc `frontend.rollback.config.cjs`. Chỉ thay
+process có tên tương ứng, kiểm tra readiness rồi `pm2 save`; giữ nguyên index
+CRM và dữ liệu mới. Không khôi phục env cũ hoặc drop collection. Script
+`activate.cjs` dùng PID/commit preflight riêng của đợt này, không chạy lại mù quáng.
+Config/backup có env riêng tư, không commit hoặc chia sẻ công khai.
+
+FE dùng `npm ci` theo `package-lock.json`; hai file pnpm phát sinh ở local không
+được đưa vào release. BE dùng `pnpm install --frozen-lockfile`. Không chuyển
+`node_modules` macOS lên Linux.
+
+## Cổng phụ huynh — release trước
 
 - Web `/family`: chọn con, tiến độ, feedback/điểm bài tập và điểm bài kiểm tra đã công bố; VI/EN, phân trang độc lập, loading/empty/error/retry.
 - Tenant tạo tài khoản Phụ huynh trong `/users`, liên kết với học viên tại `/guardians`. GUARDIAN là vai trò đã có; release này bổ sung cổng học tập và hoàn thiện luồng tạo tài khoản, không tạo vai trò mới.
