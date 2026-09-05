@@ -79,6 +79,38 @@ const allModules: LmsModule[] = [
 ];
 
 describe("workspace route access policy", () => {
+  it.each(["GLOBAL", "SCOPED"] as const)("allows %s tenant admins into CRM with only USERS, including read-only access", (scope) => {
+    for (const state of ["ACTIVE", "READ_ONLY"] as const) {
+      expect(getWorkspaceRouteAccess({
+        pathname: "/crm", user: user("TENANT_ADMIN", scope),
+        organization: organization(["USERS"]), effectiveAccess: effectiveAccess(["USERS"], state),
+      })).toEqual({ allowed: true, route: "tenant-crm" });
+    }
+  });
+  it.each(["SUPER_ADMIN", "INSTRUCTOR", "LEARNER", "GUARDIAN"] as const)("rejects tenant CRM for %s", (role) => {
+    expect(getWorkspaceRouteAccess({
+      pathname: "/crm", user: user(role), organization: organization(allModules), effectiveAccess: effectiveAccess(allModules),
+    })).toMatchObject({ allowed: false, reason: "ROLE_NOT_ALLOWED", route: "tenant-crm" });
+  });
+  it("requires USERS and a matching tenant membership for CRM", () => {
+    const context = { pathname: "/crm", organization: organization(["USERS"]), effectiveAccess: effectiveAccess(["USERS"]), user: user("TENANT_ADMIN") };
+    expect(getWorkspaceRouteAccess({ ...context, effectiveAccess: effectiveAccess([]) })).toMatchObject({ allowed: false, reason: "MODULE_DISABLED", requiredModule: "USERS" });
+    expect(getWorkspaceRouteAccess({ ...context, organization: null })).toMatchObject({ allowed: false, reason: "ORGANIZATION_REQUIRED" });
+    for (const identity of [
+      { ...context.user, tenantId: undefined },
+      { ...context.user, membershipId: undefined },
+      { ...context.user, tenantId: "other-tenant" },
+    ]) expect(getWorkspaceRouteAccess({ ...context, user: identity })).toMatchObject({ allowed: false, reason: "ORGANIZATION_REQUIRED" });
+    expect(getWorkspaceRouteAccess({ ...context, pathname: "/crm-copy" })).toMatchObject({ allowed: false, reason: "UNKNOWN_ROUTE" });
+  });
+  it("allows the guardian family route only for a guardian with the module", () => {
+    const context = { effectiveAccess: effectiveAccess(allModules), organization: organization(allModules) };
+    expect(getWorkspaceRouteAccess({ pathname: "/family", ...context, user: user("GUARDIAN") })).toMatchObject({ allowed: true, route: "guardian-family" });
+    for (const role of ["SUPER_ADMIN", "TENANT_ADMIN", "INSTRUCTOR", "LEARNER"] as const) {
+      expect(getWorkspaceRouteAccess({ pathname: "/family", ...context, user: user(role) }).allowed).toBe(false);
+    }
+    expect(getWorkspaceRouteAccess({ pathname: "/family", ...context, user: user("GUARDIAN"), effectiveAccess: effectiveAccess([]) }).allowed).toBe(false);
+  });
   it("tách quyền xuất bản khỏi quyền xem và thu hồi YouTube", () => {
     expect(isScopedTenantAdmin(user("TENANT_ADMIN", "SCOPED"))).toBe(true);
     expect(canPublishYouTube(user("TENANT_ADMIN", "SCOPED"))).toBe(false);
@@ -151,6 +183,8 @@ describe("workspace route access policy", () => {
   });
 
   it("chỉ cho quản trị nền tảng mở các route nền tảng", () => {
+    expect(getWorkspaceRouteAccess({ effectiveAccess: null, organization: null, pathname: "/admin/accounts", user: user("SUPER_ADMIN") })).toEqual({ allowed: true, route: "platform-accounts" });
+    expect(getWorkspaceRouteAccess({ effectiveAccess: effectiveAccess(allModules), organization: organization(allModules), pathname: "/admin/accounts", user: user("TENANT_ADMIN") })).toMatchObject({ allowed: false, reason: "ROLE_NOT_ALLOWED" });
     expect(
       getWorkspaceRouteAccess({
         effectiveAccess: null,

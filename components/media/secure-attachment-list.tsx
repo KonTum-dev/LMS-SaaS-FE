@@ -1,5 +1,9 @@
 "use client";
 
+import { useFeedback } from "@/components/feedback/feedback-provider";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
 import { Alert, Button, Spin, Tag } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -26,6 +30,8 @@ interface SecureAttachmentListProps {
   token: string;
 }
 
+type AttachmentMutation = { assetId: string; action: "up" | "down" | "remove" };
+
 const statusLabels: Record<MediaAsset["status"], string> = {
   AVAILABLE: "Sẵn sàng",
   DELETED: "Đã xóa",
@@ -34,12 +40,6 @@ const statusLabels: Record<MediaAsset["status"], string> = {
   QUARANTINED: "Đang kiểm tra",
   REJECTED: "Không an toàn",
 };
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KiB`;
-  return `${Math.round((value / 1024 / 1024) * 10) / 10} MiB`;
-}
 
 function mediaAssetKey(
   scope: ViewerScope,
@@ -74,6 +74,7 @@ function AttachmentRow({
   onRemove,
   removeDisabled,
   replacing,
+  pendingAction,
   renderAssetAction,
   scope,
   target,
@@ -88,15 +89,29 @@ function AttachmentRow({
   onRemove: (index: number) => void;
   removeDisabled: boolean;
   replacing: boolean;
+  pendingAction: AttachmentMutation | null;
   renderAssetAction?: (asset: MediaAsset) => ReactNode;
   scope: ViewerScope;
   target: MediaTarget;
   token: string;
   total: number;
 }) {
+  const { t, formatNumber } = useI18n(learningMessages);
+  const { formatError } = useFeedback();
+  function formatBytes(value: number) {
+    if (value < 1024) return `${formatNumber(value)} B`;
+    if (value < 1024 * 1024)
+      return `${formatNumber(Math.round(value / 1024))} KiB`;
+    return `${formatNumber(Math.round((value / 1024 / 1024) * 10) / 10)} MiB`;
+  }
+
   const downloadController = useRef<AbortController | null>(null);
   const [downloadBusy, setDownloadBusy] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [metadataRetrying, setMetadataRetrying] = useState(false);
+  const metadataRetryInFlight = useRef(false);
+  const [downloadError, setDownloadError] = useState<{ cause: unknown } | null>(
+    null,
+  );
   const queryClient = useQueryClient();
   const targetKey =
     target.kind === "LESSON"
@@ -131,6 +146,18 @@ function AttachmentRow({
     return () => downloadController.current?.abort();
   }, [assetId, authorityKey, token]);
 
+  const retryMetadata = async () => {
+    if (!mediaEnabled || metadataRetryInFlight.current) return;
+    metadataRetryInFlight.current = true;
+    setMetadataRetrying(true);
+    try {
+      await assetQuery.refetch({ cancelRefetch: false, throwOnError: false });
+    } finally {
+      metadataRetryInFlight.current = false;
+      setMetadataRetrying(false);
+    }
+  };
+
   const download = async () => {
     if (
       !mediaEnabled ||
@@ -159,11 +186,7 @@ function AttachmentRow({
       openMediaDownload(ticket);
     } catch (error) {
       if (!controller.signal.aborted) {
-        setDownloadError(
-          error instanceof Error
-            ? error.message
-            : "Không thể cấp liên kết tải tệp.",
-        );
+        setDownloadError({ cause: error });
       }
     } finally {
       if (downloadController.current === controller) {
@@ -177,44 +200,56 @@ function AttachmentRow({
     <li className={styles.attachmentRow}>
       <div>
         <strong className={styles.attachmentName}>
-          {asset?.originalFileName ?? `Tệp đính kèm ${index + 1}`}
+          {asset?.originalFileName ?? t("Tệp đính kèm {p0}", { p0: index + 1 })}
         </strong>
         <span className={styles.attachmentMeta}>
           {asset ? (
             <>
               {formatBytes(asset.sizeBytes)} · {asset.contentType}
-              <Tag>{statusLabels[asset.status]}</Tag>
+              <Tag>{t(statusLabels[asset.status])}</Tag>
             </>
           ) : assetQuery.isPending && mediaEnabled ? (
             <>
-              <Spin size="small" /> Đang đọc metadata an toàn
+              <Spin size="small" /> {t("Đang đọc metadata an toàn")}
             </>
           ) : (
-            <>Mã tệp …{assetId.slice(-8)}</>
+            <>
+              {t("Mã tệp …")}
+              {assetId.slice(-8)}
+            </>
           )}
         </span>
-        {assetQuery.error && mediaEnabled && (
+        {(assetQuery.error || metadataRetrying) && mediaEnabled && (
           <Alert
             action={
-              <Button onClick={() => void assetQuery.refetch()} size="small">
-                Thử lại
+              <Button
+                loading={metadataRetrying || assetQuery.isFetching}
+                onClick={() => void retryMetadata()}
+                size="small"
+              >
+                {t("Thử lại")}
               </Button>
             }
             showIcon
-            title={
-              assetQuery.error instanceof Error
-                ? assetQuery.error.message
-                : "Không tải được metadata tệp"
-            }
+            title={formatError(assetQuery.error, "Không tải được metadata tệp")}
             type="warning"
           />
         )}
         {downloadError && mediaEnabled && (
-          <Alert showIcon title={downloadError} type="error" />
+          <Alert
+            showIcon
+            title={formatError(
+              downloadError.cause,
+              "Không thể cấp liên kết tải tệp.",
+            )}
+            type="error"
+          />
         )}
       </div>
       <div
-        aria-label={`Thao tác tệp ${asset?.originalFileName ?? index + 1}`}
+        aria-label={t("Thao tác tệp {p0}", {
+          p0: asset?.originalFileName ?? index + 1,
+        })}
         className={styles.attachmentActions}
         role="group"
       >
@@ -224,38 +259,50 @@ function AttachmentRow({
           onClick={() => void download()}
           size="small"
         >
-          Tải xuống
+          {t("Tải xuống")}
         </Button>
         {canMutate && (
           <>
             <Button
-              aria-label={`Đưa tệp ${index + 1} lên`}
+              aria-label={t("Đưa tệp {p0} lên", { p0: index + 1 })}
               disabled={index === 0 || replacing}
+              loading={
+                pendingAction?.assetId === assetId &&
+                pendingAction.action === "up"
+              }
               onClick={() => onMove(index, index - 1)}
               size="small"
             >
-              Lên
+              {t("Lên")}
             </Button>
             <Button
-              aria-label={`Đưa tệp ${index + 1} xuống`}
+              aria-label={t("Đưa tệp {p0} xuống", { p0: index + 1 })}
               disabled={index === total - 1 || replacing}
+              loading={
+                pendingAction?.assetId === assetId &&
+                pendingAction.action === "down"
+              }
               onClick={() => onMove(index, index + 1)}
               size="small"
             >
-              Xuống
+              {t("Xuống")}
             </Button>
             <Button
               danger
               disabled={replacing || removeDisabled}
+              loading={
+                pendingAction?.assetId === assetId &&
+                pendingAction.action === "remove"
+              }
               onClick={() => onRemove(index)}
               size="small"
               title={
                 removeDisabled
-                  ? "Bản nháp nhận tệp phải giữ ít nhất một tệp"
+                  ? t("Bản nháp nhận tệp phải giữ ít nhất một tệp")
                   : undefined
               }
             >
-              Gỡ
+              {t("Gỡ")}
             </Button>
           </>
         )}
@@ -277,41 +324,68 @@ export function SecureAttachmentList({
   target,
   token,
 }: SecureAttachmentListProps) {
-  const [replaceError, setReplaceError] = useState<string | null>(null);
-  const replace = async (next: string[]) => {
-    if (!canMutate || !onReplace || replacing) return;
+  const { t } = useI18n(learningMessages);
+  const { formatError } = useFeedback();
+  const [replaceError, setReplaceError] = useState<{ cause: unknown } | null>(
+    null,
+  );
+  const [pendingAction, setPendingAction] = useState<AttachmentMutation | null>(
+    null,
+  );
+  const replaceInFlight = useRef(false);
+  const replace = async (next: string[], action: AttachmentMutation) => {
+    if (!canMutate || !onReplace || replacing || replaceInFlight.current)
+      return;
+    replaceInFlight.current = true;
+    setPendingAction(action);
     setReplaceError(null);
     try {
       await onReplace(next);
     } catch (error) {
-      setReplaceError(
-        error instanceof Error
-          ? error.message
-          : "Không thể cập nhật danh sách tệp.",
-      );
+      setReplaceError({ cause: error });
+    } finally {
+      replaceInFlight.current = false;
+      setPendingAction(null);
     }
   };
   const move = (from: number, to: number) => {
     const next = [...assetIds];
     const [item] = next.splice(from, 1);
     next.splice(to, 0, item);
-    void replace(next);
+    void replace(next, {
+      assetId: assetIds[from],
+      action: to < from ? "up" : "down",
+    });
   };
   const remove = (index: number) =>
-    void replace(assetIds.filter((_, itemIndex) => itemIndex !== index));
+    void replace(
+      assetIds.filter((_, itemIndex) => itemIndex !== index),
+      { assetId: assetIds[index], action: "remove" },
+    );
 
-  if (!assetIds.length) return <p>Chưa có tệp đính kèm.</p>;
+  if (!assetIds.length) return <p>{t("Chưa có tệp đính kèm.")}</p>;
   return (
-    <div>
+    <div aria-busy={replacing || pendingAction !== null}>
       {!mediaEnabled && (
         <Alert
-          description="Snapshot ID vẫn được giữ để đối soát. Metadata chi tiết và liên kết tải xuống chỉ được cấp khi module Tài liệu riêng tư hoạt động."
+          description={t(
+            "Snapshot ID vẫn được giữ để đối soát. Metadata chi tiết và liên kết tải xuống chỉ được cấp khi module Tài liệu riêng tư hoạt động.",
+          )}
           showIcon
-          title="Tải tệp đang tạm khóa"
+          title={t("Tải tệp đang tạm khóa")}
           type="warning"
         />
       )}
-      {replaceError && <Alert showIcon title={replaceError} type="error" />}
+      {replaceError && (
+        <Alert
+          showIcon
+          title={formatError(
+            replaceError.cause,
+            "Không thể cập nhật danh sách tệp.",
+          )}
+          type="error"
+        />
+      )}
       <ol className={styles.attachmentList}>
         {assetIds.map((assetId, index) => (
           <AttachmentRow
@@ -323,7 +397,8 @@ export function SecureAttachmentList({
             onMove={move}
             onRemove={remove}
             removeDisabled={assetIds.length <= minCount}
-            replacing={replacing}
+            replacing={replacing || pendingAction !== null}
+            pendingAction={pendingAction}
             renderAssetAction={renderAssetAction}
             scope={scope}
             target={target}

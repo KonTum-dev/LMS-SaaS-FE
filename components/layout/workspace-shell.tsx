@@ -1,5 +1,12 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { authMessages } from "@/lib/i18n/auth-messages";
+import { workspacePolishMessages } from "@/lib/i18n/workspace-polish-messages";
+import { describeFeedbackError } from "@/lib/feedback-errors";
+import type { Translator } from "@/lib/i18n/translate";
+
+
 import {
   ApartmentOutlined,
   AppstoreOutlined,
@@ -37,17 +44,17 @@ import type { MenuProps } from "antd";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DxBrandLockup } from "@/components/brand/dx-brand-lockup";
+import { FeedbackLanguageSwitcher } from "@/components/feedback/feedback-locale";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { useAuth } from "@/components/providers/app-providers";
 import type { UserRole } from "@/lib/types";
+import { resolveSafeInternalPath } from "@/lib/safe-navigation";
 import {
   getSubscriptionAccessPresentation,
   lmsModuleLabels,
 } from "@/lib/entitlements";
 import { getNotificationViewerScope } from "@/lib/query-keys";
 import {
-  organizationDisplayName,
-  organizationInitial,
   tenantPrimaryColor,
 } from "@/lib/workspace";
 import {
@@ -63,6 +70,7 @@ const roleLabels: Record<UserRole, string> = {
   LEARNER: "Học viên",
   GUARDIAN: "Phụ huynh",
 };
+const shellMessages = { ...authMessages, ...workspacePolishMessages };
 
 function roleLabel(
   role: UserRole,
@@ -73,15 +81,10 @@ function roleLabel(
     : roleLabels[role];
 }
 
-const accessDate = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-function accessDeniedMessage(decision: WorkspaceAccessDenied): string {
+function accessDeniedMessage(decision: WorkspaceAccessDenied, t: Translator): string {
   switch (decision.reason) {
     case "MODULE_DISABLED":
-      return `Tính năng ${decision.requiredModule ? lmsModuleLabels[decision.requiredModule] : "này"} không nằm trong quyền truy cập hiệu lực của tổ chức.`;
+      return t("Tính năng {name} không nằm trong quyền truy cập hiệu lực của tổ chức.", { name: t(decision.requiredModule ? lmsModuleLabels[decision.requiredModule] : "này") });
     case "ORGANIZATION_REQUIRED":
       return "Không tìm thấy cấu hình tổ chức cho phiên đăng nhập hiện tại.";
     case "GLOBAL_ADMIN_REQUIRED":
@@ -98,6 +101,7 @@ function accessDeniedMessage(decision: WorkspaceAccessDenied): string {
 }
 
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
+  const { t, locale, formatDate } = useI18n(shellMessages);
   const {
     effectiveAccess,
     loading,
@@ -111,15 +115,19 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [switchError, setSwitchError] = useState("");
+  const [switchError, setSwitchError] = useState<{ cause: unknown } | null>(null);
   const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(
     null,
   );
   const switchingRef = useRef(false);
 
   useEffect(() => {
-    if (!loading && !user) router.replace("/login");
-  }, [loading, router, user]);
+    if (!loading && !user) {
+      // Preserve the protected page, without carrying transient query credentials.
+      const destination = resolveSafeInternalPath(pathname);
+      router.replace(`/login?next=${encodeURIComponent(destination)}`);
+    }
+  }, [loading, pathname, router, user]);
 
   const items = useMemo<MenuProps["items"]>(() => {
     if (!user) return [];
@@ -135,115 +143,128 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       menu.push({
         key: "/dashboard",
         icon: <DashboardOutlined />,
-        label: "Tổng quan",
+        label: t("Tổng quan"),
       });
     }
     if (canOpen("/admin")) {
       menu.push({
         key: "/admin",
         icon: <ContactsOutlined />,
-        label: "CRM nền tảng",
+        label: t("CRM nền tảng"),
       });
     }
     if (canOpen("/admin/tenants")) {
       menu.push({
         key: "/admin/tenants",
         icon: <ApartmentOutlined />,
-        label: "Tổ chức",
+        label: t("Tổ chức"),
       });
     }
     if (canOpen("/admin/billing")) {
       menu.push({
         key: "/admin/billing",
         icon: <DollarOutlined />,
-        label: "Thuê bao",
+        label: t("Thuê bao"),
+      });
+    }
+    if (canOpen("/admin/accounts")) {
+      menu.push({
+        key: "/admin/accounts",
+        icon: <TeamOutlined />,
+        label: t("Tài khoản nền tảng"),
       });
     }
     if (canOpen("/admin/audit")) {
       menu.push({
         key: "/admin/audit",
         icon: <AuditOutlined />,
-        label: "Nhật ký audit",
+        label: t("Nhật ký audit"),
       });
     }
     if (canOpen("/admin/notification-events")) {
       menu.push({
         key: "/admin/notification-events",
         icon: <BellOutlined />,
-        label: "Sự kiện thông báo",
+        label: t("Sự kiện thông báo"),
       });
     }
     if (canOpen("/users")) {
-      menu.push({ key: "/users", icon: <TeamOutlined />, label: "Người dùng" });
+      menu.push({ key: "/users", icon: <TeamOutlined />, label: t("Người dùng") });
+    }
+    if (canOpen("/crm")) {
+      menu.push({ key: "/crm", icon: <ContactsOutlined />, label: t("CRM / Khách hàng") });
     }
     if (canOpen("/organization")) {
       menu.push({
         key: "/organization",
         icon: <ApartmentOutlined />,
-        label: "Cơ cấu trung tâm",
+        label: t("Cơ cấu trung tâm"),
       });
     }
     if (canOpen("/organization/access")) {
       menu.push({
         key: "/organization/access",
         icon: <SafetyCertificateOutlined />,
-        label: "Phân quyền chi nhánh",
+        label: t("Phân quyền chi nhánh"),
       });
     }
     if (canOpen("/courses")) {
       menu.push({
         key: "/courses",
         icon: <BookOutlined />,
-        label: user.role === "LEARNER" ? "Khóa học của tôi" : "Khóa học",
+        label: user.role === "LEARNER" ? t("Khóa học của tôi") : t("Khóa học"),
       });
     }
     if (canOpen("/cohorts")) {
       menu.push({
         key: "/cohorts",
         icon: <CalendarOutlined />,
-        label: "Lớp & điểm danh",
+        label: t("Lớp & điểm danh"),
       });
     }
-    if (canOpen("/guardians")) {
+    if (canOpen("/family")) {
+      menu.push({ key: "/family", icon: <BookOutlined />, label: t("Học viên của tôi") });
+    }
+    if (canOpen("/guardians") && user.role !== "GUARDIAN") {
       menu.push({
         key: "/guardians",
         icon: <ContactsOutlined />,
-        label: user.role === "GUARDIAN" ? "Học viên của tôi" : "Phụ huynh",
+        label: t("Phụ huynh"),
       });
     }
     if (canOpen("/tuition")) {
       menu.push({
         key: "/tuition",
         icon: <WalletOutlined />,
-        label: "Học phí",
+        label: t("Học phí"),
       });
     }
     if (canOpen("/reports")) {
       menu.push({
         key: "/reports",
         icon: <BarChartOutlined />,
-        label: "Báo cáo vận hành",
+        label: t("Báo cáo vận hành"),
       });
     }
     if (canOpen("/communications")) {
       menu.push({
         key: "/communications",
         icon: <BellOutlined />,
-        label: "Thông báo trung tâm",
+        label: t("Thông báo trung tâm"),
       });
     }
     if (canOpen("/assignments")) {
       menu.push({
         key: "/assignments",
         icon: <FileDoneOutlined />,
-        label: "Bài tập",
+        label: t("Bài tập"),
       });
     }
     if (canOpen("/assignments/grading")) {
       menu.push({
         key: "/assignments/grading",
         icon: <FileDoneOutlined />,
-        label: "Chấm bài",
+        label: t("Chấm bài"),
       });
     }
     if (canOpen("/assessments")) {
@@ -251,32 +272,54 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         key: "/assessments",
         icon: <CheckSquareOutlined />,
         label:
-          user.role === "LEARNER" ? "Bài kiểm tra của tôi" : "Bài kiểm tra",
+          user.role === "LEARNER" ? t("Bài kiểm tra của tôi") : t("Bài kiểm tra"),
       });
     }
     if (canOpen("/billing")) {
       menu.push({
         key: "/billing",
         icon: <DollarOutlined />,
-        label: "Gói & thanh toán",
+        label: t("Gói & thanh toán"),
       });
     }
     if (canOpen("/audit")) {
       menu.push({
         key: "/audit",
         icon: <AuditOutlined />,
-        label: "Nhật ký audit",
+        label: t("Nhật ký audit"),
       });
     }
     if (canOpen("/settings")) {
       menu.push({
         key: "/settings",
         icon: <SettingOutlined />,
-        label: "Tùy biến",
+        label: t("Tùy biến"),
       });
     }
     return menu;
-  }, [effectiveAccess, organization, user]);
+  }, [effectiveAccess, organization, user, t]);
+
+  const groupedItems = useMemo<MenuProps["items"]>(() => {
+    const menu = items ?? [];
+    const overview = menu.filter((item) => item?.key === "/dashboard");
+    const groups = user?.role === "SUPER_ADMIN"
+      ? [
+          { label: t("Quản lý"), paths: ["/admin", "/admin/tenants", "/admin/billing", "/admin/accounts"] },
+          { label: t("Hệ thống"), paths: ["/admin/audit", "/admin/notification-events"] },
+        ]
+      : [
+          { label: t("Đào tạo"), paths: ["/family", "/courses", "/cohorts", "/assignments", "/assignments/grading", "/assessments"] },
+          { label: t("Vận hành"), paths: ["/crm", "/guardians", "/tuition", "/reports", "/communications"] },
+          { label: t("Quản trị"), paths: ["/users", "/organization", "/organization/access", "/billing", "/audit", "/settings"] },
+        ];
+    return [
+      ...overview,
+      ...groups.flatMap(({ label, paths }, index) => {
+        const children = paths.flatMap((path) => menu.filter((item) => item?.key === path));
+        return children.length ? [{ key: `group-${index}`, type: "group" as const, label, children }] : [];
+      }),
+    ];
+  }, [items, t, user?.role]);
 
   const routes = useMemo(
     () =>
@@ -337,30 +380,26 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <span className="workspace-option">
             <strong>{workspace.name}</strong>
             <small>
-              {roleLabel(workspace.role, workspace.orgUnitScopeMode)}
-              {workspace.tenantId === user?.tenantId ? " · Hiện tại" : ""}
+              {t(roleLabel(workspace.role, workspace.orgUnitScopeMode))}
+              {workspace.tenantId === user?.tenantId ? ` ${t("· Hiện tại")}` : ""}
             </small>
           </span>
         ),
       })),
-    [switchingTenantId, user?.tenantId, workspaces],
+    [switchingTenantId, user?.tenantId, workspaces, t],
   );
 
   const selectWorkspace = async (tenantId: string) => {
     if (switchingRef.current || tenantId === user?.tenantId) return;
     switchingRef.current = true;
-    setSwitchError("");
+    setSwitchError(null);
     setSwitchingTenantId(tenantId);
     try {
       await switchWorkspace(tenantId);
       setDrawerOpen(false);
       router.replace("/dashboard");
     } catch (caught) {
-      setSwitchError(
-        caught instanceof Error
-          ? caught.message
-          : "Không thể chuyển không gian làm việc",
-      );
+      setSwitchError({ cause: caught });
     } finally {
       switchingRef.current = false;
       setSwitchingTenantId(null);
@@ -371,13 +410,23 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="workspace-loading">
         <Spin size="large" />
-        <span>Đang mở không gian đào tạo...</span>
+        <span>{t("Đang mở không gian đào tạo...")}</span>
       </div>
     );
   }
 
-  const organizationName = organizationDisplayName(organization?.name);
   const primaryColor = tenantPrimaryColor(organization);
+  const workspaceIdentity = (
+    <Avatar
+      aria-hidden="true"
+      className="sider-tenant-avatar"
+      data-workspace-identity={user.role === "SUPER_ADMIN" ? "platform" : "organization"}
+      icon={user.role === "SUPER_ADMIN" ? <AppstoreOutlined /> : <ApartmentOutlined />}
+      shape="square"
+      size={34}
+      src={organization?.logoUrl || undefined}
+    />
+  );
   const accessState = effectiveAccess
     ? getSubscriptionAccessPresentation(effectiveAccess.state)
     : null;
@@ -386,14 +435,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       action={
         isGlobalTenantAdmin ? (
           <Button onClick={() => router.push("/billing")} size="small">
-            Xem gói trả phí
-          </Button>
+            {t("Xem gói trả phí")}</Button>
         ) : undefined
       }
-      className="workspace-subscription-banner"
-      description={`Bạn đang dùng thử miễn phí với quyền truy cập hiện được cấp cho workspace${effectiveAccess.trialEndsAt ? ` đến ${accessDate.format(new Date(effectiveAccess.trialEndsAt))}` : ""}.`}
+      className="workspace-subscription-banner workspace-subscription-banner--compact"
       showIcon
-      title="Dùng thử miễn phí"
+      title={effectiveAccess.trialEndsAt ? t("Dùng thử đến {date}", { date: formatDate(effectiveAccess.trialEndsAt, { dateStyle: "medium" }) }) : t("Dùng thử miễn phí")}
       type="info"
     />
   ) : effectiveAccess?.state === "GRACE" ||
@@ -402,25 +449,24 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       action={
         isGlobalTenantAdmin ? (
           <Button onClick={() => router.push("/billing")} size="small">
-            Gia hạn thuê bao
-          </Button>
+            {t("Gia hạn thuê bao")}</Button>
         ) : undefined
       }
       className="workspace-subscription-banner"
       description={
         effectiveAccess.state === "GRACE"
-          ? `Workspace vẫn hoạt động trong thời gian gia hạn${effectiveAccess.graceEndsAt ? ` đến ${accessDate.format(new Date(effectiveAccess.graceEndsAt))}` : ""}.`
-          : "Bạn vẫn có thể xem dữ liệu; các thao tác tạo, sửa và xóa đã tạm khóa."
+          ? t("Workspace vẫn hoạt động trong thời gian gia hạn{until}.", { until: effectiveAccess.graceEndsAt ? t(" đến {date}", { date: formatDate(effectiveAccess.graceEndsAt, { dateStyle: "medium", timeStyle: "short" }) }) : "" })
+          : t("Bạn vẫn có thể xem dữ liệu; các thao tác tạo, sửa và xóa đã tạm khóa.")
       }
       showIcon
-      title={accessState?.label}
+      title={accessState ? t(accessState.label) : undefined}
       type={effectiveAccess.state === "GRACE" ? "warning" : "error"}
     />
   ) : null;
   const menu = (
     <>
       <div className="sider-brand">
-        <DxBrandLockup subtitle="Nền tảng đào tạo" />
+        <DxBrandLockup />
       </div>
       {canSwitchWorkspace ? (
         <Dropdown
@@ -432,22 +478,14 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           trigger={["click"]}
         >
           <button
-            aria-label="Chọn không gian làm việc"
+            aria-label={t("Chọn không gian làm việc")}
             className="sider-tenant workspace-selector"
             disabled={Boolean(switchingTenantId)}
             type="button"
           >
-            <Avatar
-              shape="square"
-              src={organization?.logoUrl || undefined}
-              style={{ background: primaryColor }}
-            >
-              {organizationInitial(organization?.name)}
-            </Avatar>
-            <span>
-              <small>Không gian hiện tại</small>
+            {workspaceIdentity}
+            <span className="sider-tenant-copy">
               <strong>{organization?.name ?? currentWorkspace?.name}</strong>
-              <small>{roleLabel(user.role, user.orgUnitScopeMode)}</small>
             </span>
             {switchingTenantId ? (
               <Spin size="small" />
@@ -458,24 +496,16 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </Dropdown>
       ) : (
         <div className="sider-tenant">
-          <Avatar
-            shape="square"
-            src={organization?.logoUrl || undefined}
-            style={{ background: primaryColor }}
-          >
-            {organizationInitial(organization?.name)}
-          </Avatar>
-          <span>
-            <small>Không gian hiện tại</small>
-            <strong>{organization?.name ?? "Toàn nền tảng"}</strong>
-            <small>{roleLabel(user.role, user.orgUnitScopeMode)}</small>
+          {workspaceIdentity}
+          <span className="sider-tenant-copy">
+            <strong>{organization?.name ?? t("Toàn nền tảng")}</strong>
           </span>
         </div>
       )}
       <Menu
-        aria-label="Điều hướng chính"
+        aria-label={t("Điều hướng chính")}
         className="workspace-menu"
-        items={items}
+        items={groupedItems}
         mode="inline"
         onClick={({ key }) => {
           router.push(key);
@@ -487,28 +517,30 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   );
 
   const profileItems: MenuProps["items"] = [
+    { key: "account-role", disabled: true, label: t(roleLabel(user.role, user.orgUnitScopeMode)) },
+    { type: "divider" },
     {
       key: "account-profile",
       icon: <UserOutlined />,
-      label: "Hồ sơ cá nhân",
+      label: t("Hồ sơ cá nhân"),
       onClick: () => router.push("/account/profile"),
     },
     {
       key: "account-security",
       icon: <SafetyCertificateOutlined />,
-      label: "Bảo mật tài khoản",
+      label: t("Bảo mật tài khoản"),
       onClick: () => router.push("/account/security"),
     },
     {
       key: "account-integrations",
       icon: <AppstoreOutlined />,
-      label: "Ứng dụng kết nối",
+      label: t("Kết nối dữ liệu"),
       onClick: () => router.push("/account/integrations"),
     },
     {
       key: "logout",
       icon: <LogoutOutlined />,
-      label: "Đăng xuất",
+      label: t("Đăng xuất"),
       danger: true,
       onClick: () => {
         logout();
@@ -520,8 +552,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <a className="workspace-skip-link" href="#workspace-main">
-        Bỏ qua menu
-      </a>
+        {t("Bỏ qua menu")}</a>
       <Layout className="workspace-layout">
         <Layout.Sider
           className="workspace-sider desktop-sider"
@@ -543,17 +574,18 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         <Layout>
           <Layout.Header className="workspace-header">
             <Button
-              aria-label="Mở menu điều hướng"
+              aria-label={t("Mở menu điều hướng")}
               className="mobile-menu-button"
               icon={<MenuOutlined />}
               onClick={() => setDrawerOpen(true)}
               type="text"
             />
             <div className="workspace-header-context">
-              <span>{organizationName}</span>
-              <strong>{activeRoute?.label || "Không gian làm việc"}</strong>
+              <span>{user.role === "SUPER_ADMIN" ? t("Quản trị") : t("Không gian làm việc")}</span>
+              <strong>{activeRoute?.label || t("Không gian làm việc")}</strong>
             </div>
             <div className="workspace-header-actions">
+              <FeedbackLanguageSwitcher />
               {notificationScope && token ? (
                 <NotificationCenter
                   key={`${notificationScope.tenantId}:${notificationScope.membershipId}:${notificationScope.role}`}
@@ -567,16 +599,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 trigger={["click"]}
               >
                 <button
-                  aria-label="Mở menu tài khoản"
+                  aria-label={t("Mở menu tài khoản")}
                   className="header-profile"
                   type="button"
                 >
                   <div className="header-profile-copy">
                     <strong>{user.fullName}</strong>
-                    <span>{roleLabel(user.role, user.orgUnitScopeMode)}</span>
                   </div>
                   <Avatar
-                    alt={`Ảnh đại diện của ${user.fullName}`}
+                    alt={t("Ảnh đại diện của {name}", { name: user.fullName })}
                     src={user.avatarUrl || undefined}
                     style={{ background: primaryColor }}
                   >
@@ -592,9 +623,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             {switchError && (
               <Alert
                 closable
-                onClose={() => setSwitchError("")}
+                onClose={() => setSwitchError(null)}
                 showIcon
-                title={switchError}
+                title={describeFeedbackError(switchError.cause, locale, t("Không thể chuyển không gian làm việc")).message}
                 type="error"
               />
             )}
@@ -609,12 +640,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       onClick={() => router.push("/dashboard")}
                       type="primary"
                     >
-                      Về tổng quan
-                    </Button>
+                      {t("Về tổng quan")}</Button>
                   }
                   status="403"
-                  subTitle={accessDeniedMessage(access)}
-                  title="Không thể mở trang này"
+                  subTitle={t(accessDeniedMessage(access, t))}
+                  title={t("Không thể mở trang này")}
                 />
               </section>
             )}

@@ -1,7 +1,13 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningPolishMessages as learningMessages } from "@/lib/i18n/learning-polish-messages";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import { BarChartOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Card, Empty, Form, Input, Modal, Pagination, Select, Spin } from "antd";
+import { Alert, Button, Card, Empty, Input, Modal, Pagination, Select, Spin } from "antd";
+import { Form } from "@/components/form/localized-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -53,19 +59,22 @@ const statusOptions: Array<{ label: string; value: AssessmentStatus }> = [
 ];
 
 function QueryError({ error, retry }: { error: unknown; retry: () => void }) {
+  const { t } = useI18n(learningMessages);
+  const { formatError } = useFeedback();
   return (
     <Alert
-      action={<Button icon={<ReloadOutlined />} onClick={retry}>Thử lại</Button>}
-      description={error instanceof Error ? error.message : "Không thể tải dữ liệu bài kiểm tra."}
+      action={<Button icon={<ReloadOutlined />} onClick={retry}>{t("Thử lại")}</Button>}
+      description={formatError(error, "Không thể tải dữ liệu bài kiểm tra.")}
       showIcon
-      title="Không tải được bài kiểm tra"
+      title={t("Không tải được bài kiểm tra")}
       type="error"
     />
   );
 }
 
 function ManagerAssessmentList({ readOnly, scope, token }: ListProps) {
-  const { message } = App.useApp();
+  const { t, locale } = useI18n(learningMessages);
+  const { message, reportError } = useFeedback();
   const router = useRouter();
   const queryClient = useQueryClient();
   const mounted = useRef(true);
@@ -93,7 +102,7 @@ function ManagerAssessmentList({ readOnly, scope, token }: ListProps) {
   const availableCourses = courses.filter((course) => course.status !== "ARCHIVED");
   const createMutation = useMutation({
     mutationFn: async (values: CreateAssessmentForm) => {
-      if (readOnly) throw new Error("Workspace đang ở chế độ chỉ đọc.");
+      if (readOnly) throw new Error(t("Workspace đang ở chế độ chỉ đọc."));
       const draft = createAssessmentDraft();
       draft.title = values.title;
       draft.instructions = values.instructions ?? "";
@@ -133,7 +142,7 @@ function ManagerAssessmentList({ readOnly, scope, token }: ListProps) {
     } catch (error) {
       if (!mounted.current) return;
       if ((error as { errorFields?: unknown }).errorFields) return;
-      message.error(error instanceof Error ? error.message : "Không thể tạo bài kiểm tra");
+      reportError(error, "Không thể tạo bài kiểm tra");
     } finally {
       createInFlight.current = false;
     }
@@ -143,11 +152,11 @@ function ManagerAssessmentList({ readOnly, scope, token }: ListProps) {
     <main aria-labelledby="assessments-title" className="page-shell">
       <header className={`${styles.pageHeader} page-heading`}>
         <div className="page-heading-copy">
-          <h1 id="assessments-title">Bài kiểm tra</h1>
-          <p>Soạn câu hỏi, xuất bản phiên bản bất biến và theo dõi kết quả học viên.</p>
+          <h1 id="assessments-title">{t("Bài kiểm tra")}</h1>
+          <p>{t("Soạn câu hỏi, giao bài kiểm tra và theo dõi kết quả.")}</p>
         </div>
         <div className={styles.headerActions}>
-          <Button icon={<BarChartOutlined />} onClick={() => router.push("/assessments/reports")}>Báo cáo lượt làm</Button>
+          <Button icon={<BarChartOutlined />} onClick={() => router.push("/assessments/reports")}>{t("Báo cáo lượt làm")}</Button>
           <Button
             disabled={readOnly || !availableCourses.length}
             icon={<PlusOutlined />}
@@ -157,72 +166,70 @@ function ManagerAssessmentList({ readOnly, scope, token }: ListProps) {
               setCreateOpen(true);
             }}
             title={readOnly
-              ? "Workspace chỉ đọc: không thể tạo bài kiểm tra"
-              : !availableCourses.length ? "Cần một khóa học chưa lưu trữ" : undefined}
+              ? t("Workspace chỉ đọc: không thể tạo bài kiểm tra")
+              : !availableCourses.length ? t("Cần một khóa học chưa lưu trữ") : undefined}
             type="primary"
-          >
-            Tạo bài kiểm tra
-          </Button>
+          >{t("Tạo bài kiểm tra")}</Button>
         </div>
       </header>
 
       {readOnly && (
         <Alert
-          description="Bạn vẫn có thể xem nội dung và báo cáo. Tạo, sửa, xuất bản và lưu trữ đang tạm khóa."
+          description={t("Bạn vẫn có thể xem nội dung và báo cáo. Tạo, sửa, xuất bản và lưu trữ đang tạm khóa.")}
           showIcon
-          title="Chế độ chỉ đọc"
+          title={t("Chế độ chỉ đọc")}
           type="warning"
         />
       )}
 
-      <section aria-label="Bộ lọc bài kiểm tra" className={styles.filters}>
+      <section aria-label={t("Bộ lọc bài kiểm tra")} className={styles.filters}>
         <Select
           allowClear
-          aria-label="Lọc theo khóa học"
+          aria-label={t("Lọc theo khóa học")}
           className={styles.filterControl}
           loading={coursesQuery.isLoading}
           onChange={(value) => { setCourseId(value); setPage(1); }}
           optionFilterProp="label"
           options={courses.map((course) => ({ label: course.title, value: course._id }))}
-          placeholder="Tất cả khóa học"
+          placeholder={t("Tất cả khóa học")}
           showSearch
           value={courseId}
         />
         <Select
           allowClear
-          aria-label="Lọc theo trạng thái"
+          aria-label={t("Lọc theo trạng thái")}
           className={styles.filterControl}
           onChange={(value) => { setStatus(value); setPage(1); }}
-          options={statusOptions}
-          placeholder="Tất cả trạng thái"
+          options={statusOptions.map(option => ({ ...option, label: t(option.label) }))}
+          placeholder={t("Tất cả trạng thái")}
           value={status}
         />
       </section>
 
       {listQuery.isPending ? (
-        <div aria-label="Đang tải bài kiểm tra" className="page-loading" role="status"><Spin size="large" /></div>
+        <div aria-label={t("Đang tải bài kiểm tra")} className="page-loading" role="status"><Spin size="large" /></div>
       ) : listQuery.error ? (
         <QueryError error={listQuery.error} retry={() => void listQuery.refetch()} />
       ) : listQuery.data.items.length ? (
         <>
-          <section aria-label="Danh sách bài kiểm tra" className={styles.cardGrid}>
+          <section aria-label={t("Danh sách bài kiểm tra")} className={styles.cardGrid}>
             {listQuery.data.items.map((assessment: AssessmentManagerListItem) => (
               <Card className={`${styles.assessmentCard} surface-card`} key={assessment._id}>
                 <article aria-labelledby={`assessment-${assessment._id}`} className={styles.cardBody}>
                   <div className={styles.statusLine}>
                     <AssessmentStatusTag status={assessment.status} />
-                    {assessment.hasUnpublishedChanges && assessment.status !== "DRAFT" ? <span className={styles.muted}>Có thay đổi chưa xuất bản</span> : null}
+                    {assessment.hasUnpublishedChanges && assessment.status !== "DRAFT" ? <span className={styles.muted}>{t("Có thay đổi chưa xuất bản")}</span> : null}
                   </div>
                   <h2 className={styles.cardTitle} id={`assessment-${assessment._id}`}>{assessment.title}</h2>
                   <dl className={styles.cardMeta}>
-                    <div><dt>Khóa học</dt><dd>{courseTitles.get(assessment.courseId) ?? assessment.courseId}</dd></div>
-                    <div><dt>Phiên bản</dt><dd>{assessment.currentVersionNumber || "Chưa xuất bản"}</dd></div>
-                    <div><dt>Cập nhật</dt><dd>{formatAssessmentDate(assessment.updatedAt)}</dd></div>
-                    <div><dt>Lần xuất bản cuối</dt><dd>{formatAssessmentDate(assessment.lastPublishedAt)}</dd></div>
+                    <div><dt>{t("Khóa học")}</dt><dd>{courseTitles.get(assessment.courseId) ?? assessment.courseId}</dd></div>
+                    <div><dt>{t("Phiên bản")}</dt><dd>{assessment.currentVersionNumber || t("Chưa xuất bản")}</dd></div>
+                    <div><dt>{t("Cập nhật")}</dt><dd>{formatAssessmentDate(assessment.updatedAt, locale)}</dd></div>
+                    <div><dt>{t("Lần xuất bản cuối")}</dt><dd>{formatAssessmentDate(assessment.lastPublishedAt, locale)}</dd></div>
                   </dl>
                   <div className={styles.cardActions}>
                     <Button icon={<EditOutlined />} onClick={() => router.push(`/assessments/manage/${assessment._id}`)} type="primary">
-                      {assessment.status === "ARCHIVED" || readOnly ? "Xem nội dung" : "Soạn bài"}
+                      {assessment.status === "ARCHIVED" || readOnly ? t("Xem nội dung") : t("Soạn bài")}
                     </Button>
                   </div>
                 </article>
@@ -240,43 +247,41 @@ function ManagerAssessmentList({ readOnly, scope, token }: ListProps) {
           </div>
         </>
       ) : (
-        <Card className="surface-card"><Empty description="Chưa có bài kiểm tra phù hợp bộ lọc" /></Card>
+        <Card className="surface-card"><Empty description={t("Chưa có bài kiểm tra phù hợp bộ lọc")} /></Card>
       )}
 
       <Modal
-        cancelText="Hủy"
+        cancelText={t("Hủy")}
         confirmLoading={createMutation.isPending}
         okButtonProps={{ disabled: readOnly }}
-        okText="Tạo và tiếp tục soạn"
+        okText={t("Tạo và tiếp tục soạn")}
         onCancel={() => setCreateOpen(false)}
         onOk={() => void create()}
         open={createOpen}
-        title="Tạo bản nháp bài kiểm tra"
+        title={t("Tạo bản nháp bài kiểm tra")}
       >
-        <div className={styles.createNote}>
-          Bản nháp ban đầu có 1 lượt làm, mức đạt 70%, không giới hạn thời gian và công bố kết quả sau khi hết lượt. Bạn có thể đổi toàn bộ thiết lập ở bước tiếp theo.
-        </div>
+        <div className={styles.createNote}>{t("Bản nháp ban đầu có 1 lượt làm, mức đạt 70%, không giới hạn thời gian và công bố kết quả sau khi hết lượt. Bạn có thể đổi toàn bộ thiết lập ở bước tiếp theo.")}</div>
         <Form disabled={readOnly} form={form} layout="vertical" requiredMark={false}>
-          <Form.Item label="Khóa học" name="courseId" rules={[{ required: true, message: "Chọn khóa học" }]}>
+          <Form.Item label={t("Khóa học")} name="courseId" rules={[{ required: true, message: t("Chọn khóa học") }]}>
             <Select optionFilterProp="label" options={availableCourses.map((course) => ({ label: course.title, value: course._id }))} showSearch />
           </Form.Item>
-          <Form.Item label="Tên bài kiểm tra" name="title" rules={[{ max: 200, min: 2, required: true, message: "Nhập tên từ 2 đến 200 ký tự" }]}>
+          <Form.Item label={t("Tên bài kiểm tra")} name="title" rules={[{ max: 200, min: 2, required: true, message: t("Nhập tên từ 2 đến 200 ký tự") }]}>
             <Input autoComplete="off" maxLength={200} />
           </Form.Item>
-          <Form.Item label="Hướng dẫn (không bắt buộc)" name="instructions" rules={[{ max: 20_000 }]}>
+          <Form.Item label={t("Hướng dẫn (không bắt buộc)")} name="instructions" rules={[{ max: 20_000 }]}>
             <Input.TextArea maxLength={20_000} rows={3} showCount />
           </Form.Item>
-          <Form.Item label="Câu hỏi đầu tiên" name="question" rules={[{ max: 10_000, required: true, whitespace: true, message: "Nhập nội dung câu hỏi" }]}>
+          <Form.Item label={t("Câu hỏi đầu tiên")} name="question" rules={[{ max: 10_000, required: true, whitespace: true, message: t("Nhập nội dung câu hỏi") }]}>
             <Input.TextArea maxLength={10_000} rows={3} />
           </Form.Item>
-          <Form.Item label="Lựa chọn A" name="choiceA" rules={[{ max: 2_000, required: true, whitespace: true, message: "Nhập lựa chọn A" }]}>
+          <Form.Item label={t("Lựa chọn A")} name="choiceA" rules={[{ max: 2_000, required: true, whitespace: true, message: t("Nhập lựa chọn A") }]}>
             <Input maxLength={2_000} />
           </Form.Item>
-          <Form.Item label="Lựa chọn B" name="choiceB" rules={[{ max: 2_000, required: true, whitespace: true, message: "Nhập lựa chọn B" }]}>
+          <Form.Item label={t("Lựa chọn B")} name="choiceB" rules={[{ max: 2_000, required: true, whitespace: true, message: t("Nhập lựa chọn B") }]}>
             <Input maxLength={2_000} />
           </Form.Item>
-          <Form.Item label="Đáp án đúng" name="correctChoice" rules={[{ required: true }]}>
-            <Select options={[{ label: "Lựa chọn A", value: "A" }, { label: "Lựa chọn B", value: "B" }]} />
+          <Form.Item label={t("Đáp án đúng")} name="correctChoice" rules={[{ required: true }]}>
+            <Select options={[{ label: t("Lựa chọn A"), value: "A" }, { label: t("Lựa chọn B"), value: "B" }]} />
           </Form.Item>
         </Form>
       </Modal>
@@ -285,6 +290,7 @@ function ManagerAssessmentList({ readOnly, scope, token }: ListProps) {
 }
 
 function LearnerAssessmentList({ readOnly, scope, token }: ListProps) {
+  const { t, locale } = useI18n(learningMessages);
   const router = useRouter();
   const [courseId, setCourseId] = useState<string | undefined>();
   const [page, setPage] = useState(1);
@@ -311,32 +317,32 @@ function LearnerAssessmentList({ readOnly, scope, token }: ListProps) {
     <main aria-labelledby="assessments-title" className="page-shell">
       <header className={`${styles.pageHeader} page-heading`}>
         <div className="page-heading-copy">
-          <h1 id="assessments-title">Bài kiểm tra của tôi</h1>
-          <p>Xem lịch mở, số lượt làm và bắt đầu khi bạn đã sẵn sàng.</p>
+          <h1 id="assessments-title">{t("Bài kiểm tra của tôi")}</h1>
+          <p>{t("Xem lịch mở, số lượt làm và bắt đầu khi bạn đã sẵn sàng.")}</p>
         </div>
       </header>
-      {readOnly && <Alert description="Bạn có thể xem và tiếp tục lượt làm đã có, nhưng không thể bắt đầu, lưu đáp án hoặc nộp bài." showIcon title="Chế độ chỉ đọc" type="warning" />}
-      <section aria-label="Bộ lọc bài kiểm tra" className={styles.filters}>
+      {readOnly && <Alert description={t("Bạn có thể xem và tiếp tục lượt làm đã có, nhưng không thể bắt đầu, lưu đáp án hoặc nộp bài.")} showIcon title={t("Chế độ chỉ đọc")} type="warning" />}
+      <section aria-label={t("Bộ lọc bài kiểm tra")} className={styles.filters}>
         <Select
           allowClear
-          aria-label="Lọc theo khóa học"
+          aria-label={t("Lọc theo khóa học")}
           className={styles.filterControl}
           loading={coursesQuery.isLoading}
           onChange={(value) => { setCourseId(value); setPage(1); }}
           optionFilterProp="label"
           options={courses.map((course) => ({ label: course.title, value: course._id }))}
-          placeholder="Tất cả khóa học"
+          placeholder={t("Tất cả khóa học")}
           showSearch
           value={courseId}
         />
       </section>
       {listQuery.isPending ? (
-        <div aria-label="Đang tải bài kiểm tra" className="page-loading" role="status"><Spin size="large" /></div>
+        <div aria-label={t("Đang tải bài kiểm tra")} className="page-loading" role="status"><Spin size="large" /></div>
       ) : listQuery.error ? (
         <QueryError error={listQuery.error} retry={() => void listQuery.refetch()} />
       ) : listQuery.data.items.length ? (
         <>
-          <section aria-label="Danh sách bài kiểm tra" className={styles.cardGrid}>
+          <section aria-label={t("Danh sách bài kiểm tra")} className={styles.cardGrid}>
             {listQuery.data.items.map((assessment: AssessmentLearnerListItem) => {
               const availability = assessmentAvailabilityAt(
                 assessment,
@@ -347,17 +353,17 @@ function LearnerAssessmentList({ readOnly, scope, token }: ListProps) {
                 <Card className={`${styles.assessmentCard} surface-card`} key={assessment._id}>
                   <article aria-labelledby={`assessment-${assessment._id}`} className={styles.cardBody}>
                     <div className={styles.statusLine}><AvailabilityTag availability={availability} /></div>
-                  <h2 className={styles.cardTitle} id={`assessment-${assessment._id}`}>{assessment.title}</h2>
-                  <p className={styles.cardDescription}>{assessment.instructions || "Không có hướng dẫn bổ sung."}</p>
-                  <dl className={styles.cardMeta}>
-                    <div><dt>Khóa học</dt><dd>{courseTitles.get(assessment.courseId) ?? "Khóa học đã ghi danh"}</dd></div>
-                    <div><dt>Thời lượng</dt><dd>{formatAssessmentDuration(assessment.timeLimitSeconds)}</dd></div>
-                    <div><dt>Mở lúc</dt><dd>{formatAssessmentDate(assessment.opensAt)}</dd></div>
-                    <div><dt>Đóng lúc</dt><dd>{formatAssessmentDate(assessment.closesAt)}</dd></div>
-                  </dl>
-                  <div className={styles.cardActions}>
-                    <Button onClick={() => router.push(`/assessments/${assessment._id}`)} type="primary">Xem chi tiết</Button>
-                  </div>
+                    <h2 className={styles.cardTitle} id={`assessment-${assessment._id}`}>{assessment.title}</h2>
+                    <p className={styles.cardDescription}>{assessment.instructions || t("Không có hướng dẫn bổ sung.")}</p>
+                    <dl className={styles.cardMeta}>
+                      <div><dt>{t("Khóa học")}</dt><dd>{courseTitles.get(assessment.courseId) ?? t("Khóa học đã ghi danh")}</dd></div>
+                      <div><dt>{t("Thời lượng")}</dt><dd>{formatAssessmentDuration(assessment.timeLimitSeconds, locale)}</dd></div>
+                      <div><dt>{t("Mở lúc")}</dt><dd>{formatAssessmentDate(assessment.opensAt, locale)}</dd></div>
+                      <div><dt>{t("Đóng lúc")}</dt><dd>{formatAssessmentDate(assessment.closesAt, locale)}</dd></div>
+                    </dl>
+                    <div className={styles.cardActions}>
+                      <Button onClick={() => router.push(`/assessments/${assessment._id}`)} type="primary">{t("Xem chi tiết")}</Button>
+                    </div>
                   </article>
                 </Card>
               );
@@ -368,19 +374,20 @@ function LearnerAssessmentList({ readOnly, scope, token }: ListProps) {
           </div>
         </>
       ) : (
-        <Card className="surface-card"><Empty description="Chưa có bài kiểm tra đang hoạt động" /></Card>
+        <Card className="surface-card"><Empty description={t("Chưa có bài kiểm tra đang hoạt động")} /></Card>
       )}
     </main>
   );
 }
 
 export default function AssessmentsPage() {
+  const { t } = useI18n(learningMessages);
   const { effectiveAccess, organization, token, user } = useAuth();
   const scope = getViewerScope(user, organization);
   const enabled = effectiveModuleEnabled(effectiveAccess, "ASSESSMENTS");
-  if (!enabled) return <Alert showIcon title="Module Bài kiểm tra không khả dụng trong workspace này." type="warning" />;
+  if (!enabled) return <Alert showIcon title={t("Module Bài kiểm tra không khả dụng trong workspace này.")} type="warning" />;
   if (!token || !scope || user?.role === "SUPER_ADMIN") {
-    return <Alert showIcon title="Phiên làm việc thiếu phạm vi thành viên hợp lệ. Vui lòng đăng nhập lại." type="error" />;
+    return <Alert showIcon title={t("Phiên làm việc thiếu phạm vi thành viên hợp lệ. Vui lòng đăng nhập lại.")} type="error" />;
   }
   const readOnly = effectiveAccess?.readOnly ?? false;
   const authorityKey = `${scope.tenantId}:${scope.membershipId}:${scope.viewerId}:${scope.role}:${readOnly ? "READ_ONLY" : "WRITABLE"}`;

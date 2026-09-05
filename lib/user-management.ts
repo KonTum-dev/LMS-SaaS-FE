@@ -47,10 +47,20 @@ export const userRoleLabels = Object.fromEntries(
   userRoleOptions.map((item) => [item.value, item.label]),
 ) as Record<AppUser["role"], string>;
 
+export function newUserPasswordValidationError(password: string): string | null {
+  if (Array.from(password).length < 12) return "Mật khẩu cần ít nhất 12 ký tự";
+  if (new TextEncoder().encode(password).byteLength > 72) {
+    return "Mật khẩu không được vượt quá 72 byte UTF-8";
+  }
+  return null;
+}
+
 export function buildCreateUserPayload(values: UserFormValues) {
   if (!values.password) {
     throw new Error("Mật khẩu ban đầu là bắt buộc");
   }
+  const passwordError = newUserPasswordValidationError(values.password);
+  if (passwordError) throw new Error(passwordError);
 
   const orgUnitId = normalizeOrgUnitId(values.orgUnitId);
   return {

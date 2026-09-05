@@ -9,6 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/api";
 import { GoogleIdentityButton } from "./google-identity-button";
 
 const mocks = vi.hoisted(() => ({
@@ -106,6 +107,7 @@ describe("GoogleIdentityButton", () => {
       expect.any(HTMLElement),
       expect.objectContaining({
         logo_alignment: "left",
+        locale: "vi",
         text: "signin_with",
         theme: "outline",
         type: "standard",
@@ -159,5 +161,40 @@ describe("GoogleIdentityButton", () => {
     );
     expect(screen.getByRole("button", { name: "Thử lại" })).toBeTruthy();
     expect(onError).toHaveBeenCalledOnce();
+  });
+
+  it("xóa lỗi cấu hình cũ sau khi thử lại và tải challenge thành công", async () => {
+    const getChallenge = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(
+          "Đăng nhập Google chưa được bật",
+          503,
+          "GOOGLE_LOGIN_DISABLED",
+        ),
+      )
+      .mockResolvedValueOnce(challenge);
+
+    render(
+      <GoogleIdentityButton
+        accessibleLabel="Đăng nhập bằng Google"
+        getChallenge={getChallenge}
+        intent="LOGIN"
+        onCredential={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("script-ready"));
+    expect(
+      await screen.findByText("Google chưa được cấu hình cho môi trường này."),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Thử lại" }));
+
+    await waitFor(() => expect(getChallenge).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Google-rendered button")).toBeTruthy();
+    expect(
+      screen.queryByText("Google chưa được cấu hình cho môi trường này."),
+    ).toBeNull();
   });
 });

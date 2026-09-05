@@ -1,7 +1,12 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import { ArrowLeftOutlined, PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, App, Button, Card, Result, Spin } from "antd";
+import { Alert, Button, Card, Result, Spin } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
@@ -35,7 +40,8 @@ function LearnerAssessmentDetail({
   scope: ViewerScope;
   token: string;
 }) {
-  const { message } = App.useApp();
+  const { t, locale } = useI18n(learningMessages);
+  const { reportError, formatError } = useFeedback();
   const router = useRouter();
   const queryClient = useQueryClient();
   const mounted = useRef(true);
@@ -55,11 +61,11 @@ function LearnerAssessmentDetail({
       const detailKey = lmsQueryKeys.assessmentLearnerDetail(scope, assessmentId);
       queryClient.setQueryData<AssessmentLearnerDetail>(detailKey, (current) => current
         ? {
-            ...current,
-            activeAttemptId: attempt._id,
-            attemptsRemaining: Math.max(current.maxAttempts - attempt.attemptNumber, 0),
-            attemptsUsed: Math.max(current.attemptsUsed, attempt.attemptNumber),
-          }
+          ...current,
+          activeAttemptId: attempt._id,
+          attemptsRemaining: Math.max(current.maxAttempts - attempt.attemptNumber, 0),
+          attemptsUsed: Math.max(current.attemptsUsed, attempt.attemptNumber),
+        }
         : current);
       void queryClient.invalidateQueries({ exact: true, queryKey: detailKey }).catch(() => undefined);
       startMutationId.current = createAssessmentMutationId();
@@ -79,7 +85,7 @@ function LearnerAssessmentDetail({
   );
 
   if (detailQuery.isPending) {
-    return <div aria-label="Đang tải chi tiết bài kiểm tra" className="page-loading" role="status"><Spin size="large" /></div>;
+    return <div aria-label={t("Đang tải chi tiết bài kiểm tra")} className="page-loading" role="status"><Spin size="large" /></div>;
   }
   if (detailQuery.error || !detailQuery.data) {
     const hidden = detailQuery.error instanceof ApiError && detailQuery.error.code === "ASSESSMENT_NOT_FOUND";
@@ -87,15 +93,15 @@ function LearnerAssessmentDetail({
       <Result
         extra={(
           <div className={styles.inlineActions}>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/assessments")}>Về danh sách</Button>
-            {!hidden && <Button icon={<ReloadOutlined />} onClick={() => void detailQuery.refetch()} type="primary">Thử lại</Button>}
+            <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/assessments")}>{t("Về danh sách")}</Button>
+            {!hidden && <Button disabled={detailQuery.isFetching} icon={<ReloadOutlined />} loading={detailQuery.isFetching} onClick={() => { if (!detailQuery.isFetching) void detailQuery.refetch(); }} type="primary">{t("Thử lại")}</Button>}
           </div>
         )}
         status={hidden ? "404" : "error"}
         subTitle={hidden
-          ? "Bài kiểm tra không còn khả dụng trong workspace của bạn."
-          : detailQuery.error instanceof Error ? detailQuery.error.message : "Không thể tải dữ liệu."}
-        title={hidden ? "Không tìm thấy bài kiểm tra" : "Không tải được bài kiểm tra"}
+          ? t("Bài kiểm tra không còn khả dụng trong workspace của bạn.")
+          : formatError(detailQuery.error, "Không thể tải dữ liệu.")}
+        title={hidden ? t("Không tìm thấy bài kiểm tra") : t("Không tải được bài kiểm tra")}
       />
     );
   }
@@ -109,14 +115,14 @@ function LearnerAssessmentDetail({
   const resume = Boolean(assessment.activeAttemptId);
   const launchDisabled = resume ? false : readOnly || !canStart;
   const launchTitle = resume
-    ? "Tiếp tục lượt làm đang mở"
+    ? t("Tiếp tục lượt làm đang mở")
     : readOnly
-      ? "Workspace chỉ đọc: không thể bắt đầu lượt làm mới"
+      ? t("Workspace chỉ đọc: không thể bắt đầu lượt làm mới")
       : availability === "UPCOMING"
-        ? "Bài kiểm tra chưa mở"
+        ? t("Bài kiểm tra chưa mở")
         : availability === "CLOSED"
-          ? "Bài kiểm tra đã đóng"
-          : assessment.attemptsRemaining < 1 ? "Bạn đã dùng hết lượt làm" : undefined;
+          ? t("Bài kiểm tra đã đóng")
+          : assessment.attemptsRemaining < 1 ? t("Bạn đã dùng hết lượt làm") : undefined;
   const launch = async () => {
     if (assessment.activeAttemptId) {
       router.push(`/assessments/attempts/${assessment.activeAttemptId}`);
@@ -128,7 +134,7 @@ function LearnerAssessmentDetail({
       await startMutation.mutateAsync();
     } catch (error) {
       if (!mounted.current) return;
-      message.error(error instanceof Error ? error.message : "Không thể bắt đầu lượt làm");
+      reportError(error, "Không thể bắt đầu lượt làm");
       void detailQuery.refetch();
     } finally {
       starting.current = false;
@@ -139,23 +145,23 @@ function LearnerAssessmentDetail({
     <main aria-labelledby="assessment-detail-title" className="page-shell">
       <header className={`${styles.pageHeader} page-heading`}>
         <div className="page-heading-copy">
-          <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/assessments")} type="link">Bài kiểm tra</Button>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/assessments")} type="link">{t("Bài kiểm tra")}</Button>
           <h1 id="assessment-detail-title">{assessment.title}</h1>
-          <p>{assessment.instructions || "Không có hướng dẫn bổ sung."}</p>
+          {assessment.instructions && <p>{assessment.instructions}</p>}
         </div>
         <AvailabilityTag availability={availability} />
       </header>
-      {readOnly && !resume && <Alert description="Bạn vẫn xem được thông tin, nhưng không thể bắt đầu lượt làm mới." showIcon title="Chế độ chỉ đọc" type="warning" />}
-      <Card className="surface-card" title="Thông tin lượt làm">
+      {readOnly && !resume && <Alert description={t("Bạn vẫn xem được thông tin, nhưng không thể bắt đầu lượt làm mới.")} showIcon title={t("Chế độ chỉ đọc")} type="warning" />}
+      <Card className="surface-card" title={t("Thông tin lượt làm")}>
         <dl className={styles.cardMeta}>
-          <div><dt>Thời lượng</dt><dd>{formatAssessmentDuration(assessment.timeLimitSeconds)}</dd></div>
-          <div><dt>Điểm đạt</dt><dd>{assessment.passPercent}%</dd></div>
-          <div><dt>Đã làm</dt><dd>{assessment.attemptsUsed}/{assessment.maxAttempts} lượt</dd></div>
-          <div><dt>Còn lại</dt><dd>{assessment.attemptsRemaining} lượt</dd></div>
-          <div><dt>Mở lúc</dt><dd>{formatAssessmentDate(assessment.opensAt)}</dd></div>
-          <div><dt>Đóng lúc</dt><dd>{formatAssessmentDate(assessment.closesAt)}</dd></div>
-          <div><dt>Tổng điểm</dt><dd>{assessment.maxScore.toLocaleString("vi-VN")}</dd></div>
-          <div><dt>Công bố kết quả</dt><dd>{resultVisibilityLabels[assessment.resultVisibility]}</dd></div>
+          <div><dt>{t("Thời lượng")}</dt><dd>{formatAssessmentDuration(assessment.timeLimitSeconds, locale)}</dd></div>
+          <div><dt>{t("Điểm đạt")}</dt><dd>{assessment.passPercent}%</dd></div>
+          <div><dt>{t("Đã làm")}</dt><dd>{assessment.attemptsUsed}/{assessment.maxAttempts} {t("lượt")}</dd></div>
+          <div><dt>{t("Còn lại")}</dt><dd>{assessment.attemptsRemaining} {t("lượt")}</dd></div>
+          <div><dt>{t("Mở lúc")}</dt><dd>{formatAssessmentDate(assessment.opensAt, locale)}</dd></div>
+          <div><dt>{t("Đóng lúc")}</dt><dd>{formatAssessmentDate(assessment.closesAt, locale)}</dd></div>
+          <div><dt>{t("Tổng điểm")}</dt><dd>{assessment.maxScore.toLocaleString(locale === "en" ? "en-US" : "vi-VN")}</dd></div>
+          <div><dt>{t("Công bố kết quả")}</dt><dd>{t(resultVisibilityLabels[assessment.resultVisibility])}</dd></div>
         </dl>
         <div className={styles.cardActions} style={{ marginTop: 22 }}>
           <Button
@@ -166,15 +172,15 @@ function LearnerAssessmentDetail({
             title={launchTitle}
             type="primary"
           >
-            {resume ? "Tiếp tục làm bài" : "Bắt đầu lượt làm"}
+            {resume ? t("Tiếp tục làm bài") : t("Bắt đầu lượt làm")}
           </Button>
         </div>
       </Card>
       {resume && readOnly && (
         <Alert
-          description="Bạn có thể mở lượt làm để xem các đáp án đã lưu, nhưng thay đổi và nộp bài đang tạm khóa."
+          description={t("Bạn có thể mở lượt làm để xem các đáp án đã lưu, nhưng thay đổi và nộp bài đang tạm khóa.")}
           showIcon
-          title="Lượt làm đang mở trong chế độ chỉ đọc"
+          title={t("Lượt làm đang mở trong chế độ chỉ đọc")}
           type="info"
         />
       )}
@@ -183,21 +189,22 @@ function LearnerAssessmentDetail({
 }
 
 export default function AssessmentDetailPage() {
+  const { t } = useI18n(learningMessages);
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { effectiveAccess, organization, token, user } = useAuth();
   const scope = getViewerScope(user, organization);
   if (!effectiveModuleEnabled(effectiveAccess, "ASSESSMENTS")) {
-    return <Alert showIcon title="Module Bài kiểm tra không khả dụng trong workspace này." type="warning" />;
+    return <Alert showIcon title={t("Module Bài kiểm tra không khả dụng trong workspace này.")} type="warning" />;
   }
-  if (!token || !scope) return <Alert showIcon title="Phiên thành viên không hợp lệ. Vui lòng đăng nhập lại." type="error" />;
+  if (!token || !scope) return <Alert showIcon title={t("Phiên thành viên không hợp lệ. Vui lòng đăng nhập lại.")} type="error" />;
   if (user?.role !== "LEARNER") {
     return (
       <Result
-        extra={<Button onClick={() => router.push(`/assessments/manage/${params.id}`)} type="primary">Mở trang soạn bài</Button>}
+        extra={<Button onClick={() => router.push(`/assessments/manage/${params.id}`)} type="primary">{t("Mở trang soạn bài")}</Button>}
         status="info"
-        subTitle="Trang chi tiết khởi động lượt làm chỉ dành cho học viên."
-        title="Bạn đang ở vai trò quản lý"
+        subTitle={t("Trang chi tiết khởi động lượt làm chỉ dành cho học viên.")}
+        title={t("Bạn đang ở vai trò quản lý")}
       />
     );
   }

@@ -1,8 +1,14 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { FeedbackLanguageSwitcher } from "@/components/feedback/feedback-locale";
+import { marketingMessages } from "@/lib/i18n/marketing-messages";
 import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
+import { ArrowRightOutlined } from "@ant-design/icons";
 import styles from "@/app/marketing-v2.module.css";
-import { DxBrandLockup, DxBrandMark } from "@/components/brand/dx-brand-lockup";
+import { DxBrandLockup } from "@/components/brand/dx-brand-lockup";
 import {
   marketingFaqItems,
   marketingFooterContent,
@@ -12,11 +18,9 @@ import {
 } from "@/lib/marketing-content";
 import { MarketingMotion } from "./marketing-motion";
 import { ArticleCover } from "./article-cover";
+import { EducationHeroScene } from "./education-hero-scene";
 import { MarketingVisual, type MarketingVisualKind } from "./marketing-visuals";
-import {
-  PricingSelector,
-  TestimonialCarousel,
-} from "./site-interactions";
+import { PricingSelector, TestimonialCarousel } from "./site-interactions";
 
 export function MarketingShell({
   children,
@@ -25,11 +29,12 @@ export function MarketingShell({
   children: ReactNode;
   includeNewsletter?: boolean;
 }) {
+  const { t } = useI18n(marketingMessages);
   return (
     <div className={styles.page} data-marketing-page id="top">
       <MarketingMotion />
       <a className={styles.skipLink} href="#noi-dung-chinh">
-        Chuyển đến nội dung chính
+        {t("Chuyển đến nội dung chính")}
       </a>
       <MarketingHeader />
       <main className={styles.main} id="noi-dung-chinh" tabIndex={-1}>
@@ -42,35 +47,60 @@ export function MarketingShell({
 }
 
 export function MarketingHeader() {
+  const { t } = useI18n(marketingMessages);
   return (
     <div className={styles.headerWrap}>
       <header className={styles.header} data-marketing-header>
-        <Link className={styles.logo} href="/" aria-label="DX LMS — Trang chủ">
-          <DxBrandLockup subtitle="Learning platform" />
+        <Link
+          className={styles.logo}
+          href="/"
+          aria-label={t("DX LMS — Trang chủ")}
+        >
+          <DxBrandLockup className={styles.headerBrand} />
         </Link>
-        <nav className={styles.nav} aria-label="Điều hướng chính">
+        <nav className={styles.nav} aria-label={t("Điều hướng chính")}>
           {marketingNavigation.items.map((item) => (
             <Link className={styles.navLink} href={item.href} key={item.href}>
-              {item.label}
+              {t(item.label)}
             </Link>
           ))}
         </nav>
+        <FeedbackLanguageSwitcher />
         <div className={styles.headerActions}>
-          <Link className={styles.buttonGhost} href={marketingNavigation.secondaryCta.href}>
-            {marketingNavigation.secondaryCta.label}
-          </Link>
-          <Link className={styles.headerCta} href={marketingNavigation.primaryCta.href}>
-            {marketingNavigation.primaryCta.label}
+          <Link
+            className={styles.headerCta}
+            href={marketingNavigation.entryCta.href}
+          >
+            {t(marketingNavigation.entryCta.label)}
           </Link>
         </div>
-        <details className={styles.mobileMenu}>
-          <summary aria-label="Mở menu">☰</summary>
-          <nav className={styles.mobileMenuPanel} aria-label="Điều hướng di động">
+        <details
+          className={styles.mobileMenu}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
+            }
+          }}
+        >
+          <summary aria-label={t("Mở menu")}>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M5 7h14M5 12h14M5 17h14" />
+            </svg>
+          </summary>
+          <nav
+            className={styles.mobileMenuPanel}
+            aria-label={t("Điều hướng di động")}
+          >
             {marketingNavigation.items.map((item) => (
-              <Link href={item.href} key={item.href}>{item.label}</Link>
+              <Link
+                href={item.href}
+                key={item.href}
+                onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
+              >
+                {t(item.label)}
+              </Link>
             ))}
-            <Link href="/login">Đăng nhập</Link>
-            <Link href="/register">Dùng thử miễn phí</Link>
           </nav>
         </details>
       </header>
@@ -79,141 +109,76 @@ export function MarketingHeader() {
 }
 
 export function MarketingFooter() {
+  const { t } = useI18n(marketingMessages);
   return (
     <footer className={styles.footer}>
       <div className={`${styles.container} ${styles.footerGrid}`}>
         <div className={styles.footerBrand}>
-          <DxBrandLockup subtitle="by DolphinX Studio" variant="inverse" />
-          <p>{marketingFooterContent.tagline}</p>
+          <DxBrandLockup
+            subtitle={t("Một sản phẩm của DolphinX Studio")}
+          />
+          <p>{t(marketingFooterContent.tagline)}</p>
         </div>
         {marketingFooterContent.groups.map((group) => (
-          <nav className={styles.footerGroup} aria-label={group.title} key={group.title}>
-            <h3>{group.title}</h3>
+          <nav
+            className={styles.footerGroup}
+            aria-label={t(group.title)}
+            key={group.title}
+          >
+            <h3>{t(group.title)}</h3>
             {group.links.map((link) => (
-              <Link href={link.href} key={link.href}>{link.label}</Link>
+              <Link href={link.href} key={link.href}>
+                {t(link.label)}
+              </Link>
             ))}
           </nav>
         ))}
       </div>
       <div className={`${styles.container} ${styles.footerBottom}`}>
-        <span>© {new Date().getFullYear()} DolphinX Studio. Bảo lưu mọi quyền.</span>
-        <span>{marketingFooterContent.note}</span>
+        <span>
+          © {new Date().getFullYear()}{" "}
+          {t("DolphinX Studio. Bảo lưu mọi quyền.")}
+        </span>
       </div>
-      <div className={styles.footerWord} aria-hidden="true">DX LMS</div>
     </footer>
   );
 }
 
 export function HomeHero() {
+  const { t } = useI18n(marketingMessages);
   return (
     <>
       <section className={styles.hero} aria-labelledby="home-hero-title">
-        <div className={`${styles.container} ${styles.heroCopy}`} data-reveal>
-          <span className={styles.badge}>
-            <i className={styles.badgeDot} aria-hidden="true" />
-            Dùng thử đầy đủ trong 14 ngày
-          </span>
-          <h1 id="home-hero-title">
-            Một nền tảng cho mọi lớp học.
-            <strong className={styles.gradientText}>Lớn lên cùng trung tâm của bạn.</strong>
-          </h1>
-          <p className={styles.heroLead}>
-            DX LMS kết nối khóa học, lớp, học viên, phụ huynh, học phí và báo cáo
-            trong một workspace được phân quyền rõ ràng cho từng vai trò, từng chi nhánh.
-          </p>
-          <div className={styles.heroActions}>
-            <Link className={styles.button} href="/register">
-              Bắt đầu miễn phí <span className={styles.buttonIcon}>→</span>
-            </Link>
-            <Link className={styles.buttonSecondary} href="/features">Khám phá tính năng</Link>
+        <div className={`${styles.container} ${styles.heroLayout}`}>
+          <div className={styles.heroCopy} data-reveal>
+            <h1 id="home-hero-title">
+              {t("Quản lý lớp học.")}
+              <strong>
+                {t("Nhẹ việc mỗi ngày.")}
+              </strong>
+            </h1>
+            <p className={styles.heroLead}>
+              {t(
+                "Khóa học, học viên và học phí trong cùng một nơi. Để bạn dành nhiều thời gian hơn cho việc dạy và học.",
+              )}
+            </p>
+            <div className={styles.heroActions}>
+              <Link className={styles.button} href="/register">
+                {t("Bắt đầu miễn phí")}{" "}
+                <ArrowRightOutlined aria-hidden />
+              </Link>
+              <Link className={styles.buttonGhost} href="/features">
+                {t("Khám phá tính năng")}
+              </Link>
+            </div>
+            <p className={styles.trialNote}>{t("Dùng thử 30 ngày · Không cần thẻ thanh toán")}</p>
           </div>
-          <div className={styles.proofRow} aria-label="Cam kết dùng thử">
-            <span className={styles.proofItem}><i className={styles.proofMark}>✓</i> Không cần thẻ thanh toán</span>
-            <span className={styles.proofItem}><i className={styles.proofMark}>✓</i> Tự tạo workspace</span>
-            <span className={styles.proofItem}><i className={styles.proofMark}>✓</i> Hủy bất cứ lúc nào</span>
-          </div>
+          <EducationHeroScene
+            alt={t("Giáo viên hướng dẫn hai học sinh học cùng sách và máy tính")}
+          />
         </div>
-        <HeroDashboard />
       </section>
-      <CapabilityMarquee />
     </>
-  );
-}
-
-function HeroDashboard() {
-  return (
-    <div className={styles.heroVisual} data-hero-visual data-reveal aria-label="Xem trước bảng điều khiển DX LMS">
-      <div className={`${styles.floatingCard} ${styles.floatingOne}`} aria-hidden="true">
-        <span className={styles.floatingIcon}>✓</span>
-        <span><strong>Điểm danh nhanh</strong><small>Đúng lớp · đúng buổi</small></span>
-      </div>
-      <div className={`${styles.floatingCard} ${styles.floatingTwo}`} aria-hidden="true">
-        <span className={styles.floatingIcon}>↗</span>
-        <span><strong>Tiến độ rõ ràng</strong><small>Theo học viên &amp; khóa học</small></span>
-      </div>
-      <div className={`${styles.floatingCard} ${styles.floatingThree}`} aria-hidden="true">
-        <span className={styles.floatingIcon}>₫</span>
-        <span><strong>Học phí</strong><small>Đối soát theo trạng thái</small></span>
-      </div>
-      <div className={styles.dashboard}>
-        <div className={styles.dashboardTop}>
-          <span className={styles.windowDots}><i /><i /><i /></span>
-          <span>DX LMS · Workspace trung tâm</span>
-          <span>Quản trị viên</span>
-        </div>
-        <div className={styles.dashboardBody}>
-          <aside className={styles.dashboardSide} aria-hidden="true">
-            <strong><DxBrandMark /></strong><i /><i /><i /><i /><i />
-          </aside>
-          <div className={styles.dashboardContent}>
-            <div className={styles.dashHeading}>
-              <div><span>TỔNG QUAN HÔM NAY</span><strong>Xin chào, quản trị viên</strong></div>
-              <span className={styles.dashFilter}>Toàn tổ chức</span>
-            </div>
-            <div className={styles.dashStats}>
-              {[
-                ["Lớp đang hoạt động", "12", "84%"],
-                ["Học viên", "248", "66%"],
-                ["Buổi học tuần này", "36", "92%"],
-              ].map(([label, value, width]) => (
-                <div className={styles.dashCard} key={label}>
-                  <small>{label}</small><strong>{value}</strong>
-                  <span className={styles.dashProgress}><i style={{ width }} /></span>
-                </div>
-              ))}
-            </div>
-            <div className={styles.dashGrid}>
-              <div className={styles.dashChart}>
-                <small>HOẠT ĐỘNG HỌC TẬP</small>
-                <div className={styles.chartBars} aria-hidden="true">
-                  {[42, 67, 53, 81, 62, 88, 74, 95].map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}
-                </div>
-              </div>
-              <div className={styles.dashList}>
-                <small>VIỆC CẦN LÀM</small>
-                <span>Phê duyệt ghi danh</span>
-                <span>Đối soát học phí</span>
-                <span>Xem báo cáo tuần</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CapabilityMarquee() {
-  const labels = ["Khóa học", "Lớp & điểm danh", "Bài tập", "Kiểm tra", "Phụ huynh", "Học phí", "Chi nhánh", "Báo cáo", "Thông báo"];
-  const duplicated = [...labels, ...labels];
-  return (
-    <div className={styles.marquee} aria-label="Các năng lực chính">
-      <div className={styles.marqueeTrack}>
-        {duplicated.map((label, index) => (
-          <span aria-hidden={index >= labels.length || undefined} className={styles.marqueeItem} key={`${label}-${index}`}>{label}</span>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -224,19 +189,35 @@ export function SectionHeading({
   align = "center",
   id,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   copy?: string;
   align?: "center" | "left";
   id?: string;
 }) {
+  const { t } = useI18n(marketingMessages);
   return (
-    <div className={align === "left" ? styles.sectionHeaderLeft : styles.sectionHeader} data-reveal>
-      <span className={styles.eyebrow}>{eyebrow}</span>
-      <h2 id={id}>{title}</h2>
-      {copy ? <p className={styles.sectionLead}>{copy}</p> : null}
+    <div
+      className={
+        align === "left" ? styles.sectionHeaderLeft : styles.sectionHeader
+      }
+      data-reveal
+    >
+      {eyebrow ? <span className={styles.eyebrow}>{t(eyebrow)}</span> : null}
+      <h2 id={id}>{t(title)}</h2>
+      {copy ? <p className={styles.sectionLead}>{t(copy)}</p> : null}
     </div>
   );
+}
+
+export function PageIntro({ title, lead }: { title: string; lead: string }) {
+  const { t } = useI18n(marketingMessages);
+  return <section className={styles.pageIntro}>
+    <div className={styles.container}>
+      <h1>{t(title)}</h1>
+      <p>{t(lead)}</p>
+    </div>
+  </section>;
 }
 
 export function PageHero({
@@ -264,6 +245,7 @@ export function PageHero({
   secondaryHref?: string;
   secondaryLabel?: string;
 }) {
+  const { t } = useI18n(marketingMessages);
   const visualContent = image ? (
     <Image
       alt={imageAlt}
@@ -280,14 +262,29 @@ export function PageHero({
 
   return (
     <section className={styles.pageHero} data-visual={visual}>
-      <div className={`${styles.container} ${styles.pageHeroInner} ${visualContent ? "" : styles.pageHeroInnerSolo}`}>
+      <div
+        className={`${styles.container} ${styles.pageHeroInner} ${visualContent ? "" : styles.pageHeroInnerSolo}`}
+      >
         <div className={styles.pageHeroCopy} data-reveal>
-          <span className={styles.badge}><i aria-hidden="true" className={styles.badgeDot} />{eyebrow}</span>
-          <h1>{line}<strong className={styles.gradientText}> {strong}</strong></h1>
-          <p className={styles.pageHeroLead}>{lead}</p>
+          <span className={styles.badge}>
+            <i aria-hidden="true" className={styles.badgeDot} />
+            {t(eyebrow)}
+          </span>
+          <h1>
+            {t(line)}
+            <strong className={styles.gradientText}> {t(strong)}</strong>
+          </h1>
+          <p className={styles.pageHeroLead}>{t(lead)}</p>
           <div className={`${styles.heroActions} ${styles.heroActionsStart}`}>
-            <Link className={styles.button} href={primaryHref}>{primaryLabel}<span className={styles.buttonIcon}>→</span></Link>
-            {secondaryHref && secondaryLabel ? <Link className={styles.buttonSecondary} href={secondaryHref}>{secondaryLabel}</Link> : null}
+            <Link className={styles.button} href={primaryHref}>
+              {t(primaryLabel)}
+              <span className={styles.buttonIcon}>→</span>
+            </Link>
+            {secondaryHref && secondaryLabel ? (
+              <Link className={styles.buttonSecondary} href={secondaryHref}>
+                {t(secondaryLabel)}
+              </Link>
+            ) : null}
           </div>
         </div>
         {visualContent ? (
@@ -300,39 +297,82 @@ export function PageHero({
   );
 }
 
-export function PricingSection({ compact = false }: { compact?: boolean }) {
+export function PricingSection({ compact = false, pageHeading = false }: { compact?: boolean; pageHeading?: boolean }) {
+  const { t } = useI18n(marketingMessages);
   return (
-    <section className={`${styles.section} ${styles.sectionTint}`} aria-labelledby="pricing-title">
+    <section
+      className={`${styles.section} ${pageHeading ? styles.pricingPage : ""}`}
+      aria-labelledby="pricing-title"
+    >
       <div className={styles.container}>
-        <SectionHeading
-          eyebrow="Gói dịch vụ linh hoạt"
-          title="Bắt đầu miễn phí, mở rộng theo đúng nhu cầu"
-          copy="Không hiển thị một mức giá giả định. DX LMS cấu hình mô-đun và hạn mức theo quy mô vận hành thực tế của trung tâm."
-          id="pricing-title"
-        />
+        <div className={styles.sectionHeader}>
+          {pageHeading ? <h1 id="pricing-title">{t("Gói phù hợp với trung tâm của bạn.")}</h1> : <h2 id="pricing-title">{t("Gói phù hợp với trung tâm của bạn.")}</h2>}
+          <p className={styles.sectionLead}>{t("Dùng thử 30 ngày. Nâng cấp khi bạn sẵn sàng.")}</p>
+        </div>
         <PricingSelector tiers={marketingPricingTiers} />
-        {!compact ? <ComparisonTable /> : null}
+        {!compact ? <details className={styles.pricingDetails}>
+          <summary>{t("Cách tính học viên và so sánh chi tiết")}</summary>
+          <p>{t("Mỗi học viên có tài khoản đang hoạt động trong tổ chức được tính vào hạn mức. Không tính theo số lượt đăng nhập.")}</p>
+          <ComparisonTable />
+        </details> : null}
       </div>
     </section>
   );
 }
 
 function ComparisonTable() {
+  const { t } = useI18n(marketingMessages);
   const rows = [
-    ["Tạo workspace", "Có", "Có", "Có"],
-    ["Khóa học & lớp học", "Theo gói trial", "Theo cấu hình", "Theo cấu hình"],
-    ["Vai trò học tập", "Có", "Có", "Có"],
-    ["Học phí & báo cáo", "Theo gói trial", "Tùy chọn", "Tùy chọn"],
-    ["Cơ cấu chi nhánh", "Theo gói trial", "Tùy chọn", "Có"],
-    ["Tư vấn triển khai", "Tài liệu", "Trao đổi", "Theo lộ trình"],
+    [
+      "Giá theo tháng",
+      "Miễn phí 30 ngày",
+      "299.000đ",
+      "799.000đ",
+      "Theo phương án triển khai",
+    ],
+    ["Giá theo năm", "—", "2.990.000đ", "7.990.000đ", "Theo phương án"],
+    [
+      "Hạn mức kích hoạt đồng thời",
+      "1.000 học viên",
+      "1.000 học viên",
+      "5.000 học viên",
+      "Trên 5.000",
+    ],
+    ["Thông tin thẻ khi đăng ký", "Không cần", "—", "—", "—"],
+    ["Khóa học & lớp học", "Có", "Có", "Có", "Theo phương án"],
+    ["Cơ cấu đơn vị", "Có", "Có", "Có", "Theo phương án"],
   ];
   return (
-    <div className={styles.comparison} data-reveal>
+    <div
+      aria-label={t("Bảng so sánh các gói dịch vụ")}
+      className={styles.comparison}
+      data-reveal
+      role="region"
+      tabIndex={0}
+    >
       <table>
-        <thead><tr><th>Khả năng</th><th>Dùng thử</th><th>Center</th><th>Enterprise</th></tr></thead>
+        <caption className={styles.visuallyHidden}>
+          {t("So sánh quyền lợi và hạn mức các gói DX LMS")}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">{t("Khả năng")}</th>
+            <th scope="col">{t("Dùng thử")}</th>
+            <th scope="col">Center</th>
+            <th scope="col">Business</th>
+            <th scope="col">Enterprise</th>
+          </tr>
+        </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row[0]}>{row.map((cell, index) => <td className={index ? styles.checkCell : undefined} key={`${row[0]}-${index}`}>{cell}</td>)}</tr>
+            <tr key={row[0]}>
+              <th scope="row">{t(row[0])}</th>
+              {row.slice(1).map((cell, index) => (
+                <td className={styles.checkCell} key={`${row[0]}-${index + 1}`}>
+                  {t(cell)}
+                </td>
+              ))}
+            </tr>
           ))}
         </tbody>
       </table>
@@ -341,24 +381,21 @@ function ComparisonTable() {
 }
 
 export function FaqSection() {
+  const { t } = useI18n(marketingMessages);
   return (
     <section className={styles.section} aria-labelledby="faq-title">
       <div className={`${styles.container} ${styles.faqLayout}`}>
         <div className={styles.faqAside} data-reveal>
-          <span className={styles.eyebrow}>Câu hỏi thường gặp</span>
-          <h2 id="faq-title">Mọi điều cần biết trước khi bắt đầu</h2>
-          <p className={styles.sectionLead}>Thông tin dưới đây mô tả đúng luồng dùng thử, phân quyền và trạng thái dịch vụ hiện có.</p>
-          <div className={styles.questionCard}>
-            <strong>Vẫn còn câu hỏi?</strong>
-            <p>Gửi nhu cầu vận hành của bạn để đội ngũ tư vấn phản hồi theo đúng bối cảnh trung tâm.</p>
-            <Link className={styles.buttonSecondary} href="/contact-us">Liên hệ DX LMS</Link>
-          </div>
+          <h2 id="faq-title">{t("Bạn cần biết thêm?")}</h2>
         </div>
         <div className={styles.faqList} data-reveal>
-          {marketingFaqItems.map((item, index) => (
-            <details className={styles.faqItem} key={item.id} open={index === 0 ? true : undefined}>
-              <summary>{item.question}</summary>
-              <p className={styles.faqAnswer}>{item.answer}</p>
+          {marketingFaqItems.map((item) => (
+            <details
+              className={styles.faqItem}
+              key={item.id}
+            >
+              <summary>{t(item.question)}</summary>
+              <p className={styles.faqAnswer}>{t(item.answer)}</p>
             </details>
           ))}
         </div>
@@ -368,13 +405,16 @@ export function FaqSection() {
 }
 
 export function Testimonials() {
+  const { t } = useI18n(marketingMessages);
   return (
     <section className={styles.section} aria-labelledby="testimonial-title">
       <div className={styles.container}>
         <SectionHeading
-          eyebrow="Thiết kế xoay quanh vai trò"
-          title="Một hệ thống, bốn góc nhìn công việc"
-          copy="Chọn một vai trò để xem mạch công việc, tín hiệu cần theo dõi và kết quả mà họ nhận được trong DX LMS."
+          eyebrow={t("Thiết kế xoay quanh vai trò")}
+          title={t("Một hệ thống, bốn góc nhìn công việc")}
+          copy={t(
+            "Chọn một vai trò để xem mạch công việc, tín hiệu cần theo dõi và kết quả mà họ nhận được trong DX LMS.",
+          )}
           id="testimonial-title"
         />
         <TestimonialCarousel />
@@ -383,17 +423,33 @@ export function Testimonials() {
   );
 }
 
-export function BlogCard({ post, priority = false }: { post: MarketingBlogPost; priority?: boolean }) {
+export function BlogCard({
+  post,
+  priority = false,
+}: {
+  post: MarketingBlogPost;
+  priority?: boolean;
+}) {
+  const { t } = useI18n(marketingMessages);
   return (
-    <article className={styles.blogCard} data-priority={priority || undefined} data-reveal>
-      <Link href={`/blog/${post.slug}`} aria-label={`Đọc ${post.title}`}>
+    <article
+      className={styles.blogCard}
+      data-priority={priority || undefined}
+      data-reveal
+    >
+      <Link
+        href={`/blog/${post.slug}`}
+        aria-label={t("Đọc {title}", { title: t(post.title) })}
+      >
         <div className={styles.blogImageWrap}>
           <ArticleCover post={post} />
         </div>
         <div className={styles.blogBody}>
-          <div className={styles.blogMeta}><span>{post.category}</span><span>{post.readingTime}</span></div>
-          <h3>{post.title}</h3>
-          <p>{post.excerpt}</p>
+          <div className={styles.blogMeta}>
+            <span>{t(post.category)}</span>
+            <span>{t(post.readingTime)}</span>
+          </div>
+          <h3>{t(post.title)}</h3>
         </div>
       </Link>
     </article>
@@ -401,19 +457,27 @@ export function BlogCard({ post, priority = false }: { post: MarketingBlogPost; 
 }
 
 function Newsletter() {
+  const { t } = useI18n(marketingMessages);
   return (
-    <section className={styles.newsletterSection} aria-labelledby="newsletter-title">
+    <section
+      className={styles.newsletterSection}
+      aria-labelledby="newsletter-title"
+    >
       <div className={styles.container}>
         <div className={styles.newsletter} data-reveal>
-          <span className={`${styles.newsletterArt} ${styles.newsletterArtLeft}`} aria-hidden="true" />
-          <span className={`${styles.newsletterArt} ${styles.newsletterArtRight}`} aria-hidden="true" />
           <div className={styles.newsletterContent}>
-            <span className={styles.eyebrow}>Cập nhật sản phẩm</span>
-            <h2 id="newsletter-title">Nhận hướng dẫn vận hành LMS hữu ích</h2>
-            <p>Khám phá bài viết mới hoặc tạo workspace dùng thử để nhận các cập nhật sản phẩm trực tiếp trong ứng dụng.</p>
+            <h2 id="newsletter-title">
+              {t("Sẵn sàng cho lớp học đầu tiên?")}
+            </h2>
+            <p>
+              {t(
+                "Tạo không gian của bạn và bắt đầu dùng thử trong vài phút.",
+              )}
+            </p>
             <div className={styles.newsletterActions}>
-              <Link className={styles.button} href="/blog">Xem bài viết</Link>
-              <Link className={styles.buttonSecondary} href="/register">Tạo workspace</Link>
+              <Link className={styles.button} href="/register">
+                {t("Bắt đầu miễn phí")} <ArrowRightOutlined aria-hidden />
+              </Link>
             </div>
           </div>
         </div>

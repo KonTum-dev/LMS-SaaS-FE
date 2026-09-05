@@ -20,6 +20,7 @@ export interface YouTubeChannel {
 export interface YouTubeIntegrationStatus {
   channel: YouTubeChannel | null;
   connectedAt: string | null;
+  linkedEmail: string | null;
   state: YouTubeConnectionState;
   uploadEnabled: boolean;
 }
@@ -103,6 +104,19 @@ function nullableBoundedString(
 ): string | null | undefined {
   if (value === null) return null;
   return boundedString(value, maximum) ? value : undefined;
+}
+
+function nullableEmail(value: unknown): string | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value === "string" &&
+    value.length <= 320 &&
+    value === value.trim() &&
+    value.includes("@")
+  ) {
+    return value;
+  }
+  return undefined;
 }
 
 function invalidStatus(): never {
@@ -204,7 +218,12 @@ export function parseYouTubeStatus(value: unknown): YouTubeIntegrationStatus {
     invalidStatus();
   }
   const connectedAt = nullableTimestamp(value.connectedAt);
-  if (connectedAt === undefined || typeof value.uploadEnabled !== "boolean") {
+  const linkedEmail = nullableEmail(value.linkedEmail);
+  if (
+    connectedAt === undefined ||
+    linkedEmail === undefined ||
+    typeof value.uploadEnabled !== "boolean"
+  ) {
     invalidStatus();
   }
   let channel: YouTubeChannel | null;
@@ -219,7 +238,13 @@ export function parseYouTubeStatus(value: unknown): YouTubeIntegrationStatus {
   } else {
     invalidStatus();
   }
-  return { channel, connectedAt, state, uploadEnabled: value.uploadEnabled };
+  return {
+    channel,
+    connectedAt,
+    linkedEmail,
+    state,
+    uploadEnabled: value.uploadEnabled,
+  };
 }
 
 export function parseYouTubeUploadJob(value: unknown): YouTubeUploadJob {

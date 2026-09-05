@@ -139,7 +139,7 @@ function setupApi() {
         );
         const response: Paginated<GradingSubmissionRow> = {
           items: mocks.listItems,
-          limit: 20,
+          limit: Number(new URLSearchParams(path.split("?", 2)[1]).get("limit") ?? "20"),
           page,
           total: 41,
         };
@@ -300,6 +300,25 @@ describe("manager grading queue", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it("đổi số dòng và xóa lọc giữ số dòng, trả hàng đợi về mặc định", async () => {
+    renderPage();
+    await screen.findByText("Lan Nguyễn");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await waitFor(() => expect(gradingListCalls().at(-1)?.[0]).toContain("page=2"));
+    fireEvent.change(screen.getByLabelText("Số dòng mỗi trang"), { target: { value: "50" } });
+    await waitFor(() => expect(gradingListCalls().at(-1)?.[0]).toBe("/grading/submissions?limit=50&page=1&sort=OLDEST&status=SUBMITTED"));
+    fireEvent.change(screen.getByLabelText("Lọc trạng thái"), { target: { value: "RETURNED" } });
+    fireEvent.change(screen.getByLabelText("Sắp xếp bài nộp"), { target: { value: "NEWEST" } });
+    fireEvent.change(screen.getByLabelText("Lọc khóa học"), { target: { value: "course-1" } });
+    fireEvent.change(screen.getByLabelText("Lọc bài tập"), { target: { value: "assignment-1" } });
+    fireEvent.change(screen.getByLabelText("Tìm học viên"), { target: { value: " Lan " } });
+    fireEvent.click(screen.getByRole("button", { name: "Tìm kiếm" }));
+    await waitFor(() => expect(gradingListCalls().at(-1)?.[0]).toContain("search=Lan"));
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    await waitFor(() => expect(gradingListCalls().at(-1)?.[0]).toBe("/grading/submissions?limit=50&page=1&sort=OLDEST&status=SUBMITTED"));
+    expect((screen.getByLabelText("Tìm học viên") as HTMLInputElement).value).toBe("");
   });
 
   it("serialize filter/search/sort vào URL và query key ổn định", async () => {

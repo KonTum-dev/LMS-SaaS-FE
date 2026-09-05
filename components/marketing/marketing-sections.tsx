@@ -1,3 +1,7 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { marketingMessages } from "@/lib/i18n/marketing-messages";
 import styles from "@/app/marketing.module.css";
 import { MarketingIcon } from "./marketing-icon";
 import { SectionMascot } from "./section-mascot";
@@ -64,6 +68,7 @@ const services = [
 ];
 
 export function AboutSection() {
+  const { t } = useI18n(marketingMessages);
   return (
     <section
       className={`${styles.section} ${styles.aboutSection}`}
@@ -73,25 +78,42 @@ export function AboutSection() {
     >
       <div className={`${styles.container} ${styles.aboutGrid}`}>
         <div className={styles.sectionLead} data-reveal>
-          <span className={styles.sectionLabel}>DX LMS là gì?</span>
-          <h2 id="about-title">Bắt đầu gọn. Mở rộng mà không phải đổi hệ thống.</h2>
+          <span className={styles.sectionLabel}>{t("DX LMS là gì?")}</span>
+          <h2 id="about-title">
+            {t("Bắt đầu gọn. Mở rộng mà không phải đổi hệ thống.")}
+          </h2>
         </div>
         <SectionMascot variant="about" />
         <div className={styles.aboutCopy} data-reveal>
           <p className={styles.aboutStatement}>
-            DX LMS phù hợp từ lớp học do một giáo viên tự vận hành đến trung
-            tâm có nhiều phòng ban và chi nhánh.
+            {t(
+              "DX LMS phù hợp từ lớp học do một giáo viên tự vận hành đến trung tâm có nhiều phòng ban và chi nhánh.",
+            )}
           </p>
           <p>
-            Bạn dùng đúng phần mình cần ở hiện tại. Khi quy mô thay đổi, dữ liệu
-            lớp học, học viên, phụ huynh và học phí vẫn nằm trong một mạch vận
-            hành, không phải chuyển sang hệ thống khác.
+            {t(
+              "Bạn dùng đúng phần mình cần ở hiện tại. Khi quy mô thay đổi, dữ liệu lớp học, học viên, phụ huynh và học phí vẫn nằm trong một mạch vận hành, không phải chuyển sang hệ thống khác.",
+            )}
           </p>
-          <ul className={styles.aboutFeatures} aria-label="Nền tảng DX LMS">
-            <li><span aria-hidden="true" /> Không bắt buộc tạo chi nhánh cho lớp nhỏ</li>
-            <li><span aria-hidden="true" /> Nhiều giáo viên trong cùng một lớp</li>
-            <li><span aria-hidden="true" /> Phân quyền theo vai trò và đơn vị</li>
-            <li><span aria-hidden="true" /> Dữ liệu xuyên suốt khi mở rộng</li>
+          <ul
+            className={styles.aboutFeatures}
+            aria-label={t("Nền tảng DX LMS")}
+          >
+            <li>
+              <span aria-hidden="true" />{" "}
+              {t("Không bắt buộc tạo chi nhánh cho lớp nhỏ")}
+            </li>
+            <li>
+              <span aria-hidden="true" />{" "}
+              {t("Nhiều giáo viên trong cùng một lớp")}
+            </li>
+            <li>
+              <span aria-hidden="true" />{" "}
+              {t("Phân quyền theo vai trò và đơn vị")}
+            </li>
+            <li>
+              <span aria-hidden="true" /> {t("Dữ liệu xuyên suốt khi mở rộng")}
+            </li>
           </ul>
         </div>
       </div>
@@ -100,6 +122,7 @@ export function AboutSection() {
 }
 
 export function MotivationSection() {
+  const { t } = useI18n(marketingMessages);
   return (
     <section
       className={`${styles.section} ${styles.motivationSection}`}
@@ -109,20 +132,29 @@ export function MotivationSection() {
     >
       <div className={`${styles.container} ${styles.mascotContainer}`}>
         <div className={styles.motivationHeading} data-reveal>
-          <span className={styles.sectionLabel}>Vì sao DX LMS</span>
-          <h2 id="motivation-title">Việc hôm nay đơn giản. Quy mô ngày mai vẫn kiểm soát được.</h2>
+          <span className={styles.sectionLabel}>{t("Vì sao DX LMS")}</span>
+          <h2 id="motivation-title">
+            {t("Việc hôm nay đơn giản. Quy mô ngày mai vẫn kiểm soát được.")}
+          </h2>
           <p>
-            Mỗi vai trò có một góc nhìn vừa đủ, còn chủ trung tâm vẫn nắm được
-            bức tranh chung từ lớp học đến từng chi nhánh.
+            {t(
+              "Mỗi vai trò có một góc nhìn vừa đủ, còn chủ trung tâm vẫn nắm được bức tranh chung từ lớp học đến từng chi nhánh.",
+            )}
           </p>
         </div>
         <SectionMascot variant="motivation" />
         <div className={styles.valueGrid}>
           {principles.map((principle) => (
-            <article className={styles.valueCard} data-reveal key={principle.title}>
-              <span className={styles.valueIcon}><MarketingIcon name={principle.icon} /></span>
-              <h3>{principle.title}</h3>
-              <p>{principle.copy}</p>
+            <article
+              className={styles.valueCard}
+              data-reveal
+              key={principle.title}
+            >
+              <span className={styles.valueIcon}>
+                <MarketingIcon name={principle.icon} />
+              </span>
+              <h3>{t(principle.title)}</h3>
+              <p>{t(principle.copy)}</p>
             </article>
           ))}
         </div>
@@ -132,6 +164,7 @@ export function MotivationSection() {
 }
 
 export function ServicesSection() {
+  const { t } = useI18n(marketingMessages);
   return (
     <section
       className={`${styles.section} ${styles.servicesSection}`}
@@ -143,20 +176,31 @@ export function ServicesSection() {
       <div className={styles.serviceDecorationTwo} aria-hidden="true" />
       <div className={`${styles.container} ${styles.mascotContainer}`}>
         <div className={styles.servicesHeading} data-reveal>
-          <span className={styles.sectionLabelLight}>Năng lực đã triển khai</span>
-          <h2 id="services-title">Đủ cho lớp học. Có chiều sâu cho trung tâm.</h2>
+          <span className={styles.sectionLabelLight}>
+            {t("Năng lực đã triển khai")}
+          </span>
+          <h2 id="services-title">
+            {t("Đủ cho lớp học. Có chiều sâu cho trung tâm.")}
+          </h2>
           <p>
-            Các phần học tập, vận hành và quản trị dùng chung dữ liệu, nhưng
-            luôn giữ đúng tenant, vai trò và phạm vi đơn vị.
+            {t(
+              "Các phần học tập, vận hành và quản trị dùng chung dữ liệu, nhưng luôn giữ đúng tenant, vai trò và phạm vi đơn vị.",
+            )}
           </p>
         </div>
         <SectionMascot variant="services" />
         <div className={styles.serviceGrid}>
           {services.map((service) => (
-            <article className={styles.serviceCard} data-reveal key={service.title}>
-              <span className={styles.serviceIcon}><MarketingIcon name={service.icon} /></span>
-              <h3>{service.title}</h3>
-              <p>{service.copy}</p>
+            <article
+              className={styles.serviceCard}
+              data-reveal
+              key={service.title}
+            >
+              <span className={styles.serviceIcon}>
+                <MarketingIcon name={service.icon} />
+              </span>
+              <h3>{t(service.title)}</h3>
+              <p>{t(service.copy)}</p>
             </article>
           ))}
         </div>

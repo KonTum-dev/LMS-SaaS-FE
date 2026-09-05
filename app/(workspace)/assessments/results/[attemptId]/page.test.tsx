@@ -146,6 +146,22 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AssessmentResultPage", () => {
+  it("retries a failed result without duplicate requests or revealing hidden scores", async () => {
+    let resolve!: (value: AssessmentAttemptResult) => void;
+    const pending = new Promise<AssessmentAttemptResult>((done) => { resolve = done; });
+    mocks.getResult.mockRejectedValueOnce(new Error("Temporary outage")).mockReturnValue(pending);
+    renderPage();
+    const retry = await screen.findByRole("button", { name: "Thử lại" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Thử lại" })).toBeNull());
+    expect(document.querySelector('[role="status"], .ant-skeleton')).toBeTruthy();
+    fireEvent.click(retry);
+    expect(mocks.getResult).toHaveBeenCalledTimes(2);
+    resolve(pendingResult);
+    expect(await screen.findByText("Bài đã được ghi nhận")).toBeTruthy();
+    expect(screen.queryByText(/\/ 10 điểm/)).toBeNull();
+  });
+
   it("hiển thị policy-pending mà không suy diễn điểm hoặc đáp án", async () => {
     renderPage();
 
@@ -186,6 +202,8 @@ describe("AssessmentResultPage", () => {
     renderPage();
 
     expect(await screen.findByText("Đạt")).toBeTruthy();
+    expect(screen.getByText("Xem điểm và kết quả bài kiểm tra của bạn. Đáp án từng câu không hiển thị tại đây.")).toBeTruthy();
+    expect(screen.queryByText(/V1|máy chủ chấm/)).toBeNull();
     expect(screen.getAllByText(/82[,.]5%/).length).toBeGreaterThan(0);
     expect(screen.getByText("8,25")).toBeTruthy();
     expect(screen.queryByText("KHÔNG ĐƯỢC HIỂN THỊ")).toBeNull();

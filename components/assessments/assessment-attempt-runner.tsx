@@ -1,5 +1,9 @@
 "use client";
 
+import { useFeedback } from "@/components/feedback/feedback-provider";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
 import { ArrowLeftOutlined, ReloadOutlined, SendOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Checkbox, Popconfirm, Radio, Result, Spin, Tag } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -83,6 +87,8 @@ function AssessmentAttemptSession({
   scope,
   token,
 }: AssessmentAttemptSessionProps) {
+  const { t } = useI18n(learningMessages);
+  const { formatError } = useFeedback();
   const router = useRouter();
   const queryClient = useQueryClient();
   const mounted = useRef(true);
@@ -110,8 +116,10 @@ function AssessmentAttemptSession({
   const [queueState, setQueueState] = useState(EMPTY_QUEUE_STATE);
   const [leaving, setLeaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [expiryError, setExpiryError] = useState("");
+  type AttemptNotice = { source: string; error?: unknown; interpolate?: boolean };
+  const noticeText = (notice: AttemptNotice) => notice.error === undefined ? t(notice.source) : notice.interpolate ? t(notice.source, { p0: formatError(notice.error) }) : formatError(notice.error, notice.source);
+  const [submitError, setSubmitError] = useState<AttemptNotice | null>(null);
+  const [expiryError, setExpiryError] = useState<AttemptNotice | null>(null);
   const [expiryRetry, setExpiryRetry] = useState(0);
   const recoveryKey = assessmentAnswerRecoveryKey(scope, attemptId);
   const persistDirtyAnswers = useCallback(() => {
@@ -204,13 +212,11 @@ function AssessmentAttemptSession({
   ]);
 
   const retrySavesAgainstLatest = async () => {
-    setSubmitError("");
+    setSubmitError(null);
     const response = await refetchAttempt();
     if (!mounted.current) return;
     if (response.error) {
-      setSubmitError(response.error instanceof Error
-        ? response.error.message
-        : "Không thể tải trạng thái mới nhất của lượt làm.");
+      setSubmitError({ error: response.error, source: "Không thể tải trạng thái mới nhất của lượt làm." });
       return;
     }
     if (!response.data) return;
@@ -262,7 +268,7 @@ function AssessmentAttemptSession({
     if (leavingRef.current || submittingRef.current) return;
     leavingRef.current = true;
     setLeaving(true);
-    setSubmitError("");
+    setSubmitError(null);
     try {
       await queueRef.current?.flush();
       if (!mounted.current) return;
@@ -270,8 +276,8 @@ function AssessmentAttemptSession({
     } catch (error) {
       if (!mounted.current) return;
       setSubmitError(error instanceof Error
-        ? `Chưa thể rời trang vì đáp án chưa lưu: ${error.message}`
-        : "Chưa thể rời trang vì còn đáp án chưa lưu.");
+        ? { source: "Chưa thể rời trang vì đáp án chưa lưu: {p0}", error, interpolate: true }
+        : { source: "Chưa thể rời trang vì còn đáp án chưa lưu." });
     } finally {
       leavingRef.current = false;
       if (mounted.current) setLeaving(false);
@@ -289,7 +295,7 @@ function AssessmentAttemptSession({
     ) return;
     submittingRef.current = true;
     setSubmitting(true);
-    setSubmitError("");
+    setSubmitError(null);
     try {
       const expectedRevision = await queueRef.current?.flush() ?? attempt.revision;
       const controller = new AbortController();
@@ -317,8 +323,8 @@ function AssessmentAttemptSession({
       const conflict = error instanceof ApiError
         && (error.code === "ATTEMPT_REVISION_MISMATCH" || error.status === 409);
       setSubmitError(conflict
-        ? "Revision lượt làm đã thay đổi. Tải bản mới, lưu lại các lựa chọn rồi nộp lại."
-        : error instanceof Error ? error.message : "Không thể nộp bài");
+        ? { source: "Revision lượt làm đã thay đổi. Tải bản mới, lưu lại các lựa chọn rồi nộp lại." }
+        : { source: "Không thể nộp bài", error });
     } finally {
       submitController.current = null;
       submittingRef.current = false;
@@ -334,11 +340,11 @@ function AssessmentAttemptSession({
       if (!mounted.current) return;
       if (response.error || !response.data) {
         setExpiryError(response.error instanceof Error
-          ? `Chưa thể xác nhận hết giờ: ${response.error.message}`
-          : "Chưa thể xác nhận trạng thái hết giờ với máy chủ.");
+          ? { source: "Chưa thể xác nhận hết giờ: {p0}", error: response.error, interpolate: true }
+          : { source: "Chưa thể xác nhận trạng thái hết giờ với máy chủ." });
         return;
       }
-      setExpiryError("");
+      setExpiryError(null);
       setClockReceivedAt(Date.now());
       setAttempt(response.data);
       queryClient.setQueryData(lmsQueryKeys.assessmentAttempt(scope, attemptId), response.data);
@@ -353,7 +359,7 @@ function AssessmentAttemptSession({
           Date.parse(response.data.serverNow),
         );
         if (freshRemaining === 0) {
-          setExpiryError("Máy chủ chưa chốt lượt làm. Vui lòng thử xác nhận lại.");
+          setExpiryError({ source: "Máy chủ chưa chốt lượt làm. Vui lòng thử xác nhận lại." });
         } else {
           expiryChecked.current = null;
         }
@@ -361,8 +367,8 @@ function AssessmentAttemptSession({
     }, (error: unknown) => {
       if (!mounted.current) return;
       setExpiryError(error instanceof Error
-        ? `Chưa thể xác nhận hết giờ: ${error.message}`
-        : "Chưa thể xác nhận trạng thái hết giờ với máy chủ.");
+        ? { source: "Chưa thể xác nhận hết giờ: {p0}", error, interpolate: true }
+        : { source: "Chưa thể xác nhận trạng thái hết giờ với máy chủ." });
     });
   }, [attempt.deadlineAt, attempt.status, attemptId, expiryRetry, queryClient, recoveryKey, refetchAttempt, remaining, router, scope]);
 
@@ -391,35 +397,35 @@ function AssessmentAttemptSession({
     || remaining === 0
     || attempt.status !== "IN_PROGRESS";
   const saveMessage = queueError
-    ? "Có đáp án chưa được lưu."
+    ? t("Có đáp án chưa được lưu.")
     : queueState.saving
-      ? `Đang lưu ${queueState.pendingCount} thay đổi…`
+      ? t("Đang lưu {p0} thay đổi…", { p0: queueState.pendingCount })
       : queueState.pendingCount > 0
-        ? "Đang đồng bộ thay đổi…"
-        : "Mọi thay đổi đã được lưu.";
+        ? t("Đang đồng bộ thay đổi…")
+        : t("Mọi thay đổi đã được lưu.");
 
   return (
     <main aria-labelledby="attempt-title" className="page-shell">
       <header className={`${styles.attemptHeader} page-heading`}>
         <div className="page-heading-copy">
-          <Button icon={<ArrowLeftOutlined />} loading={leaving} onClick={() => void leaveAttempt()} type="link">Chi tiết bài kiểm tra</Button>
+          <Button icon={<ArrowLeftOutlined />} loading={leaving} onClick={() => void leaveAttempt()} type="link">{t("Chi tiết bài kiểm tra")}</Button>
           <h1 id="attempt-title">{attempt.title}</h1>
-          <p>Lượt {attempt.attemptNumber} · Phiên bản {attempt.versionNumber}</p>
+          <p>{t("Lượt")} {attempt.attemptNumber} {t("· Phiên bản")} {attempt.versionNumber}</p>
         </div>
         <div className={styles.attemptStatus}>
           <AttemptStatusTag status={attempt.status} />
           {remaining !== null ? (
-            <time aria-label={`Thời gian còn lại ${formatRemaining(remaining)}`} className={`${styles.timer} ${remaining <= 300 ? styles.timerUrgent : ""}`} dateTime={`PT${remaining}S`}>
+            <time aria-label={t("Thời gian còn lại {p0}", { p0: formatRemaining(remaining) })} className={`${styles.timer} ${remaining <= 300 ? styles.timerUrgent : ""}`} dateTime={`PT${remaining}S`}>
               {formatRemaining(remaining)}
             </time>
-          ) : <Tag>Không giới hạn thời gian</Tag>}
-          <span className={styles.muted}>{answeredCount}/{attempt.questions.length} câu đã trả lời</span>
+          ) : <Tag>{t("Không giới hạn thời gian")}</Tag>}
+          <span className={styles.muted}>{answeredCount}/{attempt.questions.length} {t("câu đã trả lời")}</span>
         </div>
       </header>
 
-      {attempt.instructions && <Alert description={attempt.instructions} showIcon title="Hướng dẫn" type="info" />}
-      {readOnly && <Alert description="Bạn xem được đáp án đã lưu, nhưng không thể thay đổi hoặc nộp bài trong chế độ chỉ đọc." showIcon title="Chế độ chỉ đọc" type="warning" />}
-      {remaining === 0 && <Alert description="Hệ thống đang chốt lượt làm theo thời gian máy chủ." showIcon title="Đã hết thời gian" type="warning" />}
+      {attempt.instructions && <Alert description={attempt.instructions} showIcon title={t("Hướng dẫn")} type="info" />}
+      {readOnly && <Alert description={t("Bạn xem được đáp án đã lưu, nhưng không thể thay đổi hoặc nộp bài trong chế độ chỉ đọc.")} showIcon title={t("Chế độ chỉ đọc")} type="warning" />}
+      {remaining === 0 && <Alert description={t("Hệ thống đang chốt lượt làm theo thời gian máy chủ.")} showIcon title={t("Đã hết thời gian")} type="warning" />}
       {expiryError && (
         <Alert
           action={(
@@ -427,45 +433,43 @@ function AssessmentAttemptSession({
               icon={<ReloadOutlined />}
               onClick={() => {
                 expiryChecked.current = null;
-                setExpiryError("");
+                setExpiryError(null);
                 setExpiryRetry((current) => current + 1);
               }}
-            >
-              Thử xác nhận lại
-            </Button>
+            >{t("Thử xác nhận lại")}</Button>
           )}
-          description={expiryError}
+          description={noticeText(expiryError)}
           showIcon
-          title="Chưa chốt được lượt làm"
+          title={t("Chưa chốt được lượt làm")}
           type="error"
         />
       )}
       {Boolean(queueError) && (
         <Alert
-          action={<Button icon={<ReloadOutlined />} onClick={() => void retrySavesAgainstLatest()}>{queueConflict ? "Nạp bản mới và lưu lại" : "Thử lưu lại"}</Button>}
+          action={<Button icon={<ReloadOutlined />} onClick={() => void retrySavesAgainstLatest()}>{queueConflict ? t("Nạp bản mới và lưu lại") : t("Thử lưu lại")}</Button>}
           description={queueConflict
-            ? "Lượt làm đã được cập nhật ở nơi khác. Các lựa chọn trên màn hình này vẫn được giữ để bạn đồng bộ lại."
-            : queueError instanceof Error ? queueError.message : "Kiểm tra kết nối rồi thử lại."}
+            ? t("Lượt làm đã được cập nhật ở nơi khác. Các lựa chọn trên màn hình này vẫn được giữ để bạn đồng bộ lại.")
+            : formatError(queueError, "Kiểm tra kết nối rồi thử lại.")}
           showIcon
-          title="Chưa lưu được đáp án"
+          title={t("Chưa lưu được đáp án")}
           type="error"
         />
       )}
       {submitError && (
         <Alert
-          action={<Button icon={<ReloadOutlined />} onClick={() => void retrySavesAgainstLatest()}>Tải bản mới</Button>}
+          action={<Button icon={<ReloadOutlined />} onClick={() => void retrySavesAgainstLatest()}>{t("Tải bản mới")}</Button>}
           closable
-          onClose={() => setSubmitError("")}
+          onClose={() => setSubmitError(null)}
           showIcon
-          title={submitError}
+          title={noticeText(submitError)}
           type="error"
         />
       )}
 
-      <nav aria-label="Đi tới câu hỏi" className={styles.questionNav}>
+      <nav aria-label={t("Đi tới câu hỏi")} className={styles.questionNav}>
         {attempt.questions.map((question, index) => (
           <Button
-            aria-label={`Đi tới câu ${index + 1}${answers[question.id]?.length ? ", đã trả lời" : ", chưa trả lời"}`}
+            aria-label={t("Đi tới câu {p0}{p1}", { p0: index + 1, p1: answers[question.id]?.length ? t(", đã trả lời") : t(", chưa trả lời") })}
             key={question.id}
             onClick={() => {
               const element = document.getElementById(`attempt-question-${question.id}`);
@@ -480,15 +484,15 @@ function AssessmentAttemptSession({
         ))}
       </nav>
 
-      <section aria-label="Câu hỏi" className={styles.questionList}>
+      <section aria-label={t("Câu hỏi")} className={styles.questionList}>
         {attempt.questions.map((question, index) => {
           const selected = answers[question.id] ?? [];
           return (
             <Card className={`${styles.attemptQuestion} surface-card`} id={`attempt-question-${question.id}`} key={question.id} tabIndex={-1}>
               <article aria-labelledby={`attempt-question-title-${question.id}`}>
                 <div className={styles.statusLine}>
-                  <Tag color="blue">Câu {index + 1}</Tag>
-                  <span className={styles.muted}>{question.points} điểm · {question.type === "SINGLE_CHOICE" ? "Một đáp án" : "Nhiều đáp án"}</span>
+                  <Tag color="blue">{t("Câu")} {index + 1}</Tag>
+                  <span className={styles.muted}>{question.points} {t("điểm ·")} {question.type === "SINGLE_CHOICE" ? t("Một đáp án") : t("Nhiều đáp án")}</span>
                 </div>
                 <h2 id={`attempt-question-title-${question.id}`}>{question.prompt}</h2>
                 {question.type === "SINGLE_CHOICE" ? (
@@ -513,7 +517,7 @@ function AssessmentAttemptSession({
                   </Checkbox.Group>
                 )}
                 {selected.length > 0 && (
-                  <Button disabled={inputsDisabled} onClick={() => changeAnswer(question.id, [])} size="small" style={{ marginTop: 12 }} type="link">Xóa lựa chọn câu này</Button>
+                  <Button disabled={inputsDisabled} onClick={() => changeAnswer(question.id, [])} size="small" style={{ marginTop: 12 }} type="link">{t("Xóa lựa chọn câu này")}</Button>
                 )}
               </article>
             </Card>
@@ -525,17 +529,17 @@ function AssessmentAttemptSession({
         <div className={styles.pageHeader}>
           <div aria-live="polite" className={styles.saveState} role="status">
             <strong>{saveMessage}</strong>
-            {unanswered > 0 && <div className={styles.muted}>Còn {unanswered} câu chưa trả lời. Bạn vẫn có thể nộp bài.</div>}
+            {unanswered > 0 && <div className={styles.muted}>{t("Còn")} {unanswered} {t("câu chưa trả lời. Bạn vẫn có thể nộp bài.")}</div>}
           </div>
           <Popconfirm
-            cancelText="Tiếp tục làm"
-            description={unanswered > 0 ? `Bạn còn ${unanswered} câu chưa trả lời.` : "Bạn đã trả lời tất cả câu hỏi."}
+            cancelText={t("Tiếp tục làm")}
+            description={unanswered > 0 ? t("Bạn còn {p0} câu chưa trả lời.", { p0: unanswered }) : t("Bạn đã trả lời tất cả câu hỏi.")}
             disabled={inputsDisabled || Boolean(queueError)}
-            okText="Nộp bài"
+            okText={t("Nộp bài")}
             onConfirm={() => void submit()}
-            title="Nộp và kết thúc lượt làm?"
+            title={t("Nộp và kết thúc lượt làm?")}
           >
-            <Button disabled={inputsDisabled || Boolean(queueError)} icon={<SendOutlined />} loading={submitting} type="primary">Nộp bài</Button>
+            <Button disabled={inputsDisabled || Boolean(queueError)} icon={<SendOutlined />} loading={submitting} type="primary">{t("Nộp bài")}</Button>
           </Popconfirm>
         </div>
       </Card>
@@ -544,6 +548,8 @@ function AssessmentAttemptSession({
 }
 
 export function AssessmentAttemptRunner(props: AssessmentAttemptRunnerProps) {
+  const { t } = useI18n(learningMessages);
+  const { formatError } = useFeedback();
   const router = useRouter();
   const attemptQuery = useQuery({
     queryFn: () => assessmentApi.getAttempt({ token: props.token }, props.attemptId),
@@ -557,7 +563,7 @@ export function AssessmentAttemptRunner(props: AssessmentAttemptRunnerProps) {
   }, [attemptQuery.data, recoveryKey]);
 
   if (attemptQuery.isPending && !attemptQuery.data) {
-    return <div aria-label="Đang tải lượt làm" className="page-loading" role="status"><Spin size="large" /></div>;
+    return <div aria-label={t("Đang tải lượt làm")} className="page-loading" role="status"><Spin size="large" /></div>;
   }
   if (!attemptQuery.data) {
     const hidden = attemptQuery.error instanceof ApiError
@@ -566,23 +572,23 @@ export function AssessmentAttemptRunner(props: AssessmentAttemptRunnerProps) {
       <Result
         extra={(
           <div className={styles.inlineActions}>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/assessments")}>Về danh sách</Button>
-            {!hidden && <Button icon={<ReloadOutlined />} onClick={() => void attemptQuery.refetch()} type="primary">Thử lại</Button>}
+            <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/assessments")}>{t("Về danh sách")}</Button>
+            {!hidden && <Button icon={<ReloadOutlined />} onClick={() => void attemptQuery.refetch()} type="primary">{t("Thử lại")}</Button>}
           </div>
         )}
         status={hidden ? "404" : "error"}
-        subTitle={hidden ? "Lượt làm không còn khả dụng trong workspace của bạn." : attemptQuery.error instanceof Error ? attemptQuery.error.message : "Không thể tải lượt làm."}
-        title={hidden ? "Không tìm thấy lượt làm" : "Không tải được lượt làm"}
+        subTitle={hidden ? t("Lượt làm không còn khả dụng trong workspace của bạn.") : formatError(attemptQuery.error, "Không thể tải lượt làm.")}
+        title={hidden ? t("Không tìm thấy lượt làm") : t("Không tải được lượt làm")}
       />
     );
   }
   if (attemptQuery.data.status !== "IN_PROGRESS") {
     return (
       <Result
-        extra={<Button onClick={() => router.replace(`/assessments/results/${props.attemptId}`)} type="primary">Xem trạng thái kết quả</Button>}
+        extra={<Button onClick={() => router.replace(`/assessments/results/${props.attemptId}`)} type="primary">{t("Xem trạng thái kết quả")}</Button>}
         status="success"
-        subTitle="Lượt làm đã kết thúc và không thể thay đổi đáp án."
-        title={attemptQuery.data.status === "TIMED_OUT" ? "Lượt làm đã hết giờ" : "Bạn đã nộp bài"}
+        subTitle={t("Lượt làm đã kết thúc và không thể thay đổi đáp án.")}
+        title={attemptQuery.data.status === "TIMED_OUT" ? t("Lượt làm đã hết giờ") : t("Bạn đã nộp bài")}
       />
     );
   }

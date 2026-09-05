@@ -183,6 +183,7 @@ export function workspaceSlugFromName(name: string): string {
 
 export function registrationErrorPresentation(
   error: unknown,
+  t: (source: string, values?: Record<string, string | number>) => string = (source, values) => values ? source.replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (token, key) => Object.hasOwn(values, key) ? String(values[key]) : token) : source,
 ): RegistrationErrorPresentation {
   if (error instanceof ApiError) {
     if (error.code === "SIGNUP_UNAVAILABLE") {
@@ -195,10 +196,10 @@ export function registrationErrorPresentation(
     }
     if (error.code === "SIGNUP_IN_PROGRESS") {
       const retry = error.retryAfterSeconds
-        ? ` sau khoảng ${error.retryAfterSeconds} giây`
-        : " sau ít phút";
+        ? t(" sau khoảng {seconds} giây", { seconds: error.retryAfterSeconds })
+        : t(" sau ít phút");
       return {
-        description: `Workspace đang được khởi tạo. Giữ nguyên thông tin và thử lại${retry}; hệ thống sẽ không tạo trùng.`,
+        description: t("Workspace đang được khởi tạo. Giữ nguyên thông tin và thử lại{retry}; hệ thống sẽ không tạo trùng.", { retry }),
         title: "Đăng ký đang được xử lý",
         type: "warning",
       };
@@ -221,10 +222,10 @@ export function registrationErrorPresentation(
     }
     if (error.status === 429) {
       const retry = error.retryAfterSeconds
-        ? ` Vui lòng chờ ${error.retryAfterSeconds} giây.`
-        : " Vui lòng chờ một lát.";
+        ? t(" Vui lòng chờ {seconds} giây.", { seconds: error.retryAfterSeconds })
+        : t(" Vui lòng chờ một lát.");
       return {
-        description: `Có quá nhiều yêu cầu đăng ký.${retry}`,
+        description: t("Có quá nhiều yêu cầu đăng ký.{retry}", { retry }),
         title: "Bạn đang thao tác quá nhanh",
         type: "warning",
       };

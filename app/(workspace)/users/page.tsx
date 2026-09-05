@@ -1,4 +1,11 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsMessages } from "@/lib/i18n/operations-messages";
+import { userCreationMessages } from "@/components/users/user-creation-messages";
+import { useMemo as useI18nMemo } from "react";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
 
 import {
   CopyOutlined,
@@ -7,29 +14,18 @@ import {
   RedoOutlined,
   StopOutlined,
 } from "@ant-design/icons";
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  Form,
-  Input,
-  Modal,
-  Popconfirm,
-  Select,
-  Space,
-  Tabs,
-  Tag,
-} from "antd";
+import { Alert, Button, Card, Input, Modal, Popconfirm, Select, Space, Tabs, Tag } from "antd";
+import { Form } from "@/components/form/localized-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef, StockFeatures } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { isFormValidationError } from "@/components/form/validation-error";
 import { useAuth } from "@/components/providers/app-providers";
 import { DataTable } from "@/components/table/data-table";
 import { apiFetch } from "@/lib/api";
 import { orgUnitQueryKeys, orgUnitsApi } from "@/lib/org-units-api";
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
+import { normalizeListSearch } from "@/lib/list-controls";
 import type {
   InvitationIssueResponse,
   InvitationStatus,
@@ -44,44 +40,52 @@ import {
   buildUserOrgUnitOptions,
   canManageInvitation,
   sanitizeInvitationList,
+  newUserPasswordValidationError,
   userRoleLabels,
   userRoleOptions,
   type InvitationFormValues,
   type UserFormValues,
 } from "@/lib/user-management";
 
-const invitationStatus: Record<
-  InvitationStatus,
-  { color: string; label: string }
-> = {
-  ACCEPTED: { color: "green", label: "Đã chấp nhận" },
-  CLAIMED: { color: "processing", label: "Đang xác nhận" },
-  EXPIRED: { color: "default", label: "Đã hết hạn" },
-  PENDING: { color: "gold", label: "Đang chờ" },
-  REVOKED: { color: "red", label: "Đã thu hồi" },
-};
-const dateTime = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-function invitationLink(response: InvitationIssueResponse): string {
-  if (typeof window === "undefined") return response.acceptPath;
-  return buildInvitationAcceptUrl(response, window.location.origin);
-}
-
 export default function UsersPage() {
-  const { message } = App.useApp();
+  const {
+    t,
+    invitationStatus,
+    dateTime,
+    invitationLink,
+    userRoleLabels,
+    userRoleOptions,
+    buildUserOrgUnitOptions,
+    locale,
+  } = useOperationsCopy();
+  const { message, reportError } = useFeedback();
   const { effectiveAccess, organization, token, user } = useAuth();
   const queryClient = useQueryClient();
   const [memberForm] = Form.useForm<UserFormValues>();
   const [inviteForm] = Form.useForm<InvitationFormValues>();
+  const memberRole = Form.useWatch("role", memberForm);
   const [activeTab, setActiveTab] = useState("members");
+  const [memberFilters, setMemberFilters] = useState({ search: "", role: "", status: "" });
+  const [inviteFilters, setInviteFilters] = useState({ search: "", role: "", status: "" });
   const [editing, setEditing] = useState<TenantMember | null>(null);
   const [memberOpen, setMemberOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [issuedLink, setIssuedLink] = useState("");
   const scope = getViewerScope(user, organization);
+  const actionRequests = useRef(new Map<string, Promise<void>>());
+  const [pendingActions, setPendingActions] = useState<ReadonlyMap<string, string>>(new Map());
+  const actionKey = (target: string, id = "") => JSON.stringify([scope, target, id]);
+  const runAction = (key: string, name: string, action: () => Promise<void>) => {
+    const existing = actionRequests.current.get(key);
+    if (existing) return existing;
+    const request = Promise.resolve().then(action).finally(() => {
+      actionRequests.current.delete(key);
+      setPendingActions(current => { const next = new Map(current); next.delete(key); return next; });
+    });
+    actionRequests.current.set(key, request);
+    setPendingActions(current => new Map(current).set(key, name));
+    return request;
+  };
   const usersKey = scope
     ? lmsQueryKeys.users(scope)
     : (["lms", "signed-out", "users"] as const);
@@ -89,6 +93,7 @@ export default function UsersPage() {
     ? lmsQueryKeys.invitations(scope)
     : (["lms", "signed-out", "users", "invitations"] as const);
   const canLoad = Boolean(token && scope && user?.role === "TENANT_ADMIN");
+  const canLinkGuardians = Boolean(effectiveAccess?.modules.includes("GUARDIANS"));
   const readOnly = effectiveAccess?.readOnly ?? false;
   const scopedAdmin =
     user?.role === "TENANT_ADMIN" && user.orgUnitScopeMode === "SCOPED";
@@ -109,6 +114,22 @@ export default function UsersPage() {
       ),
     queryKey: invitationsKey,
   });
+  const normalizedMemberSearch = normalizeListSearch(memberFilters.search);
+  const normalizedInviteSearch = normalizeListSearch(inviteFilters.search);
+  const filteredMembers = useMemo(() => (usersQuery.data ?? []).filter((member) =>
+    (!normalizedMemberSearch || normalizeListSearch(`${member.fullName} ${member.email}`).includes(normalizedMemberSearch)) &&
+    (!memberFilters.role || member.role === memberFilters.role) &&
+    (!memberFilters.status || member.status === memberFilters.status),
+  ), [usersQuery.data, normalizedMemberSearch, memberFilters.role, memberFilters.status]);
+  const filteredInvitations = useMemo(() => (invitationsQuery.data ?? []).filter((invitation) =>
+    (!normalizedInviteSearch || normalizeListSearch(`${invitation.displayName ?? ""} ${invitation.email}`).includes(normalizedInviteSearch)) &&
+    (!inviteFilters.role || invitation.role === inviteFilters.role) &&
+    (!inviteFilters.status || invitation.status === inviteFilters.status),
+  ), [invitationsQuery.data, normalizedInviteSearch, inviteFilters.role, inviteFilters.status]);
+  const listFilters = activeTab === "members" ? memberFilters : inviteFilters;
+  const setListFilters = activeTab === "members" ? setMemberFilters : setInviteFilters;
+  const memberFiltersActive = Boolean(normalizedMemberSearch || memberFilters.role || memberFilters.status);
+  const inviteFiltersActive = Boolean(normalizedInviteSearch || inviteFilters.role || inviteFilters.status);
   const orgUnitsQuery = useQuery({
     enabled: canLoad,
     queryFn: ({ signal }) =>
@@ -117,15 +138,15 @@ export default function UsersPage() {
   });
   const orgUnitOptions = useMemo(
     () => buildUserOrgUnitOptions(orgUnitsQuery.data?.items ?? []),
-    [orgUnitsQuery.data?.items],
+    [buildUserOrgUnitOptions, orgUnitsQuery.data?.items],
   );
   const orgUnitNames = useMemo(
     () => new Map(orgUnitOptions.map((option) => [option.value, option.label])),
     [orgUnitOptions],
   );
   const scopedRoleOptions = scopedAdmin
-    ? userRoleOptions.filter(({ value }) =>
-        value === "LEARNER" || value === "GUARDIAN",
+    ? userRoleOptions.filter(
+        ({ value }) => value === "LEARNER" || value === "GUARDIAN",
       )
     : userRoleOptions;
   const hasOrgUnitPlacement =
@@ -231,6 +252,8 @@ export default function UsersPage() {
     });
     setMemberOpen(true);
   };
+  const memberSaving = pendingActions.has(actionKey("save")) || saveMemberMutation.isPending;
+  const invitationSaving = pendingActions.has(actionKey("invite")) || createInvitationMutation.isPending;
   const showEditMember = (member: TenantMember) => {
     setEditing(member);
     memberForm.resetFields();
@@ -259,18 +282,18 @@ export default function UsersPage() {
     });
     setInviteOpen(true);
   };
-  const saveMember = async () => {
+  const saveMember = () => runAction(actionKey("save"), "save", async () => {
+    if (!canLoad || readOnly) return;
     try {
       await saveMemberMutation.mutateAsync(await memberForm.validateFields());
     } catch (caught) {
       if (!isFormValidationError(caught)) {
-        message.error(
-          caught instanceof Error ? caught.message : "Không thể lưu thành viên",
-        );
+        reportError(caught, "Không thể lưu thành viên");
       }
     }
-  };
-  const createInvitation = async () => {
+  });
+  const createInvitation = () => runAction(actionKey("invite"), "invite", async () => {
+    if (!canLoad || readOnly) return;
     try {
       await createInvitationMutation.mutateAsync(
         await inviteForm.validateFields(),
@@ -278,13 +301,12 @@ export default function UsersPage() {
       createInvitationMutation.reset();
     } catch (caught) {
       if (!isFormValidationError(caught)) {
-        message.error(
-          caught instanceof Error ? caught.message : "Không thể tạo lời mời",
-        );
+        reportError(caught, "Không thể tạo lời mời");
       }
     }
-  };
-  const resend = async (id: string) => {
+  });
+  const resend = (id: string) => runAction(actionKey("invitation", id), "resend", async () => {
+    if (!canLoad || readOnly) return;
     try {
       setIssuedLink("");
       createInvitationMutation.reset();
@@ -292,32 +314,26 @@ export default function UsersPage() {
       await resendMutation.mutateAsync(id);
       resendMutation.reset();
     } catch (caught) {
-      message.error(
-        caught instanceof Error ? caught.message : "Không thể gửi lại lời mời",
-      );
+      reportError(caught, "Không thể gửi lại lời mời");
     }
-  };
-  const revoke = async (id: string) => {
+  });
+  const revoke = (id: string) => runAction(actionKey("invitation", id), "revoke", async () => {
+    if (!canLoad || readOnly) return;
     try {
       await revokeMutation.mutateAsync(id);
     } catch (caught) {
-      message.error(
-        caught instanceof Error ? caught.message : "Không thể thu hồi lời mời",
-      );
+      reportError(caught, "Không thể thu hồi lời mời");
     }
-  };
-  const promoteGlobalAdmin = async (member: TenantMember) => {
+  });
+  const promoteGlobalAdmin = (member: TenantMember) => runAction(actionKey("promote", member.membershipId), "promote", async () => {
+    if (!canLoad || readOnly || scopedAdmin || member.role !== "TENANT_ADMIN" || member.status !== "ACTIVE" || member.orgUnitScopeMode !== "SCOPED") return;
     try {
       await promoteGlobalAdminMutation.mutateAsync(member);
     } catch (caught) {
-      message.error(
-        caught instanceof Error
-          ? caught.message
-          : "Không thể trao quyền quản trị toàn tổ chức",
-      );
+      reportError(caught, "Không thể trao quyền quản trị toàn tổ chức");
     }
-  };
-  const copyLink = async () => {
+  });
+  const copyLink = () => runAction(actionKey("copy-link"), "copy", async () => {
     try {
       await navigator.clipboard.writeText(issuedLink);
       message.success("Đã sao chép liên kết mời");
@@ -329,7 +345,7 @@ export default function UsersPage() {
         "Không thể sao chép tự động; hãy sao chép liên kết trong ô bên dưới",
       );
     }
-  };
+  });
   const closeIssuedLink = () => {
     setIssuedLink("");
     createInvitationMutation.reset();
@@ -345,12 +361,12 @@ export default function UsersPage() {
           <div className="table-muted">{row.original.email}</div>
         </div>
       ),
-      header: "Thành viên",
+      header: t("Thành viên"),
     },
     {
       accessorKey: "role",
       cell: ({ getValue }) => userRoleLabels[getValue<TenantMember["role"]>()],
-      header: "Vai trò",
+      header: t("Vai trò"),
       meta: { responsive: ["sm"] },
     },
     ...(hasOrgUnitPlacement
@@ -360,10 +376,11 @@ export default function UsersPage() {
             cell: ({ getValue }) => {
               const orgUnitId = getValue<string | undefined>();
               return orgUnitId
-                ? (orgUnitNames.get(orgUnitId) ?? "Cơ sở không còn hoạt động")
-                : "Chưa gắn cơ sở";
+                ? (orgUnitNames.get(orgUnitId) ??
+                    t("Cơ sở không còn hoạt động"))
+                : t("Chưa gắn cơ sở");
             },
-            header: "Cơ sở chính",
+            header: t("Cơ sở chính"),
             meta: { responsive: ["md"] },
           } satisfies ColumnDef<StockFeatures, TenantMember>,
         ]
@@ -373,14 +390,14 @@ export default function UsersPage() {
       cell: ({ row }) => (
         <Space size={4} wrap>
           <Tag color={row.original.status === "ACTIVE" ? "green" : "default"}>
-            {row.original.status === "ACTIVE" ? "Hoạt động" : "Tạm ngưng"}
+            {row.original.status === "ACTIVE" ? t("Hoạt động") : t("Tạm ngưng")}
           </Tag>
           {row.original.accountStatus === "INACTIVE" && (
-            <Tag color="red">Tài khoản đã khóa</Tag>
+            <Tag color="red">{t("Tài khoản đã khóa")}</Tag>
           )}
         </Space>
       ),
-      header: "Trạng thái",
+      header: t("Trạng thái"),
       meta: { width: 190 },
     },
     {
@@ -399,29 +416,33 @@ export default function UsersPage() {
                 disabled={readOnly}
                 onClick={() => showEditMember(member)}
                 title={
-                  readOnly ? "Workspace đang ở chế độ chỉ đọc" : undefined
+                  readOnly ? t("Workspace đang ở chế độ chỉ đọc") : undefined
                 }
                 type="link"
               >
-                Sửa
+                {t("Sửa")}{" "}
               </Button>
             ) : (
-              <span className="table-muted">Chỉ xem</span>
+              <span className="table-muted">{t("Chỉ xem")}</span>
             )}
             {canPromote && (
               <Popconfirm
-                cancelText="Hủy"
-                description="Người này sẽ quản lý mọi chi nhánh, thanh toán và cấu hình tổ chức. Màn hình hiện tại không có thao tác thu hồi quyền này."
+                cancelText={t("Hủy")}
+                description={t(
+                  "Người này sẽ quản lý mọi chi nhánh, thanh toán và cấu hình tổ chức. Màn hình hiện tại không có thao tác thu hồi quyền này.",
+                )}
                 disabled={readOnly}
-                okText="Trao quyền"
-                onConfirm={() => void promoteGlobalAdmin(member)}
-                title="Trao quyền quản trị toàn tổ chức?"
+                okText={t("Trao quyền")}
+                onConfirm={() => promoteGlobalAdmin(member)}
+                okButtonProps={{ loading: pendingActions.has(actionKey("promote", member.membershipId)) }}
+                title={t("Trao quyền quản trị toàn tổ chức?")}
               >
                 <Button
-                  disabled={readOnly || promoteGlobalAdminMutation.isPending}
+                  disabled={readOnly}
+                  loading={pendingActions.has(actionKey("promote", member.membershipId))}
                   type="link"
                 >
-                  Trao quyền toàn tổ chức
+                  {t("Trao quyền toàn tổ chức")}{" "}
                 </Button>
               </Popconfirm>
             )}
@@ -444,13 +465,13 @@ export default function UsersPage() {
           )}
         </div>
       ),
-      header: "Người được mời",
+      header: t("Người được mời"),
     },
     {
       accessorKey: "role",
       cell: ({ getValue }) =>
         userRoleLabels[getValue<TenantInvitation["role"]>()],
-      header: "Vai trò",
+      header: t("Vai trò"),
       meta: { responsive: ["sm"] },
     },
     ...(showInvitationOrgUnitColumn
@@ -460,10 +481,11 @@ export default function UsersPage() {
             cell: ({ getValue }) => {
               const orgUnitId = getValue<string | undefined>();
               return orgUnitId
-                ? (orgUnitNames.get(orgUnitId) ?? "Cơ sở không còn hoạt động")
-                : "Chưa gắn cơ sở";
+                ? (orgUnitNames.get(orgUnitId) ??
+                    t("Cơ sở không còn hoạt động"))
+                : t("Chưa gắn cơ sở");
             },
-            header: "Cơ sở chính",
+            header: t("Cơ sở chính"),
             meta: { responsive: ["md"] },
           } satisfies ColumnDef<StockFeatures, TenantInvitation>,
         ]
@@ -474,13 +496,13 @@ export default function UsersPage() {
         const presentation = invitationStatus[getValue<InvitationStatus>()];
         return <Tag color={presentation.color}>{presentation.label}</Tag>;
       },
-      header: "Trạng thái",
+      header: t("Trạng thái"),
       meta: { width: 150 },
     },
     {
       accessorKey: "expiresAt",
       cell: ({ getValue }) => dateTime.format(new Date(getValue<string>())),
-      header: "Hết hạn",
+      header: t("Hết hạn"),
       meta: { responsive: ["md"], width: 180 },
     },
     {
@@ -488,33 +510,36 @@ export default function UsersPage() {
         canManageInvitation(row.original.status) ? (
           <Space className="table-row-actions" size={0}>
             <Button
-              disabled={readOnly || resendMutation.isPending}
+              disabled={readOnly || pendingActions.get(actionKey("invitation", row.original._id)) === "revoke"}
+              loading={pendingActions.get(actionKey("invitation", row.original._id)) === "resend"}
               icon={<RedoOutlined />}
               onClick={() => void resend(row.original._id)}
               title={
                 readOnly
-                  ? "Workspace đang ở chế độ chỉ đọc"
-                  : "Tạo liên kết mới và vô hiệu hóa liên kết cũ"
+                  ? t("Workspace đang ở chế độ chỉ đọc")
+                  : t("Tạo liên kết mới và vô hiệu hóa liên kết cũ")
               }
               type="link"
             >
-              Gửi lại
+              {t("Gửi lại")}{" "}
             </Button>
             {row.original.status === "PENDING" && (
               <Popconfirm
-                cancelText="Hủy"
-                disabled={readOnly}
-                okText="Thu hồi"
-                onConfirm={() => void revoke(row.original._id)}
-                title="Thu hồi lời mời này?"
+                cancelText={t("Hủy")}
+                disabled={readOnly || pendingActions.get(actionKey("invitation", row.original._id)) === "resend"}
+                okText={t("Thu hồi")}
+                onConfirm={() => revoke(row.original._id)}
+                okButtonProps={{ loading: pendingActions.get(actionKey("invitation", row.original._id)) === "revoke" }}
+                title={t("Thu hồi lời mời này?")}
               >
                 <Button
                   danger
-                  disabled={readOnly || revokeMutation.isPending}
+                  disabled={readOnly || pendingActions.get(actionKey("invitation", row.original._id)) === "resend"}
+                  loading={pendingActions.get(actionKey("invitation", row.original._id)) === "revoke"}
                   icon={<StopOutlined />}
                   type="link"
                 >
-                  Thu hồi
+                  {t("Thu hồi")}{" "}
                 </Button>
               </Popconfirm>
             )}
@@ -530,7 +555,7 @@ export default function UsersPage() {
     return (
       <Alert
         showIcon
-        title="Chỉ quản trị tổ chức được quản lý người dùng."
+        title={t("Chỉ quản trị tổ chức được quản lý người dùng.")}
         type="warning"
       />
     );
@@ -540,31 +565,36 @@ export default function UsersPage() {
     <div className="page-shell">
       <div className="page-heading page-toolbar">
         <div className="page-heading-copy">
-          <h1>Người dùng</h1>
+          <h1>{t("Người dùng")}</h1>
           <p>
-            Quản lý thành viên hiện tại và mời người dùng tham gia workspace.
+            {t(
+              "Quản lý thành viên hiện tại và mời người dùng tham gia workspace.",
+            )}{" "}
           </p>
         </div>
         <Space className="page-toolbar-actions" wrap>
+          {canLinkGuardians && <Button href="/guardians">{t("Liên kết phụ huynh – học viên")}</Button>}
           <Button disabled={readOnly} href="/users/import">
-            Nhập CSV
+            {t("Nhập CSV")}{" "}
           </Button>
           <Button
             disabled={readOnly}
             icon={<PlusOutlined />}
             onClick={showCreateMember}
-            title={readOnly ? "Gia hạn thuê bao để tạo tài khoản" : undefined}
+            title={
+              readOnly ? t("Gia hạn thuê bao để tạo tài khoản") : undefined
+            }
           >
-            Tạo tài khoản
+            {t("Tạo tài khoản")}{" "}
           </Button>
           <Button
             disabled={readOnly}
             icon={<MailOutlined />}
             onClick={showInvitation}
-            title={readOnly ? "Gia hạn thuê bao để gửi lời mời" : undefined}
+            title={readOnly ? t("Gia hạn thuê bao để gửi lời mời") : undefined}
             type="primary"
           >
-            Gửi lời mời
+            {t("Gửi lời mời")}{" "}
           </Button>
         </Space>
       </div>
@@ -572,7 +602,9 @@ export default function UsersPage() {
         <Alert
           showIcon
           style={{ marginBottom: 18 }}
-          title="Workspace đang ở chế độ chỉ đọc; bạn vẫn có thể xem thành viên và lời mời."
+          title={t(
+            "Workspace đang ở chế độ chỉ đọc; bạn vẫn có thể xem thành viên và lời mời.",
+          )}
           type="warning"
         />
       )}
@@ -580,90 +612,143 @@ export default function UsersPage() {
         <Alert
           showIcon
           style={{ marginBottom: 18 }}
-          title="Không tải được danh sách cơ sở; các thay đổi phân bổ cơ sở tạm thời chưa khả dụng."
+          title={t(
+            "Không tải được danh sách cơ sở; các thay đổi phân bổ cơ sở tạm thời chưa khả dụng.",
+          )}
           type="warning"
         />
       )}
+      <div className="list-filter-bar" role="search" aria-label={activeTab === "members" ? t("Bộ lọc thành viên") : t("Bộ lọc lời mời")}>
+        <Input
+          allowClear
+          aria-label={activeTab === "members" ? t("Tìm thành viên") : t("Tìm lời mời")}
+          onChange={(event) => setListFilters(current => ({ ...current, search: event.target.value }))}
+          placeholder={t("Tìm theo tên hoặc email")}
+          style={{ width: 280 }}
+          type="search"
+          value={listFilters.search}
+        />
+        <Select
+          aria-label={t("Lọc vai trò")}
+          onChange={(value: string) => setListFilters(current => ({ ...current, role: value }))}
+          options={[{ label: t("Tất cả vai trò"), value: "" }, ...userRoleOptions]}
+          style={{ width: 190 }}
+          value={listFilters.role}
+        />
+        <Select
+          aria-label={activeTab === "members" ? t("Lọc trạng thái thành viên") : t("Lọc trạng thái lời mời")}
+          onChange={(value: string) => setListFilters(current => ({ ...current, status: value }))}
+          options={[
+            { label: t("Tất cả trạng thái"), value: "" },
+            ...(activeTab === "members"
+              ? [{ label: t("Hoạt động"), value: "ACTIVE" }, { label: t("Tạm ngưng"), value: "INACTIVE" }]
+              : Object.entries(invitationStatus).map(([value, presentation]) => ({ value, label: presentation.label }))),
+          ]}
+          style={{ width: 190 }}
+          value={listFilters.status}
+        />
+        <Button disabled={!listFilters.search && !listFilters.role && !listFilters.status} onClick={() => setListFilters({ search: "", role: "", status: "" })}>
+          {t("Xóa bộ lọc")}
+        </Button>
+      </div>
       <Tabs
         activeKey={activeTab}
         items={[
           {
-            children: usersQuery.error ? (
+            children: usersQuery.error || pendingActions.has(actionKey("retry-users")) ? (
               <Alert
+                action={<Button loading={usersQuery.isFetching || pendingActions.has(actionKey("retry-users"))} onClick={() => void runAction(actionKey("retry-users"), "retry", async () => { await usersQuery.refetch({ cancelRefetch: false }); })}>{t("Thử lại")}</Button>}
                 showIcon
                 title={
                   usersQuery.error instanceof Error
-                    ? usersQuery.error.message
-                    : "Không tải được thành viên"
+                    ? describeOperationsError(
+                        usersQuery.error,
+                        locale,
+                        t("Không tải được thành viên"),
+                      )
+                    : t("Không tải được thành viên")
                 }
                 type="error"
               />
             ) : (
               <Card className="surface-card table-surface">
                 <DataTable
-                  ariaLabel="Danh sách thành viên"
+                  ariaLabel={t("Danh sách thành viên")}
                   columns={memberColumns}
-                  data={usersQuery.data ?? []}
-                  emptyText="Chưa có thành viên"
-                  loading={usersQuery.isLoading}
+                  data={filteredMembers}
+                  emptyText={memberFiltersActive ? t("Không có thành viên phù hợp") : t("Chưa có thành viên")}
+                  loading={usersQuery.isFetching}
                   rowKey="membershipId"
+                  paginationResetKey={JSON.stringify([normalizedMemberSearch, memberFilters.role, memberFilters.status])}
                   scrollX={900}
                 />
               </Card>
             ),
             key: "members",
-            label: "Thành viên",
+            label: t("Thành viên"),
           },
           {
-            children: invitationsQuery.error ? (
+            children: invitationsQuery.error || pendingActions.has(actionKey("retry-invitations")) ? (
               <Alert
+                action={<Button loading={invitationsQuery.isFetching || pendingActions.has(actionKey("retry-invitations"))} onClick={() => void runAction(actionKey("retry-invitations"), "retry", async () => { await invitationsQuery.refetch({ cancelRefetch: false }); })}>{t("Thử lại")}</Button>}
                 showIcon
                 title={
                   invitationsQuery.error instanceof Error
-                    ? invitationsQuery.error.message
-                    : "Không tải được lời mời"
+                    ? describeOperationsError(
+                        invitationsQuery.error,
+                        locale,
+                        t("Không tải được lời mời"),
+                      )
+                    : t("Không tải được lời mời")
                 }
                 type="error"
               />
             ) : (
               <Card className="surface-card table-surface">
                 <DataTable
-                  ariaLabel="Danh sách lời mời"
+                  ariaLabel={t("Danh sách lời mời")}
                   columns={invitationColumns}
-                  data={invitationsQuery.data ?? []}
-                  emptyText="Chưa có lời mời"
-                  loading={invitationsQuery.isLoading}
+                  data={filteredInvitations}
+                  emptyText={inviteFiltersActive ? t("Không có lời mời phù hợp") : t("Chưa có lời mời")}
+                  loading={invitationsQuery.isFetching}
                   rowKey="_id"
+                  paginationResetKey={JSON.stringify([normalizedInviteSearch, inviteFilters.role, inviteFilters.status])}
                   scrollX={980}
                 />
               </Card>
             ),
             key: "invitations",
-            label: "Lời mời",
+            label: t("Lời mời"),
           },
         ]}
         onChange={setActiveTab}
       />
 
       <Modal
-        cancelText="Hủy"
-        confirmLoading={saveMemberMutation.isPending}
-        okText={editing ? "Lưu thay đổi" : "Tạo tài khoản"}
-        onCancel={() => setMemberOpen(false)}
+        cancelText={t("Hủy")}
+        cancelButtonProps={{ disabled: memberSaving }}
+        closable={!memberSaving}
+        confirmLoading={memberSaving}
+        keyboard={!memberSaving}
+        mask={{ closable: !memberSaving }}
+        okText={editing ? t("Lưu thay đổi") : t("Tạo tài khoản")}
+        onCancel={() => { if (!memberSaving) setMemberOpen(false); }}
         onOk={() => void saveMember()}
         open={memberOpen}
-        title={editing ? "Cập nhật thành viên" : "Tạo tài khoản mới"}
+        title={editing ? t("Cập nhật thành viên") : t("Tạo tài khoản mới")}
       >
+        {!editing && <Alert type="info" showIcon title={t("Tạo tài khoản mới cho tổ chức này. Nếu email đã có tài khoản DX LMS, hãy dùng Gửi lời mời.")} />}
         <Form
+          disabled={memberSaving}
           form={memberForm}
           layout="vertical"
           requiredMark={false}
           style={{ marginTop: 22 }}
         >
           <Form.Item
-            label={editing ? "Tên hiển thị trong workspace" : "Họ và tên"}
+            label={editing ? t("Tên hiển thị trong workspace") : t("Họ và tên")}
             name="fullName"
-            rules={[{ required: true, min: 2, message: "Nhập họ tên" }]}
+            rules={[{ required: true, min: 2, message: t("Nhập họ tên") }]}
           >
             <Input />
           </Form.Item>
@@ -674,38 +759,49 @@ export default function UsersPage() {
               {
                 required: !editing,
                 type: "email",
-                message: "Email chưa hợp lệ",
+                message: t("Email chưa hợp lệ"),
               },
             ]}
           >
-            <Input disabled={Boolean(editing)} />
+            <Input disabled={Boolean(editing) || memberSaving} autoComplete="off" />
           </Form.Item>
           {!editing && (
             <Form.Item
-              label="Mật khẩu ban đầu"
+              label={t("Mật khẩu ban đầu")}
               name="password"
               rules={[
                 {
-                  required: true,
-                  min: 8,
-                  message: "Mật khẩu cần ít nhất 8 ký tự",
+                  validator: (_, value: string | undefined) => {
+                    const error = newUserPasswordValidationError(value ?? "");
+                    return error ? Promise.reject(new Error(t(error))) : Promise.resolve();
+                  },
                 },
               ]}
             >
-              <Input.Password />
+              <Input.Password autoComplete="new-password" />
             </Form.Item>
           )}
-          <Form.Item label="Vai trò" name="role" rules={[{ required: true }]}>
+          <Form.Item
+            label={t("Vai trò")}
+            name="role"
+            rules={[{ required: true }]}
+          >
             <Select options={scopedRoleOptions} />
           </Form.Item>
+          {memberRole === "GUARDIAN" && <p className="table-muted">{t("Với phụ huynh, chọn vai trò Phụ huynh rồi liên kết với học viên để cấp quyền xem thông tin.")}</p>}
           {hasOrgUnitPlacement && (
             <Form.Item
               getValueFromEvent={(value) => value ?? null}
-              label="Cơ sở chính"
+              label={t("Cơ sở chính")}
               name="orgUnitId"
               rules={
                 scopedAdmin
-                  ? [{ message: "Chọn cơ sở quản lý thành viên", required: true }]
+                  ? [
+                      {
+                        message: t("Chọn cơ sở quản lý thành viên"),
+                        required: true,
+                      },
+                    ]
                   : undefined
               }
             >
@@ -715,8 +811,8 @@ export default function UsersPage() {
                 options={orgUnitOptions}
                 placeholder={
                   scopedAdmin
-                    ? "Chọn cơ sở trong phạm vi quản lý"
-                    : "Không gắn cơ sở (phù hợp mô hình solo)"
+                    ? t("Chọn cơ sở trong phạm vi quản lý")
+                    : t("Không gắn cơ sở (phù hợp mô hình solo)")
                 }
                 showSearch
                 optionFilterProp="label"
@@ -724,11 +820,11 @@ export default function UsersPage() {
             </Form.Item>
           )}
           {editing && (
-            <Form.Item label="Trạng thái thành viên" name="status">
+            <Form.Item label={t("Trạng thái thành viên")} name="status">
               <Select
                 options={[
-                  { label: "Hoạt động", value: "ACTIVE" },
-                  { label: "Tạm ngưng", value: "INACTIVE" },
+                  { label: t("Hoạt động"), value: "ACTIVE" },
+                  { label: t("Tạm ngưng"), value: "INACTIVE" },
                 ]}
               />
             </Form.Item>
@@ -737,15 +833,20 @@ export default function UsersPage() {
       </Modal>
 
       <Modal
-        cancelText="Hủy"
-        confirmLoading={createInvitationMutation.isPending}
-        okText="Tạo lời mời"
-        onCancel={() => setInviteOpen(false)}
+        cancelText={t("Hủy")}
+        cancelButtonProps={{ disabled: invitationSaving }}
+        closable={!invitationSaving}
+        confirmLoading={invitationSaving}
+        keyboard={!invitationSaving}
+        mask={{ closable: !invitationSaving }}
+        okText={t("Tạo lời mời")}
+        onCancel={() => { if (!invitationSaving) setInviteOpen(false); }}
         onOk={() => void createInvitation()}
         open={inviteOpen}
-        title="Mời vào workspace"
+        title={t("Mời vào workspace")}
       >
         <Form
+          disabled={invitationSaving}
           form={inviteForm}
           layout="vertical"
           requiredMark={false}
@@ -755,28 +856,36 @@ export default function UsersPage() {
             label="Email"
             name="email"
             rules={[
-              { required: true, type: "email", message: "Email chưa hợp lệ" },
+              {
+                required: true,
+                type: "email",
+                message: t("Email chưa hợp lệ"),
+              },
             ]}
           >
             <Input />
           </Form.Item>
           <Form.Item
-            label="Tên hiển thị (không bắt buộc)"
+            label={t("Tên hiển thị (không bắt buộc)")}
             name="displayName"
-            rules={[{ min: 2, message: "Tên cần ít nhất 2 ký tự" }]}
+            rules={[{ min: 2, message: t("Tên cần ít nhất 2 ký tự") }]}
           >
             <Input />
           </Form.Item>
-          <Form.Item label="Vai trò" name="role" rules={[{ required: true }]}>
+          <Form.Item
+            label={t("Vai trò")}
+            name="role"
+            rules={[{ required: true }]}
+          >
             <Select options={scopedRoleOptions} />
           </Form.Item>
           {(orgUnitOptions.length > 0 || scopedAdmin) && (
             <Form.Item
-              label="Cơ sở chính"
+              label={t("Cơ sở chính")}
               name="orgUnitId"
               rules={
                 scopedAdmin
-                  ? [{ message: "Chọn cơ sở cho lời mời", required: true }]
+                  ? [{ message: t("Chọn cơ sở cho lời mời"), required: true }]
                   : undefined
               }
             >
@@ -786,8 +895,8 @@ export default function UsersPage() {
                 options={orgUnitOptions}
                 placeholder={
                   scopedAdmin
-                    ? "Chọn cơ sở trong phạm vi quản lý"
-                    : "Không gắn cơ sở (không bắt buộc)"
+                    ? t("Chọn cơ sở trong phạm vi quản lý")
+                    : t("Không gắn cơ sở (không bắt buộc)")
                 }
                 showSearch
                 optionFilterProp="label"
@@ -799,29 +908,94 @@ export default function UsersPage() {
 
       <Modal
         cancelButtonProps={{ style: { display: "none" } }}
-        okText="Đóng"
+        okText={t("Đóng")}
         onCancel={closeIssuedLink}
         onOk={closeIssuedLink}
         open={Boolean(issuedLink)}
-        title="Liên kết lời mời một lần"
+        title={t("Liên kết lời mời một lần")}
       >
         <Alert
-          description="Chỉ liên kết mới nhất còn hiệu lực. Hãy gửi liên kết này qua kênh riêng cho người được mời."
+          description={t(
+            "Chỉ liên kết mới nhất còn hiệu lực. Hãy gửi liên kết này qua kênh riêng cho người được mời.",
+          )}
           showIcon
           style={{ marginBottom: 16 }}
           type="warning"
         />
         <Space.Compact block>
-          <Input aria-label="Liên kết lời mời" readOnly value={issuedLink} />
+          <Input
+            aria-label={t("Liên kết lời mời")}
+            readOnly
+            value={issuedLink}
+          />
           <Button
-            aria-label="Sao chép liên kết lời mời"
+            aria-label={t("Sao chép liên kết lời mời")}
             icon={<CopyOutlined />}
             onClick={() => void copyLink()}
+            loading={pendingActions.has(actionKey("copy-link"))}
           >
-            Sao chép
+            {t("Sao chép")}{" "}
           </Button>
         </Space.Compact>
       </Modal>
     </div>
   );
+}
+
+const usersMessages = { ...operationsMessages, ...userCreationMessages };
+
+function useOperationsCopy() {
+  const i18n = useI18n(usersMessages);
+  return useI18nMemo(() => {
+    const { t, locale } = i18n;
+    const invitationStatus: Record<
+      InvitationStatus,
+      { color: string; label: string }
+    > = {
+      ACCEPTED: { color: "green", label: t("Đã chấp nhận") },
+      CLAIMED: { color: "processing", label: t("Đang xác nhận") },
+      EXPIRED: { color: "default", label: t("Đã hết hạn") },
+      PENDING: { color: "gold", label: t("Đang chờ") },
+      REVOKED: { color: "red", label: t("Đã thu hồi") },
+    };
+
+    const dateTime = new Intl.DateTimeFormat(
+      locale === "en" ? "en-US" : "vi-VN",
+      {
+        dateStyle: "medium",
+        timeStyle: "short",
+      },
+    );
+
+    function invitationLink(response: InvitationIssueResponse): string {
+      if (typeof window === "undefined") return response.acceptPath;
+      return buildInvitationAcceptUrl(response, window.location.origin);
+    }
+    const translatedUserRoleLabels = Object.fromEntries(
+      Object.entries(userRoleLabels).map(([key, label]) => [key, t(label)]),
+    ) as typeof userRoleLabels;
+    const translatedUserRoleOptions = userRoleOptions.map((option) => ({
+      ...option,
+      label: t(option.label),
+    }));
+    const translatedBuildUserOrgUnitOptions = (
+      roots: Parameters<typeof buildUserOrgUnitOptions>[0],
+    ) =>
+      buildUserOrgUnitOptions(roots).map((option) => ({
+        ...option,
+        label: option.label.replace(
+          / · (Chi nhánh|Phòng ban|Trung tâm)$/,
+          (_match, label: string) => " · " + t(label),
+        ),
+      }));
+    return {
+      ...i18n,
+      userRoleLabels: translatedUserRoleLabels,
+      userRoleOptions: translatedUserRoleOptions,
+      buildUserOrgUnitOptions: translatedBuildUserOrgUnitOptions,
+      invitationStatus,
+      dateTime,
+      invitationLink,
+    };
+  }, [i18n]);
 }

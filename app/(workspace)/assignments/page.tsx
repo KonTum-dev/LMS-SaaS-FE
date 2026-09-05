@@ -1,26 +1,20 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { formatDate as formatUiDate } from "@/lib/i18n/translate";
+import { learningPolishMessages as learningMessages } from "@/lib/i18n/learning-polish-messages";
+import polish from "@/components/layout/learning-polish.module.css";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  DatePicker,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Select,
-  Switch,
-  Tag,
-} from "antd";
+import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Popconfirm, Select, Switch, Tag } from "antd";
+import { Form } from "@/components/form/localized-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef, StockFeatures } from "@tanstack/react-table";
 import dayjs, { type Dayjs } from "dayjs";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
 import { isFormValidationError } from "@/components/form/validation-error";
 import { useAuth } from "@/components/providers/app-providers";
@@ -29,6 +23,7 @@ import { apiFetch } from "@/lib/api";
 import { effectiveModuleEnabled } from "@/lib/entitlements";
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import { invalidateAssignmentQueries } from "@/lib/query-invalidation";
+import { normalizeListSearch } from "@/lib/list-controls";
 import type { Assignment, AssignmentSubmissionMode, Course } from "@/lib/types";
 
 interface AssignmentForm {
@@ -62,13 +57,17 @@ const submissionModeLabels: Record<AssignmentSubmissionMode, string> = {
 };
 
 export default function AssignmentsPage() {
-  const { message } = App.useApp();
+  const { t, locale } = useI18n(learningMessages);
+  const { message, reportError, formatError } = useFeedback();
   const { effectiveAccess, organization, token, user } = useAuth();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<AssignmentForm>();
   const [editing, setEditing] = useState<Assignment | null>(null);
   const [formCourseId, setFormCourseId] = useState("");
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [courseFilter, setCourseFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const gradingLocked = Boolean(
     editing && (editing.published || editing.publishedAt),
   );
@@ -84,6 +83,9 @@ export default function AssignmentsPage() {
   const filesAssignmentLocked =
     editing?.submissionMode === "FILES" && !mediaEnabled;
   const scope = getViewerScope(user, organization);
+  const archiveRequests = useRef(new Map<string, Promise<void>>());
+  const [archiving, setArchiving] = useState<ReadonlySet<string>>(new Set());
+  const archiveKey = (id: string) => JSON.stringify([scope, id]);
   const assignmentsKey = scope
     ? lmsQueryKeys.assignments(scope)
     : (["lms", "signed-out", "assignments"] as const);
@@ -108,8 +110,25 @@ export default function AssignmentsPage() {
     queryKey: coursesKey,
     queryFn: () => apiFetch<Course[]>("/courses", { token }),
   });
-  const items = assignmentsQuery.data ?? [];
   const courses = coursesQuery.data ?? [];
+  const normalizedSearch = normalizeListSearch(search);
+  const filteredItems = useMemo(() => (assignmentsQuery.data ?? []).filter((item) =>
+    (!normalizedSearch || normalizeListSearch(`${item.title} ${item.description ?? ""}`).includes(normalizedSearch)) &&
+    (!courseFilter || objectId(item.courseId) === courseFilter) &&
+    (!canManageRole || !statusFilter || item.published === (statusFilter === "PUBLISHED")),
+  ), [assignmentsQuery.data, canManageRole, courseFilter, normalizedSearch, statusFilter]);
+  const filterCourseOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const item of assignmentsQuery.data ?? []) {
+      const id = objectId(item.courseId);
+      options.set(id, typeof item.courseId === "string"
+        ? coursesQuery.data?.find((course) => course._id === id)?.title ?? id
+        : item.courseId.title);
+    }
+    return [...options].map(([value, label]) => ({ value, label }));
+  }, [assignmentsQuery.data, coursesQuery.data]);
+  const filtersActive = Boolean(normalizedSearch || courseFilter || (canManageRole && statusFilter));
+  const filterKey = JSON.stringify([normalizedSearch, courseFilter, canManageRole ? statusFilter : ""]);
   const availableCourses = courses.filter(
     (course) => course.status !== "ARCHIVED",
   );
@@ -123,7 +142,7 @@ export default function AssignmentsPage() {
     mutationFn: (values: AssignmentForm) => {
       if (!assignmentsEnabled || !canManage) {
         throw new Error(
-          "Bạn không có quyền cập nhật bài tập trong workspace này",
+          t("Bạn không có quyền cập nhật bài tập trong workspace này"),
         );
       }
       const targetCourseId = editing
@@ -131,7 +150,7 @@ export default function AssignmentsPage() {
         : values.courseId;
       if (values.submissionMode === "FILES" && !mediaEnabled) {
         throw new Error(
-          "Module Tài liệu riêng tư phải hoạt động để lưu bài tập nhận tệp.",
+          t("Module Tài liệu riêng tư phải hoạt động để lưu bài tập nhận tệp."),
         );
       }
       const targetCourse = courses.find(
@@ -139,7 +158,7 @@ export default function AssignmentsPage() {
       );
       const publishing = values.published && !editing?.published;
       if (publishing && targetCourse?.status !== "PUBLISHED") {
-        throw new Error("Chỉ có thể công bố bài tập khi khóa học đang mở");
+        throw new Error(t("Chỉ có thể công bố bài tập khi khóa học đang mở"));
       }
       const { courseId, maxPoints, submissionMode, ...mutableValues } = values;
       return apiFetch(
@@ -166,7 +185,7 @@ export default function AssignmentsPage() {
     mutationFn: (item: Assignment) => {
       if (!assignmentsEnabled || !canManage) {
         throw new Error(
-          "Bạn không có quyền lưu trữ bài tập trong workspace này",
+          t("Bạn không có quyền lưu trữ bài tập trong workspace này"),
         );
       }
       return apiFetch(`/assignments/${item._id}`, { token, method: "DELETE" });
@@ -208,24 +227,31 @@ export default function AssignmentsPage() {
       await tanstackForm.submit(await form.validateFields());
     } catch (caught) {
       if (!isFormValidationError(caught))
-        message.error(
-          caught instanceof Error ? caught.message : "Không thể lưu bài tập",
-        );
+        reportError(caught, "Không thể lưu bài tập");
     }
   };
-  const archive = async (item: Assignment) => {
-    try {
-      await archiveMutation.mutateAsync(item);
-    } catch (caught) {
-      message.error(
-        caught instanceof Error ? caught.message : "Không thể lưu trữ bài tập",
-      );
-    }
+  const archive = (item: Assignment) => {
+    const key = archiveKey(item._id);
+    const existing = archiveRequests.current.get(key);
+    if (existing) return existing;
+    const request = Promise.resolve().then(async () => {
+      try {
+        await archiveMutation.mutateAsync(item);
+      } catch (caught) {
+        reportError(caught, "Không thể lưu trữ bài tập");
+      }
+    }).finally(() => {
+      archiveRequests.current.delete(key);
+      setArchiving(current => { const next = new Set(current); next.delete(key); return next; });
+    });
+    archiveRequests.current.set(key, request);
+    setArchiving(current => new Set(current).add(key));
+    return request;
   };
 
   const columns: ColumnDef<StockFeatures, Assignment>[] = [
     {
-      header: "Bài tập",
+      header: t("Bài tập"),
       accessorKey: "title",
       cell: ({ row }) => (
         <div className="table-primary-cell">
@@ -241,52 +267,52 @@ export default function AssignmentsPage() {
           <div className="table-muted">
             {typeof row.original.courseId === "object"
               ? row.original.courseId.title
-              : "Khóa học"}
+              : t("Khóa học")}
           </div>
         </div>
       ),
     },
     {
-      header: "Hạn nộp",
+      header: t("Hạn nộp"),
       accessorKey: "dueAt",
       cell: ({ getValue }) => {
         const value = getValue<string | undefined>();
         return value ? (
-          dayjs(value).format("DD/MM/YYYY HH:mm")
+          formatUiDate(value, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
         ) : (
-          <span className="table-muted">Không giới hạn</span>
+          <span className="table-muted">{t("Không giới hạn")}</span>
         );
       },
       meta: { responsive: ["sm"] },
     },
     {
-      header: "Điểm",
+      header: t("Điểm"),
       accessorKey: "maxPoints",
       cell: ({ getValue }) => getValue<number>(),
       meta: { responsive: ["md"], width: 90 },
     },
     {
-      header: "Hình thức nộp",
+      header: t("Hình thức nộp"),
       accessorKey: "submissionMode",
       cell: ({ getValue, row }) => (
         <div>
-          {submissionModeLabels[getValue<AssignmentSubmissionMode>()] ??
-            "Văn bản"}
+          {t(submissionModeLabels[getValue<AssignmentSubmissionMode>()]) ??
+            t("Văn bản")}
           {row.original.allowLate && (
-            <div className="table-muted">Cho phép nộp muộn</div>
+            <div className="table-muted">{t("Cho phép nộp muộn")}</div>
           )}
         </div>
       ),
       meta: { responsive: ["lg"] },
     },
     {
-      header: "Trạng thái",
+      header: t("Trạng thái"),
       accessorKey: "published",
       cell: ({ getValue }) => {
         const value = getValue<boolean>();
         return (
           <Tag color={value ? "green" : "gold"}>
-            {value ? "Đã giao" : "Bản nháp"}
+            {value ? t("Đã giao") : t("Bản nháp")}
           </Tag>
         );
       },
@@ -294,62 +320,64 @@ export default function AssignmentsPage() {
     },
     ...(canManage
       ? [
-          {
-            id: "actions",
-            header: "",
-            cell: ({ row }) => {
-              const editLabel = `Chỉnh sửa bài tập ${row.original.title}`;
-              const archiveLabel = `Lưu trữ bài tập ${row.original.title}`;
-              const courseArchived =
-                courses.find(
-                  (course) => course._id === objectId(row.original.courseId),
-                )?.status === "ARCHIVED";
-              const filesLocked =
-                row.original.submissionMode === "FILES" && !mediaEnabled;
-              return (
-                <div
-                  aria-label={`Thao tác với bài tập ${row.original.title}`}
-                  className="table-row-actions"
-                  role="group"
+        {
+          id: "actions",
+          header: "",
+          cell: ({ row }) => {
+            const editLabel = t("Chỉnh sửa bài tập {p0}", { p0: row.original.title });
+            const archiveLabel = t("Lưu trữ bài tập {p0}", { p0: row.original.title });
+            const courseArchived =
+              courses.find(
+                (course) => course._id === objectId(row.original.courseId),
+              )?.status === "ARCHIVED";
+            const filesLocked =
+              row.original.submissionMode === "FILES" && !mediaEnabled;
+            return (
+              <div
+                aria-label={t("Thao tác với bài tập {p0}", { p0: row.original.title })}
+                className="table-row-actions"
+                role="group"
+              >
+                <Button
+                  aria-label={editLabel}
+                  className="table-row-action"
+                  disabled={courseArchived || filesLocked}
+                  icon={<EditOutlined />}
+                  onClick={() => edit(row.original)}
+                  size="small"
+                  title={
+                    courseArchived
+                      ? t("Không thể sửa bài tập thuộc khóa học đã lưu trữ")
+                      : filesLocked
+                        ? t("Bật module Tài liệu riêng tư để sửa bài tập nhận tệp")
+                        : editLabel
+                  }
+                  type="text"
+                />
+                <Popconfirm
+                  cancelText={t("Hủy")}
+                  okText={t("Lưu trữ")}
+                  onConfirm={() => archive(row.original)}
+                  okButtonProps={{ loading: archiving.has(archiveKey(row.original._id)) }}
+                  title={t("Lưu trữ bài tập này?")}
                 >
                   <Button
-                    aria-label={editLabel}
+                    aria-label={archiveLabel}
                     className="table-row-action"
-                    disabled={courseArchived || filesLocked}
-                    icon={<EditOutlined />}
-                    onClick={() => edit(row.original)}
+                    danger
+                    loading={archiving.has(archiveKey(row.original._id))}
+                    icon={<DeleteOutlined />}
                     size="small"
-                    title={
-                      courseArchived
-                        ? "Không thể sửa bài tập thuộc khóa học đã lưu trữ"
-                        : filesLocked
-                          ? "Bật module Tài liệu riêng tư để sửa bài tập nhận tệp"
-                          : editLabel
-                    }
+                    title={archiveLabel}
                     type="text"
                   />
-                  <Popconfirm
-                    cancelText="Hủy"
-                    okText="Lưu trữ"
-                    onConfirm={() => void archive(row.original)}
-                    title="Lưu trữ bài tập này?"
-                  >
-                    <Button
-                      aria-label={archiveLabel}
-                      className="table-row-action"
-                      danger
-                      icon={<DeleteOutlined />}
-                      size="small"
-                      title={archiveLabel}
-                      type="text"
-                    />
-                  </Popconfirm>
-                </div>
-              );
-            },
-            meta: { width: 105 },
-          } satisfies ColumnDef<StockFeatures, Assignment>,
-        ]
+                </Popconfirm>
+              </div>
+            );
+          },
+          meta: { width: 105 },
+        } satisfies ColumnDef<StockFeatures, Assignment>,
+      ]
       : []),
   ];
 
@@ -357,7 +385,7 @@ export default function AssignmentsPage() {
     return (
       <Alert
         showIcon
-        title="Bài tập được quản lý trong từng tổ chức."
+        title={t("Bài tập được quản lý trong từng tổ chức.")}
         type="info"
       />
     );
@@ -365,77 +393,106 @@ export default function AssignmentsPage() {
     return (
       <Alert
         showIcon
-        title="Module Bài tập không khả dụng trong workspace này."
+        title={t("Module Bài tập không khả dụng trong workspace này.")}
         type="warning"
       />
     );
   return (
-    <div className="page-shell">
-      <div className="page-heading page-toolbar">
+    <main aria-labelledby="assignments-page-title" className="page-shell">
+      <header className="page-heading">
         <div className="page-heading-copy">
-          <h1>Bài tập</h1>
+          <h1 id="assignments-page-title">{t("Bài tập")}</h1>
           <p>
             {canManageRole
-              ? "Tạo đầu việc học tập, đặt hạn nộp và kiểm soát thời điểm công bố."
-              : "Theo dõi các bài tập đã được giao trong khóa học của bạn."}
+              ? t("Tạo bài tập, đặt hạn nộp và công bố cho học viên.")
+              : t("Xem bài tập và hạn nộp của bạn.")}
           </p>
         </div>
         {canManageRole && (
           <Button
-            className="page-toolbar-action"
+            className="page-primary-action"
             disabled={readOnly || !availableCourses.length}
             icon={<PlusOutlined />}
             onClick={create}
             title={
               readOnly
-                ? "Gia hạn thuê bao để tạo bài tập"
+                ? t("Gia hạn thuê bao để tạo bài tập")
                 : !availableCourses.length
-                  ? "Cần ít nhất một khóa học chưa lưu trữ để tạo bài tập"
+                  ? t("Cần ít nhất một khóa học chưa lưu trữ để tạo bài tập")
                   : undefined
             }
             type="primary"
-          >
-            Tạo bài tập
-          </Button>
+          >{t("Tạo bài tập")}</Button>
         )}
-      </div>
+      </header>
       {assignmentsQuery.error || (canManageRole && coursesQuery.error) ? (
         <Alert
           showIcon
           title={
-            (assignmentsQuery.error ?? coursesQuery.error) instanceof Error
-              ? (assignmentsQuery.error ?? coursesQuery.error)?.message
-              : "Không tải được bài tập"
+            formatError((assignmentsQuery.error ?? coursesQuery.error), "Không tải được bài tập")
           }
           type="error"
         />
       ) : (
         <Card className="surface-card table-surface">
+          <div className="list-filter-bar" role="search" aria-label={t("Bộ lọc bài tập")}>
+            <Input
+              allowClear
+              aria-label={t("Tìm bài tập")}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("Tìm theo tên hoặc mô tả")}
+              style={{ width: 280 }}
+              type="search"
+              value={search}
+            />
+            <Select
+              aria-label={t("Lọc theo khóa học")}
+              onChange={(value) => setCourseFilter(selectedValue(value))}
+              options={[{ label: t("Tất cả khóa học"), value: "" }, ...filterCourseOptions]}
+              style={{ width: 230 }}
+              value={courseFilter}
+            />
+            {canManageRole && <Select
+              aria-label={t("Lọc trạng thái bài tập")}
+              onChange={(value) => setStatusFilter(selectedValue(value))}
+              options={[
+                { label: t("Tất cả trạng thái"), value: "" },
+                { label: t("Bản nháp"), value: "DRAFT" },
+                { label: t("Đã giao"), value: "PUBLISHED" },
+              ]}
+              style={{ width: 190 }}
+              value={statusFilter}
+            />}
+            <Button disabled={!search && !courseFilter && !statusFilter} onClick={() => { setSearch(""); setCourseFilter(""); setStatusFilter(""); }}>
+              {t("Xóa bộ lọc")}
+            </Button>
+          </div>
           <DataTable
-            ariaLabel="Danh sách bài tập"
+            ariaLabel={t("Danh sách bài tập")}
             columns={columns}
-            data={items}
+            data={filteredItems}
             emptyText={
-              canManage ? "Chưa có bài tập" : "Chưa có bài tập được giao"
+              filtersActive ? t("Không có bài tập phù hợp") : canManage ? t("Chưa có bài tập") : t("Chưa có bài tập được giao")
             }
             loading={
               assignmentsQuery.isLoading ||
               (canManageRole && coursesQuery.isLoading)
             }
             rowKey="_id"
+            paginationResetKey={filterKey}
             scrollX={680}
           />
         </Card>
       )}
       <Modal
-        cancelText="Hủy"
+        cancelText={t("Hủy")}
         confirmLoading={saveMutation.isPending}
         okButtonProps={{ disabled: !canManage || filesAssignmentLocked }}
-        okText={editing ? "Lưu thay đổi" : "Tạo bài tập"}
+        okText={editing ? t("Lưu thay đổi") : t("Tạo bài tập")}
         onCancel={() => setOpen(false)}
         onOk={() => void save()}
         open={open}
-        title={editing ? "Chỉnh sửa bài tập" : "Tạo bài tập"}
+        title={editing ? t("Chỉnh sửa bài tập") : t("Tạo bài tập")}
       >
         <Form
           disabled={!canManage}
@@ -446,8 +503,8 @@ export default function AssignmentsPage() {
         >
           {editing ? (
             <Form.Item
-              extra="Không thể chuyển bài tập sang khóa học khác sau khi tạo."
-              label="Khóa học"
+              extra={t("Không thể chuyển bài tập sang khóa học khác sau khi tạo.")}
+              label={t("Khóa học")}
             >
               <Select
                 disabled
@@ -457,9 +514,9 @@ export default function AssignmentsPage() {
                       typeof editing.courseId === "object"
                         ? editing.courseId.title
                         : (courses.find(
-                            (course) =>
-                              course._id === objectId(editing.courseId),
-                          )?.title ?? "Khóa học hiện tại"),
+                          (course) =>
+                            course._id === objectId(editing.courseId),
+                        )?.title ?? t("Khóa học hiện tại")),
                     value: objectId(editing.courseId),
                   },
                 ]}
@@ -468,9 +525,9 @@ export default function AssignmentsPage() {
             </Form.Item>
           ) : (
             <Form.Item
-              label="Khóa học"
+              label={t("Khóa học")}
               name="courseId"
-              rules={[{ required: true, message: "Chọn khóa học" }]}
+              rules={[{ required: true, message: t("Chọn khóa học") }]}
             >
               <Select
                 onChange={(value) => {
@@ -493,30 +550,33 @@ export default function AssignmentsPage() {
             </Form.Item>
           )}
           <Form.Item
-            label="Tên bài tập"
+            label={t("Tên bài tập")}
             name="title"
-            rules={[{ required: true, min: 2, message: "Nhập tên bài tập" }]}
+            rules={[{ required: true, min: 2, message: t("Nhập tên bài tập") }]}
           >
             <Input />
           </Form.Item>
-          <Form.Item label="Mô tả" name="description">
+          <Form.Item label={t("Mô tả")} name="description">
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Form.Item label="Hạn nộp" name="dueAt">
+          <section className={polish.formSection}>
+          <h3>{t("Thiết lập nộp bài")}</h3>
+          <div className={polish.formGrid}>
+          <Form.Item label={t("Hạn nộp")} name="dueAt">
             <DatePicker showTime style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item
             extra={
               gradingLocked
-                ? "Không thể đổi điểm tối đa sau lần công bố đầu tiên."
+                ? t("Không thể đổi điểm tối đa sau lần công bố đầu tiên.")
                 : undefined
             }
-            label="Điểm tối đa"
+            label={t("Điểm tối đa")}
             name="maxPoints"
             rules={[
               {
                 max: 10000,
-                message: "Điểm tối đa không vượt quá 10.000",
+                message: t("Điểm tối đa không vượt quá 10.000"),
                 min: 1,
                 required: true,
                 type: "number",
@@ -531,26 +591,27 @@ export default function AssignmentsPage() {
               style={{ width: "100%" }}
             />
           </Form.Item>
+          </div>
           <Form.Item
             extra={
               gradingLocked
-                ? "Không thể đổi hình thức nộp sau lần công bố đầu tiên."
+                ? t("Không thể đổi hình thức nộp sau lần công bố đầu tiên.")
                 : !mediaEnabled
-                  ? "Văn bản và liên kết HTTPS vẫn dùng bình thường; nhận tệp yêu cầu module Tài liệu riêng tư."
-                  : "Tệp được tải thẳng lên kho riêng tư và kiểm tra an toàn trước khi nộp."
+                  ? t("Văn bản và liên kết HTTPS vẫn dùng bình thường; nhận tệp yêu cầu module Tài liệu riêng tư.")
+                  : undefined
             }
-            label="Hình thức nộp bài"
+            label={t("Hình thức nộp bài")}
             name="submissionMode"
             rules={[{ required: true }]}
           >
             <Select
               disabled={gradingLocked}
               options={[
-                { label: "Văn bản", value: "TEXT" },
-                { label: "Liên kết HTTPS", value: "HTTPS_LINK" },
+                { label: t("Văn bản"), value: "TEXT" },
+                { label: t("Liên kết HTTPS"), value: "HTTPS_LINK" },
                 {
                   disabled: !mediaEnabled,
-                  label: "Tệp riêng tư",
+                  label: t("Tệp riêng tư"),
                   value: "FILES",
                 },
               ]}
@@ -559,12 +620,13 @@ export default function AssignmentsPage() {
           {filesAssignmentLocked && (
             <Alert
               showIcon
-              title="Module Tài liệu riêng tư đang tắt; bài tập nhận tệp chỉ được xem, không thể cập nhật."
+              title={t("Module Tài liệu riêng tư đang tắt; bài tập nhận tệp chỉ được xem, không thể cập nhật.")}
               type="warning"
             />
           )}
+          <div className={polish.formGrid}>
           <Form.Item
-            label="Cho phép nộp sau hạn"
+            label={t("Cho phép nộp sau hạn")}
             name="allowLate"
             valuePropName="checked"
           >
@@ -574,22 +636,24 @@ export default function AssignmentsPage() {
             extra={
               !canPublishAssignment
                 ? editing?.published
-                  ? "Khóa học hiện không mở; bạn có thể giữ trạng thái hiện tại hoặc chuyển bài tập về nháp."
-                  : "Cần mở khóa học trước khi công bố bài tập cho học viên."
+                  ? t("Khóa học hiện không mở; bạn có thể giữ trạng thái hiện tại hoặc chuyển bài tập về nháp.")
+                  : t("Cần mở khóa học trước khi công bố bài tập cho học viên.")
                 : undefined
             }
-            label="Công bố cho học viên"
+            label={t("Công bố cho học viên")}
             name="published"
             valuePropName="checked"
           >
             <Switch
-              checkedChildren="Đã giao"
+              checkedChildren={t("Đã giao")}
               disabled={!canPublishAssignment && !editing?.published}
-              unCheckedChildren="Bản nháp"
+              unCheckedChildren={t("Bản nháp")}
             />
           </Form.Item>
+          </div>
+          </section>
         </Form>
       </Modal>
-    </div>
+    </main>
   );
 }

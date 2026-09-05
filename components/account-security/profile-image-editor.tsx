@@ -1,11 +1,15 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { authMessages } from "@/lib/i18n/auth-messages";
+import { describeFeedbackError } from "@/lib/feedback-errors";
+
 import {
   DeleteOutlined,
   PictureOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import { Alert, Avatar, Button, Progress } from "antd";
+import { Alert, Avatar, Button, Progress, Spin } from "antd";
 import { useEffect, useId, useRef, useState } from "react";
 import { validateProfileImage } from "@/lib/profile-api";
 import styles from "./profile-image-editor.module.css";
@@ -39,13 +43,17 @@ export function ProfileImageEditor({
   onUpload,
   shape = "circle",
 }: ProfileImageEditorProps) {
+  const { t, locale } = useI18n(authMessages);
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
+  const pendingRef = useRef<"upload" | "remove" | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<
+    { source: string } | { cause: unknown; fallback: string } | null
+  >(null);
   const [pending, setPending] = useState<"upload" | "remove" | null>(null);
 
   const releasePreview = () => {
@@ -63,9 +71,11 @@ export function ProfileImageEditor({
   );
 
   const upload = async (file: File) => {
+    if (disabled || pendingRef.current) return;
     const validation = validateProfileImage(file);
     if (validation) {
-      setError(validation);
+      // This validator returns reviewed local copy; server messages are never trusted.
+      setError({ source: validation });
       return;
     }
     releasePreview();
@@ -75,46 +85,52 @@ export function ProfileImageEditor({
     setError(null);
     setProgress(0);
     setPending("upload");
+    pendingRef.current = "upload";
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
       await onUpload(file, {
-        onProgress: setProgress,
+        onProgress: (percent) => {
+          if (
+            !controller.signal.aborted &&
+            controllerRef.current === controller
+          )
+            setProgress(percent);
+        },
         signal: controller.signal,
       });
       releasePreview();
       setProgress(100);
     } catch (caught) {
       if (!controller.signal.aborted) {
-        setError(
-          caught instanceof Error ? caught.message : "Không thể tải ảnh lên.",
-        );
+        setError({ cause: caught, fallback: "Không thể tải ảnh lên." });
       }
     } finally {
       if (controllerRef.current === controller) controllerRef.current = null;
+      pendingRef.current = null;
       setPending(null);
     }
   };
 
   const remove = async () => {
-    if (!imageUrl || pending) return;
+    if (disabled || !imageUrl || pendingRef.current) return;
+    pendingRef.current = "remove";
     setError(null);
     setPending("remove");
     try {
       await onRemove();
       releasePreview();
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Không thể gỡ ảnh hiện tại.",
-      );
+      setError({ cause: caught, fallback: "Không thể gỡ ảnh hiện tại." });
     } finally {
+      pendingRef.current = null;
       setPending(null);
     }
   };
 
   const busy = pending !== null;
   return (
-    <div className={styles.editor}>
+    <div aria-busy={busy} className={styles.editor}>
       <Avatar
         alt={alt}
         className={styles.avatar}
@@ -130,12 +146,17 @@ export function ProfileImageEditor({
         <small id={`${inputId}-help`}>{help}</small>
         <div className={styles.actions}>
           <label
+            aria-busy={pending === "upload"}
             className={styles.uploadButton}
             data-disabled={disabled || busy ? "true" : "false"}
             htmlFor={inputId}
           >
-            <UploadOutlined aria-hidden="true" />
-            {imageUrl ? "Thay ảnh" : "Chọn ảnh"}
+            {pending === "upload" ? (
+              <Spin size="small" />
+            ) : (
+              <UploadOutlined aria-hidden="true" />
+            )}
+            {imageUrl ? t("Thay ảnh") : t("Chọn ảnh")}
             <input
               accept="image/jpeg,image/png,image/webp"
               aria-describedby={`${inputId}-help`}
@@ -160,7 +181,7 @@ export function ProfileImageEditor({
               onClick={() => void remove()}
               size="small"
             >
-              Gỡ ảnh
+              {t("Gỡ ảnh")}
             </Button>
           )}
           {pending === "upload" && (
@@ -171,7 +192,7 @@ export function ProfileImageEditor({
               }}
               size="small"
             >
-              Hủy tải
+              {t("Hủy tải")}
             </Button>
           )}
           {error && previewUrl && !pending && (
@@ -182,7 +203,7 @@ export function ProfileImageEditor({
               }}
               size="small"
             >
-              Bỏ ảnh đã chọn
+              {t("Bỏ ảnh đã chọn")}
             </Button>
           )}
         </div>
@@ -190,8 +211,8 @@ export function ProfileImageEditor({
       {pending === "upload" && (
         <div aria-live="polite" className={styles.progress}>
           <div className={styles.progressLabel}>
-            <span>Đang tải trực tiếp lên máy chủ riêng</span>
-            <span>{progress > 0 ? `${progress}%` : "Đang kết nối"}</span>
+            <span>{t("Đang tải trực tiếp lên máy chủ riêng")}</span>
+            <span>{progress > 0 ? `${progress}%` : t("Đang kết nối")}</span>
           </div>
           <Progress
             percent={progress}
@@ -207,7 +228,12 @@ export function ProfileImageEditor({
           closable
           onClose={() => setError(null)}
           showIcon
-          title={error}
+          title={
+            "source" in error
+              ? t(error.source)
+              : describeFeedbackError(error.cause, locale, t(error.fallback))
+                  .message
+          }
           type="error"
         />
       )}

@@ -7,11 +7,13 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EffectiveAccess } from "@/lib/types";
@@ -68,6 +70,13 @@ const course = {
   status: "PUBLISHED" as const,
   title: "Khóa học Một",
 };
+
+function deferred<T = unknown>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
 
 function installApiResponses() {
   mocks.apiFetch.mockImplementation((path: string) => {
@@ -162,9 +171,112 @@ describe("course people directories", () => {
     cleanup();
   });
 
+  it("shows archive loading only on the target course, blocks duplicate confirmations and waits for refresh", async () => {
+    const deletion = deferred();
+    const refresh = deferred<typeof course[]>();
+    const courses = [course, { ...course, _id: "course-2", title: "Khóa học Hai" }];
+    let reads = 0;
+    mocks.apiFetch.mockImplementation((path, options) => {
+      if (path === "/courses") return ++reads === 1 ? Promise.resolve(courses) : refresh.promise;
+      if (path === "/courses/course-1" && options?.method === "DELETE") return deletion.promise;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    renderPage();
+    const first = (await screen.findByText(course.title)).closest("article")!;
+    const second = screen.getByText("Khóa học Hai").closest("article")!;
+    fireEvent.click(within(first).getByLabelText(`Tùy chọn khóa học ${course.title}`));
+    fireEvent.click(within(second).getByLabelText("Tùy chọn khóa học Khóa học Hai"));
+    const confirm = within(first).getByRole("button", { name: "Lưu trữ" });
+    act(() => { fireEvent.click(confirm); fireEvent.click(confirm); });
+    const trigger = within(first).getByRole("button", { name: `Lưu trữ khóa học ${course.title}` });
+    expect(trigger.classList.contains("ant-btn-loading")).toBe(true);
+    expect(within(second).getByRole("button", { name: "Lưu trữ khóa học Khóa học Hai" }).classList.contains("ant-btn-loading")).toBe(false);
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(1));
+    await act(async () => deletion.resolve({}));
+    await waitFor(() => expect(reads).toBe(2));
+    expect(trigger.classList.contains("ant-btn-loading")).toBe(true);
+    await act(async () => refresh.resolve(courses));
+    await waitFor(() => expect(trigger.classList.contains("ant-btn-loading")).toBe(false));
+  });
+
+  it("releases withdrawal loading after failure and allows an explicit retry without duplicate writes", async () => {
+    const removal = deferred();
+    const base = mocks.apiFetch.getMockImplementation()!;
+    mocks.apiFetch.mockImplementation((path, options) => path === "/enrollments/enrollment-1" && options?.method === "DELETE" ? removal.promise : base(path, options));
+    renderPage();
+    await screen.findByText(course.title);
+    fireEvent.click(screen.getByRole("button", { name: "Học viên" }));
+    await screen.findByText("Learner One");
+    const [trigger, confirm] = screen.getAllByRole("button", { name: "Rút" });
+    act(() => { fireEvent.click(confirm); fireEvent.click(confirm); });
+    expect(trigger.classList.contains("ant-btn-loading")).toBe(true);
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([path]) => path === "/enrollments/enrollment-1")).toHaveLength(1));
+    await act(async () => removal.reject(new Error("Unavailable")));
+    await waitFor(() => expect(trigger.classList.contains("ant-btn-loading")).toBe(false));
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([path]) => path === "/enrollments/enrollment-1")).toHaveLength(2));
+    await waitFor(() => expect(trigger.classList.contains("ant-btn-loading")).toBe(false));
+  });
+
+  it("shows retry loading while a failed course query is retried", async () => {
+    const retry = deferred<typeof course[]>();
+    mocks.apiFetch.mockRejectedValueOnce(new Error("Offline")).mockImplementation(() => retry.promise);
+    renderPage();
+    const button = await screen.findByRole("button", { name: "Thử lại" });
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    await waitFor(() => expect(button.classList.contains("ant-btn-loading")).toBe(true));
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
+    await act(async () => retry.resolve([course]));
+    expect(await screen.findByText(course.title)).toBeTruthy();
+  });
+
+  it("phân trang thẻ khóa học và đổi số mục về trang đầu", async () => {
+    mocks.apiFetch.mockResolvedValue(Array.from({ length: 25 }, (_, i) => ({ ...course, _id: `course-${i}`, title: `Khóa số ${i + 1}` })));
+    renderPage();
+    await screen.findByText("Khóa số 1");
+    expect(screen.getAllByRole("article")).toHaveLength(12);
+    expect(screen.queryByText("Khóa số 13")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    expect(await screen.findByText("Khóa số 13")).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "Số dòng mỗi trang" }), { target: { value: "24" } });
+    expect(screen.getByText("Khóa số 1")).toBeTruthy();
+    expect(screen.getAllByRole("article")).toHaveLength(24);
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("tìm tiếng Việt không dấu, lọc trạng thái, xóa bộ lọc và không nhầm danh sách rỗng", async () => {
+    mocks.apiFetch.mockResolvedValue([
+      { ...course, title: "Đào tạo Giáo viên" },
+      { ...course, _id: "draft", title: "Kỹ năng đọc", status: "DRAFT" },
+    ]);
+    renderPage();
+    await screen.findByText("Đào tạo Giáo viên");
+    const search = screen.getByRole("textbox", { name: "Tìm khóa học" });
+    fireEvent.change(search, { target: { value: "  DAO  TAO " } });
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    fireEvent.change(screen.getByRole("combobox", { name: "Lọc trạng thái khóa học" }), { target: { value: "DRAFT" } });
+    expect(screen.getByText("Không có khóa học phù hợp")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Tạo khóa học đầu tiên" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(search).toHaveProperty("value", "");
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("đổi từ khóa về trang đầu dù số kết quả vẫn lớn", async () => {
+    mocks.apiFetch.mockResolvedValue(Array.from({ length: 25 }, (_, i) => ({ ...course, _id: `course-${i}`, title: `Đào tạo ${i + 1}` })));
+    renderPage();
+    await screen.findByText("Đào tạo 1");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    expect(screen.queryByText("Đào tạo 1")).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Tìm khóa học" }), { target: { value: "dao tao" } });
+    expect(screen.getByText("Đào tạo 1")).toBeTruthy();
+  });
+
   it("không tải directory hoặc enrollment toàn tenant trước khi mở modal", async () => {
     renderPage();
     expect(await screen.findByText(course.title)).toBeTruthy();
+    expect(screen.getByText("Quản lý nội dung, giảng viên và học viên.")).toBeTruthy();
 
     expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
     expect(mocks.apiFetch).toHaveBeenCalledWith("/courses", {
@@ -189,6 +301,7 @@ describe("course people directories", () => {
     expect(
       await screen.findByText("Danh mục học thuật dùng chung"),
     ).toBeTruthy();
+    expect(screen.getByText("Bạn quản lý ghi danh trong đơn vị. Nội dung do quản trị viên toàn tổ chức hoặc giảng viên phụ trách quản lý.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Tạo khóa học" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Chỉnh sửa" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Mở khóa học" })).toBeNull();

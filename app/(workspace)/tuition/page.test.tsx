@@ -203,9 +203,9 @@ describe("TuitionPage", () => {
       { signal: expect.any(AbortSignal) },
     );
     expect(mocks.getInvoiceOptions).toHaveBeenCalled();
-    expect(screen.getByText("Hóa đơn theo bộ lọc")).toBeTruthy();
-    expect(screen.getByText("Đã thu (trang này)")).toBeTruthy();
-    expect(screen.getByText("Còn phải thu (trang này)")).toBeTruthy();
+    expect(screen.getByText(/Tổng số hóa đơn/)).toBeTruthy();
+    expect(screen.getByLabelText("Số liệu trang hiện tại").textContent).toContain("Đã thu (trang này)");
+    expect(screen.getByLabelText("Số liệu trang hiện tại").textContent).toContain("Còn phải thu (trang này)");
     expect(screen.getByRole("button", { name: "Tạo hóa đơn" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Phát hành" })).toBeTruthy();
     expect(
@@ -224,7 +224,7 @@ describe("TuitionPage", () => {
       { signal: expect.any(AbortSignal) },
     );
     expect(mocks.getInvoiceOptions).not.toHaveBeenCalled();
-    expect(screen.getByText("Thông tin học phí cá nhân")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Học phí" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Tạo hóa đơn" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Phát hành" })).toBeNull();
     expect(

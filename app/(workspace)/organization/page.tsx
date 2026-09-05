@@ -1,32 +1,19 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsPolishMessages as operationsMessages } from "@/lib/i18n/learning-polish-messages";
+import polish from "@/components/layout/learning-polish.module.css";
+import { useMemo as useI18nMemo } from "react";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
 
 import {
   ApartmentOutlined,
   EditOutlined,
   PlusOutlined,
 } from "@ant-design/icons";
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  Col,
-  Descriptions,
-  Empty,
-  Form,
-  Input,
-  Modal,
-  Popconfirm,
-  Row,
-  Select,
-  Skeleton,
-  Space,
-  Switch,
-  Tag,
-  Tree,
-  Typography,
-  type TreeDataNode,
-} from "antd";
+import { Alert, Button, Card, Col, Descriptions, Empty, Input, Modal, Popconfirm, Row, Select, Skeleton, Space, Switch, Tag, Tree, Typography, type TreeDataNode } from "antd";
+import { Form } from "@/components/form/localized-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { isFormValidationError } from "@/components/form/validation-error";
@@ -43,13 +30,6 @@ import {
   type UpdateOrgUnitInput,
 } from "@/lib/org-units-api";
 import { getViewerScope } from "@/lib/query-keys";
-
-const TYPE_PRESENTATION: Record<OrgUnitType, { color: string; label: string }> =
-  {
-    BRANCH: { color: "blue", label: "Chi nhánh" },
-    DEPARTMENT: { color: "purple", label: "Phòng ban" },
-    ROOT: { color: "gold", label: "Trung tâm" },
-  };
 
 interface OrgUnitFormValues {
   addressCountryCode?: string;
@@ -78,7 +58,20 @@ type SaveRequest =
     };
 
 export default function OrganizationPage() {
-  const { message } = App.useApp();
+  const {
+    t,
+    TYPE_PRESENTATION,
+    flattenUnits,
+    collectDescendantIds,
+    toTreeDataNode,
+    editorValues,
+    createInput,
+    unitName,
+    formatAddress,
+    formatContact,
+    locale,
+  } = useOperationsCopy();
+  const { message, reportError } = useFeedback();
   const { organization, token, user } = useAuth();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<OrgUnitFormValues>();
@@ -112,7 +105,7 @@ export default function OrganizationPage() {
   });
   const units = useMemo(
     () => flattenUnits(treeQuery.data?.items ?? []),
-    [treeQuery.data?.items],
+    [flattenUnits, treeQuery.data?.items],
   );
   const selected =
     units.find((unit) => unit._id === selectedId) ?? units[0] ?? null;
@@ -126,7 +119,7 @@ export default function OrganizationPage() {
       editing
         ? new Set([editing._id, ...collectDescendantIds(editing)])
         : new Set<string>(),
-    [editing],
+    [collectDescendantIds, editing],
   );
   const parentOptions = useMemo(() => {
     if (draftType === "ROOT") return [];
@@ -177,7 +170,7 @@ export default function OrganizationPage() {
   });
   const treeData = useMemo<TreeDataNode[]>(
     () => (treeQuery.data?.items ?? []).map(toTreeDataNode),
-    [treeQuery.data?.items],
+    [toTreeDataNode, treeQuery.data?.items],
   );
 
   const showCreate = () => {
@@ -231,11 +224,7 @@ export default function OrganizationPage() {
       );
     } catch (caught) {
       if (!isFormValidationError(caught)) {
-        message.error(
-          caught instanceof Error
-            ? caught.message
-            : "Không thể lưu đơn vị tổ chức",
-        );
+        reportError(caught, "Không thể lưu đơn vị tổ chức");
       }
     }
   };
@@ -245,11 +234,7 @@ export default function OrganizationPage() {
     try {
       await archiveMutation.mutateAsync(selected);
     } catch (caught) {
-      message.error(
-        caught instanceof Error
-          ? caught.message
-          : "Không thể lưu trữ đơn vị tổ chức",
-      );
+      reportError(caught, "Không thể lưu trữ đơn vị tổ chức");
     }
   };
 
@@ -257,7 +242,9 @@ export default function OrganizationPage() {
     return (
       <Alert
         showIcon
-        title="Cơ cấu tổ chức chỉ dành cho thành viên trong workspace tenant."
+        title={t(
+          "Cơ cấu tổ chức chỉ dành cho thành viên trong workspace tenant.",
+        )}
         type="warning"
       />
     );
@@ -266,7 +253,7 @@ export default function OrganizationPage() {
     return (
       <Alert
         showIcon
-        title="Không tìm thấy workspace để tải cơ cấu tổ chức."
+        title={t("Không tìm thấy workspace để tải cơ cấu tổ chức.")}
         type="warning"
       />
     );
@@ -276,25 +263,25 @@ export default function OrganizationPage() {
     <main className="organization-page page-shell">
       <header className="page-heading">
         <div>
-          <span className="page-eyebrow">Vận hành trung tâm</span>
-          <h1>Cơ cấu tổ chức</h1>
+          <span className="page-eyebrow">{t("Vận hành trung tâm")}</span>
+          <h1>{t("Cơ cấu tổ chức")}</h1>
           <p>
-            Quản lý trung tâm gốc, chi nhánh và phòng ban trong workspace{" "}
-            {organization?.name ?? "hiện tại"}.
+            {t("Quản lý trung tâm gốc, chi nhánh và phòng ban trong workspace")}{" "}
+            {organization?.name ?? t("hiện tại")}.
           </p>
         </div>
         <Space align="center" wrap>
           <Space size={6}>
-            <span>Hiển thị đã lưu trữ</span>
+            <span>{t("Hiển thị đã lưu trữ")}</span>
             <Switch
-              aria-label="Hiển thị đơn vị đã lưu trữ"
+              aria-label={t("Hiển thị đơn vị đã lưu trữ")}
               checked={includeArchived}
               onChange={setIncludeArchived}
             />
           </Space>
           {canManage && units.length > 0 && (
             <Button icon={<PlusOutlined />} onClick={showCreate} type="primary">
-              Thêm đơn vị
+              {t("Thêm đơn vị")}{" "}
             </Button>
           )}
         </Space>
@@ -304,56 +291,65 @@ export default function OrganizationPage() {
         <Alert
           description={
             scopedAdmin
-              ? "Bạn đang quản lý theo phạm vi đơn vị. Chỉ quản trị viên toàn tổ chức mới có thể thay đổi cây chi nhánh để tránh tự mở rộng quyền."
-              : "Giảng viên có thể xem cơ cấu; chỉ quản trị tổ chức được thay đổi."
+              ? t(
+                  "Bạn đang quản lý theo phạm vi đơn vị. Chỉ quản trị viên toàn tổ chức mới có thể thay đổi cây chi nhánh để tránh tự mở rộng quyền.",
+                )
+              : t(
+                  "Giảng viên có thể xem cơ cấu; chỉ quản trị tổ chức được thay đổi.",
+                )
           }
           showIcon
-          title={scopedAdmin ? "Cơ cấu ở chế độ chỉ xem" : "Chế độ xem"}
+          title={scopedAdmin ? t("Cơ cấu ở chế độ chỉ xem") : t("Chế độ xem")}
           type="info"
         />
       )}
 
       <Space size={[8, 8]} wrap>
         <Tag color="gold">
-          {activeUnits.filter((unit) => unit.type === "ROOT").length} trung tâm
+          {activeUnits.filter((unit) => unit.type === "ROOT").length}{" "}
+          {t("trung tâm")}{" "}
         </Tag>
         <Tag color="blue">
-          {activeUnits.filter((unit) => unit.type === "BRANCH").length} chi
-          nhánh
+          {activeUnits.filter((unit) => unit.type === "BRANCH").length}{" "}
+          {t("chi nhánh")}{" "}
         </Tag>
         <Tag color="purple">
           {activeUnits.filter((unit) => unit.type === "DEPARTMENT").length}{" "}
-          phòng ban
+          {t("phòng ban")}{" "}
         </Tag>
         {includeArchived && (
           <Tag>
-            {units.filter((unit) => unit.status === "ARCHIVED").length} đã lưu
-            trữ
+            {units.filter((unit) => unit.status === "ARCHIVED").length}{" "}
+            {t("đã lưu trữ")}{" "}
           </Tag>
         )}
       </Space>
 
       <Row gutter={[20, 20]}>
         <Col lg={14} xs={24}>
-          <Card className="surface-card" title="Sơ đồ đơn vị">
+          <Card className="surface-card" title={t("Sơ đồ đơn vị")}>
             {treeQuery.isPending ? (
-              <div aria-label="Đang tải cơ cấu tổ chức" role="status">
+              <div aria-label={t("Đang tải cơ cấu tổ chức")} role="status">
                 <Skeleton active paragraph={{ rows: 8 }} />
               </div>
             ) : treeQuery.error ? (
               <Alert
                 action={
                   <Button onClick={() => void treeQuery.refetch()}>
-                    Thử lại
+                    {t("Thử lại")}{" "}
                   </Button>
                 }
                 description={
                   treeQuery.error instanceof Error
-                    ? treeQuery.error.message
-                    : "Không thể tải cây đơn vị"
+                    ? describeOperationsError(
+                        treeQuery.error,
+                        locale,
+                        t("Không thể tải cây đơn vị"),
+                      )
+                    : t("Không thể tải cây đơn vị")
                 }
                 showIcon
-                title="Chưa tải được cơ cấu tổ chức"
+                title={t("Chưa tải được cơ cấu tổ chức")}
                 type="error"
               />
             ) : treeData.length ? (
@@ -370,12 +366,16 @@ export default function OrganizationPage() {
             ) : (
               <Empty
                 description={
-                  <Space direction="vertical" size={4}>
-                    <strong>Chưa có cơ cấu tổ chức</strong>
+                  <Space orientation="vertical" size={4}>
+                    <strong>{t("Chưa có cơ cấu tổ chức")}</strong>
                     <span>
                       {canManage
-                        ? "Tạo trung tâm gốc trước khi thêm chi nhánh và phòng ban."
-                        : "Quản trị tổ chức chưa thiết lập cơ cấu cho workspace này."}
+                        ? t(
+                            "Tạo trung tâm gốc trước khi thêm chi nhánh và phòng ban.",
+                          )
+                        : t(
+                            "Quản trị tổ chức chưa thiết lập cơ cấu cho workspace này.",
+                          )}
                     </span>
                   </Space>
                 }
@@ -383,7 +383,7 @@ export default function OrganizationPage() {
               >
                 {canManage && (
                   <Button onClick={showCreate} type="primary">
-                    Tạo ROOT
+                    {t("Tạo ROOT")}{" "}
                   </Button>
                 )}
               </Empty>
@@ -392,10 +392,10 @@ export default function OrganizationPage() {
         </Col>
 
         <Col lg={10} xs={24}>
-          <Card className="surface-card" title="Chi tiết đơn vị">
+          <Card className="surface-card" title={t("Chi tiết đơn vị")}>
             {selected ? (
               <Space
-                direction="vertical"
+                orientation="vertical"
                 size="middle"
                 style={{ width: "100%" }}
               >
@@ -408,41 +408,41 @@ export default function OrganizationPage() {
                     color={selected.status === "ACTIVE" ? "green" : undefined}
                   >
                     {selected.status === "ACTIVE"
-                      ? "Đang hoạt động"
-                      : "Đã lưu trữ"}
+                      ? t("Đang hoạt động")
+                      : t("Đã lưu trữ")}
                   </Tag>
                 </Space>
                 <Descriptions bordered column={1} size="small">
-                  <Descriptions.Item label="Mã đơn vị">
+                  <Descriptions.Item label={t("Mã đơn vị")}>
                     <Typography.Text code copyable>
                       {selected.code}
                     </Typography.Text>
                   </Descriptions.Item>
-                  <Descriptions.Item label="Đơn vị cha">
+                  <Descriptions.Item label={t("Đơn vị cha")}>
                     {unitName(units, selected.parentId)}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Đường dẫn">
+                  <Descriptions.Item label={t("Đường dẫn")}>
                     {selected.path.join(" / ")}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Múi giờ">
+                  <Descriptions.Item label={t("Múi giờ")}>
                     {selected.timezone}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Địa chỉ">
+                  <Descriptions.Item label={t("Địa chỉ")}>
                     {formatAddress(selected.address)}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Liên hệ">
+                  <Descriptions.Item label={t("Liên hệ")}>
                     {formatContact(selected.contact)}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Phiên bản">
-                    revision {selected.revision}
+                  <Descriptions.Item label={t("Phiên bản")}>
+                    {t("Phiên bản {value0}", { value0: selected.revision })}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Policy ghi đè">
+                  <Descriptions.Item label={t("Policy ghi đè")}>
                     {Object.keys(selected.policyOverrides).length ? (
                       <pre style={{ margin: 0, overflowX: "auto" }}>
                         {JSON.stringify(selected.policyOverrides, null, 2)}
                       </pre>
                     ) : (
-                      "Không có"
+                      t("Không có")
                     )}
                   </Descriptions.Item>
                 </Descriptions>
@@ -450,17 +450,17 @@ export default function OrganizationPage() {
                 {canManage && selected.status === "ACTIVE" && (
                   <Space wrap>
                     <Button icon={<EditOutlined />} onClick={showEdit}>
-                      Chỉnh sửa / di chuyển
+                      {t("Chỉnh sửa / di chuyển")}{" "}
                     </Button>
                     {selected.type !== "ROOT" && (
                       <Popconfirm
                         disabled={selectedHasActiveChildren}
-                        okText="Xác nhận lưu trữ"
+                        okText={t("Xác nhận lưu trữ")}
                         onConfirm={archive}
                         title={
                           selectedHasActiveChildren
-                            ? "Đơn vị còn con hoạt động"
-                            : "Lưu trữ " + selected.name + "?"
+                            ? t("Đơn vị còn con hoạt động")
+                            : t("Lưu trữ ") + selected.name + "?"
                         }
                       >
                         <Button
@@ -468,20 +468,24 @@ export default function OrganizationPage() {
                           disabled={selectedHasActiveChildren}
                           loading={archiveMutation.isPending}
                         >
-                          Lưu trữ
+                          {t("Lưu trữ")}{" "}
                         </Button>
                       </Popconfirm>
                     )}
                     {selectedHasActiveChildren && (
                       <Typography.Text type="secondary">
-                        Hãy di chuyển hoặc lưu trữ các đơn vị con trước.
+                        {t(
+                          "Hãy di chuyển hoặc lưu trữ các đơn vị con trước.",
+                        )}{" "}
                       </Typography.Text>
                     )}
                   </Space>
                 )}
               </Space>
             ) : (
-              <Empty description="Chọn một đơn vị trên cây để xem chi tiết." />
+              <Empty
+                description={t("Chọn một đơn vị trên cây để xem chi tiết.")}
+              />
             )}
           </Card>
         </Col>
@@ -532,20 +536,21 @@ function OrgUnitEditorModal({
   rootId?: string;
   saving: boolean;
 }) {
+  const { t, parsePolicyOverrides } = useOperationsCopy();
   return (
     <Modal
       destroyOnHidden
       okButtonProps={{ loading: saving }}
-      okText={modalMode === "edit" ? "Lưu thay đổi" : "Tạo đơn vị"}
+      okText={modalMode === "edit" ? t("Lưu thay đổi") : t("Tạo đơn vị")}
       onCancel={onCancel}
       onOk={onSave}
       open={modalMode !== null}
       title={
         modalMode === "edit"
-          ? "Chỉnh sửa " + (editing?.name ?? "đơn vị")
+          ? t("Chỉnh sửa ") + (editing?.name ?? t("đơn vị"))
           : draftType === "ROOT"
-            ? "Tạo ROOT"
-            : "Thêm đơn vị tổ chức"
+            ? t("Tạo ROOT")
+            : t("Thêm đơn vị tổ chức")
       }
       width={760}
     >
@@ -565,21 +570,21 @@ function OrgUnitEditorModal({
         <Row gutter={16}>
           <Col md={12} xs={24}>
             <Form.Item
-              label="Loại đơn vị"
+              label={t("Loại đơn vị")}
               name="type"
-              rules={[{ required: true, message: "Chọn loại đơn vị" }]}
+              rules={[{ required: true, message: t("Chọn loại đơn vị") }]}
             >
               <Select
                 disabled={editing?.type === "ROOT"}
                 options={
                   editing?.type === "ROOT"
-                    ? [{ label: "Trung tâm gốc", value: "ROOT" }]
+                    ? [{ label: t("Trung tâm gốc"), value: "ROOT" }]
                     : rootExists
                       ? [
-                          { label: "Chi nhánh", value: "BRANCH" },
-                          { label: "Phòng ban", value: "DEPARTMENT" },
+                          { label: t("Chi nhánh"), value: "BRANCH" },
+                          { label: t("Phòng ban"), value: "DEPARTMENT" },
                         ]
-                      : [{ label: "Trung tâm gốc", value: "ROOT" }]
+                      : [{ label: t("Trung tâm gốc"), value: "ROOT" }]
                 }
               />
             </Form.Item>
@@ -587,14 +592,14 @@ function OrgUnitEditorModal({
           <Col md={12} xs={24}>
             {draftType !== "ROOT" && (
               <Form.Item
-                label="Đơn vị cha"
+                label={t("Đơn vị cha")}
                 name="parentId"
-                rules={[{ required: true, message: "Chọn đơn vị cha" }]}
+                rules={[{ required: true, message: t("Chọn đơn vị cha") }]}
               >
                 <Select
                   optionFilterProp="label"
                   options={parentOptions}
-                  placeholder="Chọn vị trí trong cây"
+                  placeholder={t("Chọn vị trí trong cây")}
                   showSearch
                 />
               </Form.Item>
@@ -604,26 +609,29 @@ function OrgUnitEditorModal({
         <Row gutter={16}>
           <Col md={12} xs={24}>
             <Form.Item
-              label="Tên đơn vị"
+              label={t("Tên đơn vị")}
               name="name"
               rules={[
-                { required: true, message: "Nhập tên đơn vị" },
+                { required: true, message: t("Nhập tên đơn vị") },
                 { max: 160, min: 2 },
               ]}
             >
-              <Input maxLength={160} placeholder="Ví dụ: Chi nhánh Quận 1" />
+              <Input
+                maxLength={160}
+                placeholder={t("Ví dụ: Chi nhánh Quận 1")}
+              />
             </Form.Item>
           </Col>
           <Col md={12} xs={24}>
             <Form.Item
-              extra="Chữ, số và dấu gạch ngang; duy nhất trong workspace."
-              label="Mã đơn vị"
+              extra={t("Chữ, số và dấu gạch ngang; duy nhất trong workspace.")}
+              label={t("Mã đơn vị")}
               name="code"
               rules={[
-                { required: true, message: "Nhập mã đơn vị" },
+                { required: true, message: t("Nhập mã đơn vị") },
                 {
                   pattern: /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/,
-                  message: "Mã chỉ gồm chữ, số và dấu gạch ngang",
+                  message: t("Mã chỉ gồm chữ, số và dấu gạch ngang"),
                 },
                 { max: 64, min: 2 },
               ]}
@@ -633,64 +641,65 @@ function OrgUnitEditorModal({
           </Col>
         </Row>
         <Form.Item
-          label="Múi giờ"
+          label={t("Múi giờ")}
           name="timezone"
-          rules={[{ required: true, message: "Nhập múi giờ IANA" }]}
+          rules={[{ required: true, message: t("Nhập múi giờ IANA") }]}
         >
           <Input maxLength={100} placeholder="Asia/Ho_Chi_Minh" />
         </Form.Item>
 
-        <Typography.Title level={5}>Địa chỉ</Typography.Title>
-        <Form.Item label="Địa chỉ chính" name="addressLine1">
+        <details className={polish.optional}>
+        <summary>{t("Địa chỉ và liên hệ (không bắt buộc)")}</summary>
+        <Form.Item label={t("Địa chỉ chính")} name="addressLine1">
           <Input maxLength={200} />
         </Form.Item>
         <Row gutter={16}>
           <Col md={8} xs={24}>
-            <Form.Item label="Phường / xã" name="addressWard">
+            <Form.Item label={t("Phường / xã")} name="addressWard">
               <Input maxLength={120} />
             </Form.Item>
           </Col>
           <Col md={8} xs={24}>
-            <Form.Item label="Quận / huyện" name="addressDistrict">
+            <Form.Item label={t("Quận / huyện")} name="addressDistrict">
               <Input maxLength={120} />
             </Form.Item>
           </Col>
           <Col md={8} xs={24}>
-            <Form.Item label="Tỉnh / thành" name="addressProvince">
+            <Form.Item label={t("Tỉnh / thành")} name="addressProvince">
               <Input maxLength={120} />
             </Form.Item>
           </Col>
         </Row>
         <Row gutter={16}>
           <Col md={12} xs={24}>
-            <Form.Item label="Mã bưu chính" name="addressPostalCode">
+            <Form.Item label={t("Mã bưu chính")} name="addressPostalCode">
               <Input maxLength={20} />
             </Form.Item>
           </Col>
           <Col md={12} xs={24}>
             <Form.Item
-              label="Mã quốc gia"
+              label={t("Mã quốc gia")}
               name="addressCountryCode"
-              rules={[{ len: 2, message: "Dùng mã quốc gia 2 ký tự" }]}
+              rules={[{ len: 2, message: t("Dùng mã quốc gia 2 ký tự") }]}
             >
               <Input maxLength={2} />
             </Form.Item>
           </Col>
         </Row>
 
-        <Typography.Title level={5}>Liên hệ</Typography.Title>
+        <Typography.Title level={5}>{t("Liên hệ")}</Typography.Title>
         <Row gutter={16}>
           <Col md={12} xs={24}>
             <Form.Item
               label="Email"
               name="contactEmail"
-              rules={[{ type: "email", message: "Email chưa hợp lệ" }]}
+              rules={[{ type: "email", message: t("Email chưa hợp lệ") }]}
             >
               <Input maxLength={254} />
             </Form.Item>
           </Col>
           <Col md={12} xs={24}>
-            <Form.Item label="Điện thoại" name="contactPhone">
+            <Form.Item label={t("Điện thoại")} name="contactPhone">
               <Input maxLength={32} />
             </Form.Item>
           </Col>
@@ -698,13 +707,18 @@ function OrgUnitEditorModal({
         <Form.Item
           label="Website"
           name="contactWebsiteUrl"
-          rules={[{ type: "url", message: "Website chưa hợp lệ" }]}
+          rules={[{ type: "url", message: t("Website chưa hợp lệ") }]}
         >
           <Input maxLength={2048} placeholder="https://..." />
         </Form.Item>
+        </details>
+        <details className={polish.optional}>
+        <summary>{t("Policy ghi đè")}</summary>
         <Form.Item
-          extra="Object JSON dùng để ghi đè policy được kế thừa ở đơn vị này."
-          label="Policy ghi đè"
+          extra={t(
+            "Object JSON dùng để ghi đè policy được kế thừa ở đơn vị này.",
+          )}
+          label={t("Policy ghi đè")}
           name="policyOverridesText"
           rules={[
             {
@@ -721,130 +735,170 @@ function OrgUnitEditorModal({
         >
           <Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} />
         </Form.Item>
+        </details>
       </Form>
     </Modal>
   );
 }
 
-function flattenUnits(nodes: readonly OrgUnitTreeNode[]): OrgUnitTreeNode[] {
-  return nodes.flatMap((node) => [node, ...flattenUnits(node.children)]);
-}
+function useOperationsCopy() {
+  const i18n = useI18n(operationsMessages);
+  return useI18nMemo(() => {
+    const { t } = i18n;
+    const TYPE_PRESENTATION: Record<
+      OrgUnitType,
+      { color: string; label: string }
+    > = {
+      BRANCH: { color: "blue", label: t("Chi nhánh") },
+      DEPARTMENT: { color: "purple", label: t("Phòng ban") },
+      ROOT: { color: "gold", label: t("Trung tâm") },
+    };
 
-function collectDescendantIds(node: OrgUnitTreeNode): string[] {
-  return node.children.flatMap((child) => [
-    child._id,
-    ...collectDescendantIds(child),
-  ]);
-}
+    function flattenUnits(
+      nodes: readonly OrgUnitTreeNode[],
+    ): OrgUnitTreeNode[] {
+      return nodes.flatMap((node) => [node, ...flattenUnits(node.children)]);
+    }
 
-function toTreeDataNode(unit: OrgUnitTreeNode): TreeDataNode {
-  const presentation = TYPE_PRESENTATION[unit.type];
-  return {
-    children: unit.children.map(toTreeDataNode),
-    key: unit._id,
-    title: (
-      <Space size={6} wrap>
-        <ApartmentOutlined />
-        <strong>{unit.name}</strong>
-        <Typography.Text code>{unit.code}</Typography.Text>
-        <Tag color={presentation.color}>{presentation.label}</Tag>
-        <Tag>revision {unit.revision}</Tag>
-        {unit.status === "ARCHIVED" && <Tag>Đã lưu trữ</Tag>}
-      </Space>
-    ),
-  };
-}
+    function collectDescendantIds(node: OrgUnitTreeNode): string[] {
+      return node.children.flatMap((child) => [
+        child._id,
+        ...collectDescendantIds(child),
+      ]);
+    }
 
-function editorValues(unit: OrgUnit): OrgUnitFormValues {
-  return {
-    addressCountryCode: unit.address?.countryCode ?? "VN",
-    addressDistrict: unit.address?.district,
-    addressLine1: unit.address?.line1,
-    addressPostalCode: unit.address?.postalCode,
-    addressProvince: unit.address?.province,
-    addressWard: unit.address?.ward,
-    code: unit.code,
-    contactEmail: unit.contact?.email,
-    contactPhone: unit.contact?.phone,
-    contactWebsiteUrl: unit.contact?.websiteUrl,
-    name: unit.name,
-    parentId: unit.parentId ?? undefined,
-    policyOverridesText: JSON.stringify(unit.policyOverrides, null, 2),
-    timezone: unit.timezone,
-    type: unit.type,
-  };
-}
+    function toTreeDataNode(unit: OrgUnitTreeNode): TreeDataNode {
+      const presentation = TYPE_PRESENTATION[unit.type];
+      return {
+        children: unit.children.map(toTreeDataNode),
+        key: unit._id,
+        title: (
+          <Space size={6} wrap>
+            <ApartmentOutlined />
+            <strong>{unit.name}</strong>
+            <Typography.Text code>{unit.code}</Typography.Text>
+            <Tag color={presentation.color}>{presentation.label}</Tag>
+            <Tag>{t("Phiên bản {value0}", { value0: unit.revision })}</Tag>
+            {unit.status === "ARCHIVED" && <Tag>{t("Đã lưu trữ")}</Tag>}
+          </Space>
+        ),
+      };
+    }
 
-function createInput(values: OrgUnitFormValues): CreateOrgUnitInput {
-  const address: OrgUnitAddress = {
-    countryCode: values.addressCountryCode?.trim().toUpperCase(),
-    district: values.addressDistrict,
-    line1: values.addressLine1,
-    postalCode: values.addressPostalCode,
-    province: values.addressProvince,
-    ward: values.addressWard,
-  };
-  const contact: OrgUnitContact = {
-    email: values.contactEmail?.trim().toLowerCase(),
-    phone: values.contactPhone,
-    websiteUrl: values.contactWebsiteUrl,
-  };
-  return {
-    address,
-    code: values.code,
-    contact,
-    name: values.name,
-    ...(values.type !== "ROOT" && values.parentId
-      ? { parentId: values.parentId }
-      : {}),
-    policyOverrides: parsePolicyOverrides(values.policyOverridesText),
-    timezone: values.timezone,
-    type: values.type,
-  };
-}
+    function editorValues(unit: OrgUnit): OrgUnitFormValues {
+      return {
+        addressCountryCode: unit.address?.countryCode ?? "VN",
+        addressDistrict: unit.address?.district,
+        addressLine1: unit.address?.line1,
+        addressPostalCode: unit.address?.postalCode,
+        addressProvince: unit.address?.province,
+        addressWard: unit.address?.ward,
+        code: unit.code,
+        contactEmail: unit.contact?.email,
+        contactPhone: unit.contact?.phone,
+        contactWebsiteUrl: unit.contact?.websiteUrl,
+        name: unit.name,
+        parentId: unit.parentId ?? undefined,
+        policyOverridesText: JSON.stringify(unit.policyOverrides, null, 2),
+        timezone: unit.timezone,
+        type: unit.type,
+      };
+    }
 
-function parsePolicyOverrides(value: unknown): Record<string, unknown> {
-  if (value === undefined || value === null || String(value).trim() === "") {
-    return {};
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(String(value));
-  } catch {
-    throw new Error("Policy ghi đè phải là JSON hợp lệ");
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Policy ghi đè phải là một object JSON");
-  }
-  return parsed as Record<string, unknown>;
-}
+    function createInput(values: OrgUnitFormValues): CreateOrgUnitInput {
+      const address: OrgUnitAddress = {
+        countryCode: values.addressCountryCode?.trim().toUpperCase(),
+        district: values.addressDistrict,
+        line1: values.addressLine1,
+        postalCode: values.addressPostalCode,
+        province: values.addressProvince,
+        ward: values.addressWard,
+      };
+      const contact: OrgUnitContact = {
+        email: values.contactEmail?.trim().toLowerCase(),
+        phone: values.contactPhone,
+        websiteUrl: values.contactWebsiteUrl,
+      };
+      return {
+        address,
+        code: values.code,
+        contact,
+        name: values.name,
+        ...(values.type !== "ROOT" && values.parentId
+          ? { parentId: values.parentId }
+          : {}),
+        policyOverrides: parsePolicyOverrides(values.policyOverridesText),
+        timezone: values.timezone,
+        type: values.type,
+      };
+    }
 
-function unitName(units: readonly OrgUnit[], parentId: string | null): string {
-  if (!parentId) return "Không có (ROOT)";
-  return units.find((unit) => unit._id === parentId)?.name ?? "Không xác định";
-}
+    function parsePolicyOverrides(value: unknown): Record<string, unknown> {
+      if (
+        value === undefined ||
+        value === null ||
+        String(value).trim() === ""
+      ) {
+        return {};
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(String(value));
+      } catch {
+        throw new Error(t("Policy ghi đè phải là JSON hợp lệ"));
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error(t("Policy ghi đè phải là một object JSON"));
+      }
+      return parsed as Record<string, unknown>;
+    }
 
-function formatAddress(address?: OrgUnitAddress | null): string {
-  if (!address) return "Chưa cập nhật";
-  return (
-    [
-      address.line1,
-      address.ward,
-      address.district,
-      address.province,
-      address.postalCode,
-      address.countryCode,
-    ]
-      .filter(Boolean)
-      .join(", ") || "Chưa cập nhật"
-  );
-}
+    function unitName(
+      units: readonly OrgUnit[],
+      parentId: string | null,
+    ): string {
+      if (!parentId) return t("Không có (ROOT)");
+      return (
+        units.find((unit) => unit._id === parentId)?.name ?? t("Không xác định")
+      );
+    }
 
-function formatContact(contact?: OrgUnitContact | null): string {
-  if (!contact) return "Chưa cập nhật";
-  return (
-    [contact.email, contact.phone, contact.websiteUrl]
-      .filter(Boolean)
-      .join(" · ") || "Chưa cập nhật"
-  );
+    function formatAddress(address?: OrgUnitAddress | null): string {
+      if (!address) return t("Chưa cập nhật");
+      return (
+        [
+          address.line1,
+          address.ward,
+          address.district,
+          address.province,
+          address.postalCode,
+          address.countryCode,
+        ]
+          .filter(Boolean)
+          .join(", ") || t("Chưa cập nhật")
+      );
+    }
+
+    function formatContact(contact?: OrgUnitContact | null): string {
+      if (!contact) return t("Chưa cập nhật");
+      return (
+        [contact.email, contact.phone, contact.websiteUrl]
+          .filter(Boolean)
+          .join(" · ") || t("Chưa cập nhật")
+      );
+    }
+    return {
+      ...i18n,
+      TYPE_PRESENTATION,
+      flattenUnits,
+      collectDescendantIds,
+      toTreeDataNode,
+      editorValues,
+      createInput,
+      parsePolicyOverrides,
+      unitName,
+      formatAddress,
+      formatContact,
+    };
+  }, [i18n]);
 }

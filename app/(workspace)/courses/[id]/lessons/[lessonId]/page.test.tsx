@@ -14,6 +14,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { App as AntdApp } from "antd";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import type { EffectiveAccess, LessonDetail, UserRole } from "@/lib/types";
@@ -21,6 +22,7 @@ import LessonPage from "./page";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  message: { error: vi.fn(), success: vi.fn() },
   effectiveAccess: null as EffectiveAccess | null,
   role: "LEARNER" as UserRole,
   scopeMode: "GLOBAL" as "GLOBAL" | "SCOPED",
@@ -62,7 +64,9 @@ vi.mock("@/components/media/youtube-publish-action", () => ({
     mediaEnabled &&
     asset.status === "AVAILABLE" &&
     asset.contentType === "video/mp4" ? (
-      <button type="button">Xuất bản {asset.originalFileName} lên YouTube</button>
+      <button type="button">
+        Xuất bản {asset.originalFileName} lên YouTube
+      </button>
     ) : null,
 }));
 vi.mock("@ant-design/icons", () => ({
@@ -121,6 +125,11 @@ describe("lesson viewer route", () => {
   beforeEach(() => {
     notifyManager.setScheduler((callback) => queueMicrotask(callback));
     mocks.apiFetch.mockReset();
+    mocks.message.error.mockReset();
+    mocks.message.success.mockReset();
+    vi.spyOn(AntdApp, "useApp").mockReturnValue({
+      message: mocks.message,
+    } as never);
     mocks.role = "LEARNER";
     mocks.scopeMode = "GLOBAL";
     mocks.tenantId = "tenant-1";
@@ -143,6 +152,21 @@ describe("lesson viewer route", () => {
     notifyManager.setScheduler(defaultScheduler);
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it("recovers a failed lesson load with one guarded retry", async () => {
+    let resolve!: (value: LessonDetail) => void;
+    const pending = new Promise<LessonDetail>((done) => { resolve = done; });
+    mocks.apiFetch.mockRejectedValueOnce(new Error("Temporary outage")).mockReturnValue(pending);
+    renderPage();
+    const retry = await screen.findByRole("button", { name: "Thử lại" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Thử lại" })).toBeNull());
+    expect(document.querySelector('[role="status"], .ant-skeleton')).toBeTruthy();
+    fireEvent.click(retry);
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
+    resolve(baseLesson);
+    expect(await screen.findByRole("heading", { name: baseLesson.title })).toBeTruthy();
   });
 
   it("module COURSES tắt thì không request lesson", () => {
@@ -264,6 +288,9 @@ describe("lesson viewer route", () => {
       expect(client.getQueryState(treeKey)?.isInvalidated).toBe(true);
       expect(client.getQueryState(summaryKey)?.isInvalidated).toBe(true);
     });
+    expect(mocks.message.success).toHaveBeenCalledWith(
+      "Đã đánh dấu bài học hoàn thành",
+    );
   });
 
   it("learner READ_ONLY không thể gửi completion mutation", async () => {
@@ -406,6 +433,9 @@ describe("lesson viewer route", () => {
         String(path).endsWith("/attachments"),
       ),
     ).toBe(false);
+    await waitFor(() =>
+      expect(mocks.message.success).toHaveBeenCalledWith("Đã cập nhật bài học"),
+    );
   });
 
   it("manager reorder attachment dùng dedicated PUT, giữ exact order và lesson revision CAS", async () => {
@@ -466,6 +496,9 @@ describe("lesson viewer route", () => {
     );
     expect(await screen.findByText("lesson-2.pdf")).toBeTruthy();
     expect(screen.getByLabelText("Thêm tệp cho bài học")).toBeTruthy();
+    expect(mocks.message.success).toHaveBeenCalledWith(
+      "Đã cập nhật tệp đính kèm của bài học",
+    );
   });
 
   it.each([
@@ -482,26 +515,31 @@ describe("lesson viewer route", () => {
         modules: ["COURSES", "MEDIA"],
       };
       const attachmentId = "64b000000000000000000011";
-      mocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
-        if (path === "/courses/course-1/lessons/lesson-1" && !options?.method) {
-          return Promise.resolve({
-            ...baseLesson,
-            attachmentIds: [attachmentId],
-          });
-        }
-        if (path.endsWith(`/assets/${attachmentId}`) && !options?.method) {
-          return Promise.resolve({
-            _id: attachmentId,
-            contentType: "video/mp4",
-            originalFileName: "lesson-video.mp4",
-            purpose: "LESSON_CONTENT",
-            revision: 1,
-            sizeBytes: 1_024,
-            status: "AVAILABLE",
-          });
-        }
-        return Promise.reject(new Error(`Unexpected request: ${path}`));
-      });
+      mocks.apiFetch.mockImplementation(
+        (path: string, options?: RequestInit) => {
+          if (
+            path === "/courses/course-1/lessons/lesson-1" &&
+            !options?.method
+          ) {
+            return Promise.resolve({
+              ...baseLesson,
+              attachmentIds: [attachmentId],
+            });
+          }
+          if (path.endsWith(`/assets/${attachmentId}`) && !options?.method) {
+            return Promise.resolve({
+              _id: attachmentId,
+              contentType: "video/mp4",
+              originalFileName: "lesson-video.mp4",
+              purpose: "LESSON_CONTENT",
+              revision: 1,
+              sizeBytes: 1_024,
+              status: "AVAILABLE",
+            });
+          }
+          return Promise.reject(new Error(`Unexpected request: ${path}`));
+        },
+      );
       renderPage();
 
       await screen.findByText("lesson-video.mp4");
@@ -615,6 +653,10 @@ describe("lesson viewer route", () => {
       within(dialog).getByRole("button", { name: "Lưu thay đổi" }),
     );
     expect(await screen.findByText("Bài học đã được thay đổi")).toBeTruthy();
+    expect(mocks.message.error).toHaveBeenCalledWith(
+      "Bài học đã được thay đổi",
+    );
+    expect(mocks.message.success).not.toHaveBeenCalled();
     expect(payloads).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Tải lại bài học" }));
@@ -746,6 +788,10 @@ describe("lesson viewer route", () => {
         },
       ),
     );
+    await waitFor(() =>
+      expect(mocks.message.success).toHaveBeenCalledWith("Đã công bố bài học"),
+    );
+    expect(mocks.message.success).toHaveBeenCalledWith("Đã lưu trữ bài học");
 
     cleanup();
     mocks.apiFetch.mockClear();

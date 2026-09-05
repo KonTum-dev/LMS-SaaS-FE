@@ -1,20 +1,38 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
 import { ApiError } from "@/lib/api";
 import ResetPasswordPage from "./page";
 
-const validToken = "0123456789abcdef01234567.abcdefghijklmnopqrstuvwxyzABCDEFGH123456789";
+const validToken =
+  "0123456789abcdef01234567.abcdefghijklmnopqrstuvwxyzABCDEFGH123456789";
 const mocks = vi.hoisted(() => ({
   logout: vi.fn(),
   replace: vi.fn(),
   resetPassword: vi.fn(),
+  message: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+  reportError: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
+vi.mock("@/components/feedback/feedback-provider", () => ({
+  useFeedback: () => ({
+    message: mocks.message,
+    reportError: mocks.reportError,
+  }),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mocks.replace }),
+}));
 vi.mock("@/components/providers/app-providers", () => ({
   useAuth: () => ({ logout: mocks.logout }),
 }));
@@ -25,26 +43,46 @@ vi.mock("@/lib/account-security-api", () => ({
 function renderPage(url: string, strict = false) {
   window.history.replaceState({ test: true }, "", url);
   const replaceState = vi.spyOn(window.history, "replaceState");
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-  const page = <QueryClientProvider client={queryClient}><ResetPasswordPage /></QueryClientProvider>;
+  const queryClient = new QueryClient({
+    defaultOptions: { mutations: { retry: false } },
+  });
+  const page = (
+    <QueryClientProvider client={queryClient}>
+      <ResetPasswordPage />
+    </QueryClientProvider>
+  );
   const rendered = render(strict ? <StrictMode>{page}</StrictMode> : page);
   return { ...rendered, queryClient, replaceState };
 }
 
 function privateCacheSnapshot(queryClient: QueryClient): string {
   return JSON.stringify({
-    mutations: queryClient.getMutationCache().getAll().map((mutation) => mutation.state.variables),
-    queries: queryClient.getQueryCache().getAll().map((query) => ({ data: query.state.data, key: query.queryKey })),
+    mutations: queryClient
+      .getMutationCache()
+      .getAll()
+      .map((mutation) => mutation.state.variables),
+    queries: queryClient
+      .getQueryCache()
+      .getAll()
+      .map((query) => ({ data: query.state.data, key: query.queryKey })),
   });
 }
 
 async function submitNewPassword(password = "NewPassword123") {
-  fireEvent.change(await screen.findByLabelText("Mật khẩu mới"), { target: { value: password } });
-  fireEvent.change(screen.getByLabelText("Xác nhận mật khẩu mới"), { target: { value: password } });
+  fireEvent.change(await screen.findByLabelText("Mật khẩu mới"), {
+    target: { value: password },
+  });
+  fireEvent.change(screen.getByLabelText("Xác nhận mật khẩu mới"), {
+    target: { value: password },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Đặt lại mật khẩu" }));
 }
 
 beforeEach(() => {
+  mocks.message.error.mockReset();
+  mocks.message.success.mockReset();
+  mocks.message.warning.mockReset();
+  mocks.reportError.mockReset();
   mocks.logout.mockReset();
   mocks.replace.mockReset();
   mocks.resetPassword.mockReset();
@@ -52,8 +90,11 @@ beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockImplementation(() => ({
-      addEventListener: vi.fn(), addListener: vi.fn(), matches: false,
-      removeEventListener: vi.fn(), removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      matches: false,
+      removeEventListener: vi.fn(),
+      removeListener: vi.fn(),
     })),
   });
 });
@@ -65,22 +106,40 @@ afterEach(() => {
 
 describe("ResetPasswordPage", () => {
   it("pre-paint consume một lần trong StrictMode, strip trước API rồi đóng phiên trước khi về login", async () => {
-    const { queryClient, replaceState } = renderPage(`/reset-password#token=${validToken}`, true);
+    const { queryClient, replaceState } = renderPage(
+      `/reset-password#token=${validToken}`,
+      true,
+    );
     await screen.findByLabelText("Mật khẩu mới");
     expect(window.location.hash).toBe("");
     expect(replaceState).toHaveBeenCalledOnce();
-    expect(replaceState).toHaveBeenCalledWith({ test: true }, "", "/reset-password");
+    expect(replaceState).toHaveBeenCalledWith(
+      { test: true },
+      "",
+      "/reset-password",
+    );
 
     await submitNewPassword();
 
-    await waitFor(() => expect(mocks.resetPassword).toHaveBeenCalledWith({
-      newPassword: "NewPassword123",
-      token: validToken,
-    }));
+    await waitFor(() =>
+      expect(mocks.resetPassword).toHaveBeenCalledWith({
+        newPassword: "NewPassword123",
+        token: validToken,
+      }),
+    );
     expect(mocks.logout).toHaveBeenCalledOnce();
     expect(mocks.replace).toHaveBeenCalledWith("/login");
-    expect(replaceState.mock.invocationCallOrder[0]).toBeLessThan(mocks.resetPassword.mock.invocationCallOrder[0]);
-    expect(mocks.logout.mock.invocationCallOrder[0]).toBeLessThan(mocks.replace.mock.invocationCallOrder[0]);
+    expect(mocks.message.success).toHaveBeenCalledWith(
+      "Đã đặt lại mật khẩu. Vui lòng đăng nhập bằng mật khẩu mới.",
+    );
+    expect(mocks.message.warning).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
+    expect(replaceState.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.resetPassword.mock.invocationCallOrder[0],
+    );
+    expect(mocks.logout.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.replace.mock.invocationCallOrder[0],
+    );
     const cache = privateCacheSnapshot(queryClient);
     expect(cache).not.toContain(validToken);
     expect(cache).not.toContain("NewPassword123");
@@ -93,66 +152,139 @@ describe("ResetPasswordPage", () => {
   ])("chặn %s và không gọi API", async (_case, url) => {
     renderPage(url);
 
-    expect(await screen.findByText(/Liên kết đặt lại mật khẩu không hợp lệ/)).toBeTruthy();
+    expect(
+      await screen.findByText(/Liên kết đặt lại mật khẩu không hợp lệ/),
+    ).toBeTruthy();
     expect(mocks.resetPassword).not.toHaveBeenCalled();
     expect(window.location.hash).toBe("");
     expect(window.location.search).not.toContain("token=");
-    expect(screen.getByRole("link", { name: /Yêu cầu liên kết mới/ }).getAttribute("href")).toBe("/forgot-password");
+    expect(
+      screen
+        .getByRole("link", { name: /Yêu cầu liên kết mới/ })
+        .getAttribute("href"),
+    ).toBe("/forgot-password");
+    expect(mocks.message.error).not.toHaveBeenCalled();
+    expect(mocks.message.success).not.toHaveBeenCalled();
+    expect(mocks.message.warning).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
   });
 
   it("giữ nguyên phiên và form với lỗi không làm thay đổi credential", async () => {
-    mocks.resetPassword.mockRejectedValue(new ApiError("Mật khẩu mới đã được sử dụng", 409, "PASSWORD_REUSE_NOT_ALLOWED"));
+    mocks.resetPassword.mockRejectedValue(
+      new ApiError(
+        "Mật khẩu mới đã được sử dụng",
+        409,
+        "PASSWORD_REUSE_NOT_ALLOWED",
+      ),
+    );
     const { queryClient } = renderPage(`/reset-password#token=${validToken}`);
     await submitNewPassword();
 
-    expect(await screen.findByText("Mật khẩu mới đã được sử dụng")).toBeTruthy();
+    expect(
+      await screen.findByText("Mật khẩu mới phải khác mật khẩu hiện tại. Hãy chọn mật khẩu khác."),
+    ).toBeTruthy();
     expect(mocks.logout).not.toHaveBeenCalled();
     expect(mocks.replace).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Đặt lại mật khẩu" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Đặt lại mật khẩu" }),
+    ).toBeTruthy();
     const cache = privateCacheSnapshot(queryClient);
     expect(cache).not.toContain(validToken);
     expect(cache).not.toContain("NewPassword123");
+    expect(mocks.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "PASSWORD_REUSE_NOT_ALLOWED",
+        status: 409,
+      }),
+      "Không thể đặt lại mật khẩu. Vui lòng thử lại.",
+    );
+    expect(mocks.message.success).not.toHaveBeenCalled();
   });
 
   it("410 token invalid chuyển sang trạng thái terminal và bỏ token khỏi ref", async () => {
-    mocks.resetPassword.mockRejectedValue(new ApiError(
-      "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn",
-      410,
-      "PASSWORD_RESET_TOKEN_INVALID",
-    ));
+    mocks.resetPassword.mockRejectedValue(
+      new ApiError(
+        "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn",
+        410,
+        "PASSWORD_RESET_TOKEN_INVALID",
+      ),
+    );
     renderPage(`/reset-password#token=${validToken}`);
     await submitNewPassword();
 
-    expect(await screen.findByText(/Liên kết đặt lại mật khẩu không hợp lệ/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Yêu cầu liên kết mới/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Đặt lại mật khẩu" })).toBeNull();
+    expect(
+      await screen.findByText(/Liên kết đặt lại mật khẩu không hợp lệ/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /Yêu cầu liên kết mới/ }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Đặt lại mật khẩu" }),
+    ).toBeNull();
     expect(mocks.logout).not.toHaveBeenCalled();
     expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "PASSWORD_RESET_TOKEN_INVALID",
+        status: 410,
+      }),
+      "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Hãy yêu cầu liên kết mới.",
+    );
+    expect(mocks.message.success).not.toHaveBeenCalled();
   });
 
   it("409 already-applied xóa phiên trước khi về login", async () => {
-    mocks.resetPassword.mockRejectedValue(new ApiError(
-      "Mật khẩu đã được đặt lại bởi yêu cầu này",
-      409,
-      "PASSWORD_RESET_ALREADY_APPLIED",
-    ));
+    mocks.resetPassword.mockRejectedValue(
+      new ApiError(
+        "Mật khẩu đã được đặt lại bởi yêu cầu này",
+        409,
+        "PASSWORD_RESET_ALREADY_APPLIED",
+      ),
+    );
     renderPage(`/reset-password#token=${validToken}`);
     await submitNewPassword();
 
     await waitFor(() => expect(mocks.logout).toHaveBeenCalledOnce());
     expect(mocks.replace).toHaveBeenCalledWith("/login");
-    expect(mocks.logout.mock.invocationCallOrder[0]).toBeLessThan(mocks.replace.mock.invocationCallOrder[0]);
+    expect(mocks.logout.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.replace.mock.invocationCallOrder[0],
+    );
+    expect(mocks.message.warning).toHaveBeenCalledWith(
+      "Yêu cầu đặt lại mật khẩu đã được xử lý trước đó. Vui lòng đăng nhập lại.",
+    );
+    expect(mocks.message.success).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
+  });
+
+  it("409 credential changed yêu cầu đăng nhập lại, không báo đổi mật khẩu mới thành công", async () => {
+    mocks.resetPassword.mockRejectedValue(
+      new ApiError("Credential changed", 409, "CREDENTIAL_CHANGED_RELOGIN"),
+    );
+    renderPage(`/reset-password#token=${validToken}`);
+    await submitNewPassword();
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
+    expect(mocks.message.warning).toHaveBeenCalledWith(
+      "Thông tin đăng nhập đã thay đổi. Vui lòng đăng nhập lại.",
+    );
+    expect(mocks.message.success).not.toHaveBeenCalled();
+    expect(mocks.reportError).not.toHaveBeenCalled();
   });
 
   it("chặn mật khẩu ngắn và xác nhận không khớp trước API", async () => {
     renderPage(`/reset-password#token=${validToken}`);
     await submitNewPassword("short");
 
-    expect(await screen.findByText("Mật khẩu phải có ít nhất 8 ký tự")).toBeTruthy();
+    expect(
+      await screen.findByText("Mật khẩu phải có ít nhất 8 ký tự"),
+    ).toBeTruthy();
     expect(mocks.resetPassword).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText("Mật khẩu mới"), { target: { value: "NewPassword123" } });
-    fireEvent.change(screen.getByLabelText("Xác nhận mật khẩu mới"), { target: { value: "DifferentPassword123" } });
+    fireEvent.change(screen.getByLabelText("Mật khẩu mới"), {
+      target: { value: "NewPassword123" },
+    });
+    fireEvent.change(screen.getByLabelText("Xác nhận mật khẩu mới"), {
+      target: { value: "DifferentPassword123" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Đặt lại mật khẩu" }));
 
     expect(await screen.findByText("Mật khẩu xác nhận chưa khớp")).toBeTruthy();

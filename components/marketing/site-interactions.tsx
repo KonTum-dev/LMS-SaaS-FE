@@ -1,24 +1,25 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { marketingMessages } from "@/lib/i18n/marketing-messages";
+
 import {
   ApartmentOutlined,
-  ArrowRightOutlined,
   BookOutlined,
   CheckCircleFilled,
   ClockCircleOutlined,
-  DollarOutlined,
-  MailOutlined,
   ReadOutlined,
-  SafetyCertificateOutlined,
   SearchOutlined,
   TeamOutlined,
-  UserOutlined,
 } from "@ant-design/icons";
-import { Alert, Button, Form, Input, notification, Select, Tag } from "antd";
+import { Input, Tag } from "antd";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import styles from "@/app/marketing-v2.module.css";
-import type { MarketingBlogPost, MarketingPricingTier } from "@/lib/marketing-content";
+import type {
+  MarketingBlogPost,
+  MarketingPricingTier,
+} from "@/lib/marketing-content";
 import { ArticleCover } from "./article-cover";
 import interactionStyles from "./site-interactions.module.css";
 
@@ -33,8 +34,16 @@ const roleWorkflows = [
       "Theo dõi lớp học, doanh thu và quyền truy cập theo đúng phạm vi chi nhánh.",
     outcome: "3 cảnh báo cần xử lý",
     steps: [
-      { label: "Kiểm tra tổng quan", detail: "12 lớp đang hoạt động", state: "done" },
-      { label: "Duyệt quyền chi nhánh", detail: "2 yêu cầu mới", state: "active" },
+      {
+        label: "Kiểm tra tổng quan",
+        detail: "12 lớp đang hoạt động",
+        state: "done",
+      },
+      {
+        label: "Duyệt quyền chi nhánh",
+        detail: "2 yêu cầu mới",
+        state: "active",
+      },
       { label: "Đối soát học phí", detail: "Báo cáo tháng 09", state: "next" },
     ],
   },
@@ -48,7 +57,11 @@ const roleWorkflows = [
       "Danh sách lớp, điểm danh, tài liệu và bài cần chấm nằm trong cùng một luồng.",
     outcome: "2 bài đang chờ chấm",
     steps: [
-      { label: "Mở lớp hôm nay", detail: "IELTS 7.0 · Phòng A2", state: "done" },
+      {
+        label: "Mở lớp hôm nay",
+        detail: "IELTS 7.0 · Phòng A2",
+        state: "done",
+      },
       { label: "Chốt điểm danh", detail: "28/30 học viên", state: "active" },
       { label: "Phản hồi bài tập", detail: "Hạn trước 18:00", state: "next" },
     ],
@@ -63,7 +76,11 @@ const roleWorkflows = [
       "Tiến độ khóa học, hạn nộp và phản hồi của giảng viên được sắp theo ưu tiên.",
     outcome: "68% lộ trình đã hoàn thành",
     steps: [
-      { label: "Tiếp tục bài học", detail: "Unit 08 · Listening", state: "done" },
+      {
+        label: "Tiếp tục bài học",
+        detail: "Unit 08 · Listening",
+        state: "done",
+      },
       { label: "Nộp bài luyện tập", detail: "Còn 01 ngày", state: "active" },
       { label: "Xem phản hồi", detail: "Writing task 2", state: "next" },
     ],
@@ -78,21 +95,40 @@ const roleWorkflows = [
       "Xem lịch học, chuyên cần và học phí mà không truy cập dữ liệu ngoài phạm vi.",
     outcome: "Chuyên cần tháng này 96%",
     steps: [
-      { label: "Xem lịch học tuần", detail: "3 buổi đã xác nhận", state: "done" },
-      { label: "Kiểm tra chuyên cần", detail: "1 lần đi muộn", state: "active" },
-      { label: "Theo dõi học phí", detail: "Kỳ tiếp theo 15/09", state: "next" },
+      {
+        label: "Xem lịch học tuần",
+        detail: "3 buổi đã xác nhận",
+        state: "done",
+      },
+      {
+        label: "Kiểm tra chuyên cần",
+        detail: "1 lần đi muộn",
+        state: "active",
+      },
+      {
+        label: "Theo dõi học phí",
+        detail: "Kỳ tiếp theo 15/09",
+        state: "next",
+      },
     ],
   },
 ] as const;
 
 export function TestimonialCarousel() {
-  const [activeRole, setActiveRole] = useState<(typeof roleWorkflows)[number]["id"]>("admin");
-  const item = roleWorkflows.find((role) => role.id === activeRole) ?? roleWorkflows[0];
+  const { t } = useI18n(marketingMessages);
+  const [activeRole, setActiveRole] =
+    useState<(typeof roleWorkflows)[number]["id"]>("admin");
+  const item =
+    roleWorkflows.find((role) => role.id === activeRole) ?? roleWorkflows[0];
   const ActiveIcon = item.icon;
 
   return (
     <div className={interactionStyles.workbench} data-reveal>
-      <div className={interactionStyles.roleRail} role="group" aria-label="Chọn vai trò để xem luồng công việc">
+      <div
+        className={interactionStyles.roleRail}
+        role="group"
+        aria-label={t("Chọn vai trò để xem luồng công việc")}
+      >
         {roleWorkflows.map((role) => {
           const RoleIcon = role.icon;
           const selected = activeRole === role.id;
@@ -105,42 +141,76 @@ export function TestimonialCarousel() {
               onClick={() => setActiveRole(role.id)}
               key={role.id}
             >
-              <span className={interactionStyles.roleIcon} aria-hidden="true"><RoleIcon /></span>
-              <span><strong>{role.role}</strong><small aria-hidden="true">{role.initials}</small></span>
+              <span className={interactionStyles.roleIcon} aria-hidden="true">
+                <RoleIcon />
+              </span>
+              <span>
+                <strong>{t(role.role)}</strong>
+                <small aria-hidden="true">{role.initials}</small>
+              </span>
             </button>
           );
         })}
       </div>
 
-      <section className={interactionStyles.workflowPanel} aria-live="polite" aria-labelledby={`role-workflow-${item.id}`}>
+      <section
+        className={interactionStyles.workflowPanel}
+        aria-live="polite"
+        aria-labelledby={`role-workflow-${item.id}`}
+      >
         <div className={interactionStyles.workflowHeader}>
-          <span className={interactionStyles.workflowIdentity} aria-hidden="true"><ActiveIcon /></span>
+          <span
+            className={interactionStyles.workflowIdentity}
+            aria-hidden="true"
+          >
+            <ActiveIcon />
+          </span>
           <div>
-            <Tag color="cyan">Luồng công việc theo vai trò</Tag>
-            <h3 id={`role-workflow-${item.id}`}>{item.headline}</h3>
-            <p>{item.description}</p>
+            <Tag color="cyan">{t("Luồng công việc theo vai trò")}</Tag>
+            <h3 id={`role-workflow-${item.id}`}>{t(item.headline)}</h3>
+            <p>{t(item.description)}</p>
           </div>
         </div>
 
         <div className={interactionStyles.workflowBody}>
-          <ol className={interactionStyles.workflowSteps} aria-label={`Các bước dành cho ${item.role}`}>
+          <ol
+            className={interactionStyles.workflowSteps}
+            aria-label={t("Các bước dành cho {role}", { role: t(item.role) })}
+          >
             {item.steps.map((step, stepIndex) => (
-              <li className={interactionStyles.workflowStep} data-state={step.state} key={step.label}>
+              <li
+                className={interactionStyles.workflowStep}
+                data-state={step.state}
+                key={step.label}
+              >
                 <span className={interactionStyles.stepIcon} aria-hidden="true">
-                  {step.state === "done" ? <CheckCircleFilled /> : <ClockCircleOutlined />}
+                  {step.state === "done" ? (
+                    <CheckCircleFilled />
+                  ) : (
+                    <ClockCircleOutlined />
+                  )}
                 </span>
                 <span className={interactionStyles.stepCopy}>
-                  <small>Bước {stepIndex + 1}</small>
-                  <strong>{step.label}</strong>
-                  <span>{step.detail}</span>
+                  <small>
+                    {t("Bước")} {stepIndex + 1}
+                  </small>
+                  <strong>{t(step.label)}</strong>
+                  <span>{t(step.detail)}</span>
                 </span>
               </li>
             ))}
           </ol>
-          <aside className={interactionStyles.outcomeCard} aria-label="Kết quả đang theo dõi">
-            <span>Kết quả đang theo dõi</span>
-            <strong>{item.outcome}</strong>
-            <small>Dữ liệu minh họa cách thông tin được trình bày trong workspace.</small>
+          <aside
+            className={interactionStyles.outcomeCard}
+            aria-label={t("Kết quả đang theo dõi")}
+          >
+            <span>{t("Kết quả đang theo dõi")}</span>
+            <strong>{t(item.outcome)}</strong>
+            <small>
+              {t(
+                "Dữ liệu minh họa cách thông tin được trình bày trong workspace.",
+              )}
+            </small>
           </aside>
         </div>
       </section>
@@ -148,69 +218,103 @@ export function TestimonialCarousel() {
   );
 }
 
-export function PricingSelector({ tiers }: { tiers: readonly MarketingPricingTier[] }) {
+export function PricingSelector({
+  tiers,
+}: {
+  tiers: readonly MarketingPricingTier[];
+}) {
+  const { t, formatNumber } = useI18n(marketingMessages);
+  const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
   return (
     <>
-      <div className={interactionStyles.pricingContext} role="note" aria-label="Thông tin dùng thử và báo giá">
-        <div className={interactionStyles.pricingContextItem}>
-          <span className={interactionStyles.contextIcon} aria-hidden="true"><ClockCircleOutlined /></span>
-          <span><strong>14 ngày dùng thử miễn phí</strong><small>Khởi tạo workspace để kiểm tra quy trình trước khi chọn gói.</small></span>
+      <div className={styles.pricingCycle}>
+        <div className={styles.pricingToggle} role="group" aria-label={t("Chu kỳ thanh toán")}>
+          {(["monthly", "yearly"] as const).map((value) => <button
+            type="button"
+            key={value}
+            aria-pressed={cycle === value}
+            className={`${styles.toggleButton} ${cycle === value ? styles.toggleActive : ""}`}
+            onClick={() => setCycle(value)}
+          >{t(value === "monthly" ? "Theo tháng" : "Theo năm")}</button>)}
         </div>
-        <div className={interactionStyles.pricingContextItem}>
-          <span className={interactionStyles.contextIcon} aria-hidden="true"><DollarOutlined /></span>
-          <span><strong>Báo giá theo cấu hình thực tế</strong><small>Dựa trên quy mô người dùng, chi nhánh, mô-đun và mức hỗ trợ.</small></span>
-        </div>
+        <span className={styles.pricingSaving}>{t("Theo năm tiết kiệm 2 tháng")}</span>
       </div>
-
       <div className={styles.pricingGrid}>
-        {tiers.map((tier) => (
-          <article className={`${styles.priceCard} ${tier.featured ? styles.priceFeatured : ""}`} data-reveal key={tier.id}>
-            {tier.featured ? <span className={styles.popularChip}>Phù hợp trung tâm</span> : null}
+        {tiers.filter((tier) => tier.id !== "trial").map((tier) => (
+          <article
+            className={`${styles.priceCard} ${tier.featured ? styles.priceFeatured : ""}`}
+            data-reveal
+            key={tier.id}
+          >
             <h3>{tier.name}</h3>
-            <span className={styles.priceAudience}>{tier.audience}</span>
-            <div className={styles.priceLabel}>{tier.priceLabel}</div>
-            <p className={styles.priceDescription}>{tier.description}</p>
-            <ul className={styles.priceList}>{tier.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
-            <Link className={tier.featured ? styles.buttonSecondary : styles.button} href={tier.cta.href}>{tier.cta.label}</Link>
+            <span className={styles.priceAudience}>{t(tier.audience)}</span>
+            <div className={styles.priceLabel}>
+              {tier.priceVnd ? <>{t("{amount}đ", { amount: formatNumber(tier.priceVnd[cycle]) })} <small>{t(cycle === "monthly" ? "/ tháng" : "/ năm")}</small></> : t("Liên hệ")}
+            </div>
+            <ul className={styles.priceList}>
+              {tier.features.map((feature) => (
+                <li key={feature}><CheckCircleFilled aria-hidden />{t(feature)}</li>
+              ))}
+            </ul>
+            <Link
+              className={tier.id === "enterprise" ? styles.buttonSecondary : styles.button}
+              href={tier.cta.href}
+            >
+              {t(tier.cta.label)}
+            </Link>
           </article>
         ))}
       </div>
+      <p className={styles.pricingTrial}>{t("Dùng thử với hạn mức Center · Không cần thẻ thanh toán")}</p>
     </>
   );
 }
 
-export function BlogExplorer({ posts }: { posts: readonly MarketingBlogPost[] }) {
-  const categories = useMemo(() => ["Tất cả", ...Array.from(new Set(posts.map((post) => post.category)))], [posts]);
+export function BlogExplorer({
+  posts,
+}: {
+  posts: readonly MarketingBlogPost[];
+}) {
+  const { t, locale, formatNumber } = useI18n(marketingMessages);
+  const categories = useMemo(
+    () => [
+      "Tất cả",
+      ...Array.from(new Set(posts.map((post) => post.category))),
+    ],
+    [posts],
+  );
   const [category, setCategory] = useState("Tất cả");
   const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLocaleLowerCase("vi");
+  const normalizedQuery = query.trim().toLocaleLowerCase(locale);
   const visiblePosts = posts.filter((post) => {
     const matchesCategory = category === "Tất cả" || post.category === category;
-    const matchesQuery = !normalizedQuery || `${post.title} ${post.excerpt}`.toLocaleLowerCase("vi").includes(normalizedQuery);
+    const matchesQuery =
+      !normalizedQuery ||
+      `${t(post.title)} ${t(post.excerpt)}`
+        .toLocaleLowerCase(locale)
+        .includes(normalizedQuery);
     return matchesCategory && matchesQuery;
   });
 
   return (
     <>
       <div className={styles.blogToolbar}>
-        <div className={styles.filterRail} role="group" aria-label="Lọc bài viết theo danh mục">
-          {categories.map((item) => {
-            const selected = category === item;
-            return (
-              <button
-                className={`${styles.filterButton} ${selected ? styles.filterButtonActive : ""}`}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setCategory(item)}
-                key={item}
-              >
-                {item}
-              </button>
-            );
-          })}
-        </div>
+        <select
+          className={styles.blogCategory}
+          aria-label={t("Lọc bài viết theo danh mục")}
+          aria-controls="marketing-blog-results"
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+        >
+          {categories.map((item) => <option value={item} key={item}>{t(item)}</option>)}
+        </select>
         <div className={interactionStyles.blogSearch}>
-          <label className={styles.visuallyHidden} htmlFor="marketing-blog-search">Tìm bài viết</label>
+          <label
+            className={styles.visuallyHidden}
+            htmlFor="marketing-blog-search"
+          >
+            {t("Tìm bài viết")}
+          </label>
           <Input
             id="marketing-blog-search"
             type="search"
@@ -220,195 +324,46 @@ export function BlogExplorer({ posts }: { posts: readonly MarketingBlogPost[] })
             value={query}
             aria-controls="marketing-blog-results"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Tìm theo tiêu đề hoặc nội dung"
+            placeholder={t("Tìm theo tiêu đề hoặc nội dung")}
           />
-          <span className={interactionStyles.resultCount} aria-live="polite">{visiblePosts.length} bài viết</span>
+          <span className={interactionStyles.resultCount} aria-live="polite">
+            {t(
+              visiblePosts.length === 1
+                ? "{count} bài viết"
+                : "{count} bài viết tìm thấy",
+              { count: formatNumber(visiblePosts.length) },
+            )}
+          </span>
         </div>
       </div>
       <div className={styles.blogGrid} id="marketing-blog-results">
         {visiblePosts.map((post) => (
           <article className={styles.blogCard} key={post.slug}>
             <Link href={`/blog/${post.slug}`}>
-              <div className={styles.blogImageWrap}><ArticleCover post={post} /></div>
+              <div className={styles.blogImageWrap}>
+                <ArticleCover post={post} />
+              </div>
               <div className={styles.blogBody}>
-                <div className={styles.blogMeta}><span>{post.category}</span><span>{post.readingTime}</span></div>
-                <h3>{post.title}</h3><p>{post.excerpt}</p>
+                <div className={styles.blogMeta}>
+                  <span>{t(post.category)}</span>
+                  <span>{t(post.readingTime)}</span>
+                </div>
+                <h3>{t(post.title)}</h3>
               </div>
             </Link>
           </article>
         ))}
-        {visiblePosts.length === 0 ? <div className={styles.emptyState}>Không tìm thấy bài viết phù hợp. Hãy thử từ khóa hoặc danh mục khác.</div> : null}
+        {visiblePosts.length === 0 ? (
+          <div className={styles.emptyState}>
+            {t(
+              "Không tìm thấy bài viết phù hợp. Hãy thử từ khóa hoặc danh mục khác.",
+            )}
+            <button type="button" className={styles.buttonGhost} onClick={() => { setQuery(""); setCategory("Tất cả"); }}>{t("Xóa bộ lọc")}</button>
+          </div>
+        ) : null}
       </div>
     </>
   );
 }
 
-type ContactValues = {
-  email: string;
-  message: string;
-  name: string;
-  organization: string;
-  phone?: string;
-  role: string;
-  scale: string;
-  topic: string;
-};
-
-export function ContactForm() {
-  const [notificationApi, notificationContext] = notification.useNotification({
-    maxCount: 1,
-    placement: "topRight",
-    top: 112,
-  });
-
-  function submit() {
-    notificationApi.warning({
-      title: "Chưa gửi được yêu cầu",
-      description:
-        "Kênh liên hệ đang được hoàn thiện nên thông tin chưa được gửi hoặc lưu. Bạn có thể tạo workspace dùng thử ngay.",
-      actions: <Link className={interactionStyles.toastAction} href="/register">Tạo workspace dùng thử</Link>,
-      duration: false,
-      role: "alert",
-      showProgress: false,
-    });
-  }
-
-  return (
-    <>
-      {notificationContext}
-      <div className={interactionStyles.contactCard}>
-        <Alert
-          id="contact-channel-status"
-          className={interactionStyles.contactAlert}
-          type="warning"
-          showIcon
-          title="Kênh tiếp nhận đang được cấu hình"
-          description="Biểu mẫu hiện giúp bạn rà soát thông tin cần tư vấn; dữ liệu chưa được gửi hoặc lưu ở phiên bản này."
-        />
-
-        <Form<ContactValues>
-          className={interactionStyles.contactForm}
-          layout="vertical"
-          requiredMark="optional"
-          onFinish={submit}
-          aria-label="Thông tin nhu cầu triển khai DX LMS"
-        >
-          <div className={interactionStyles.contactFields}>
-            <Form.Item
-              label="Họ và tên"
-              name="name"
-              rules={[{ required: true, message: "Vui lòng nhập họ và tên." }]}
-            >
-              <Input prefix={<UserOutlined aria-hidden="true" />} autoComplete="name" placeholder="Nguyễn Minh Anh" />
-            </Form.Item>
-
-            <Form.Item
-              label="Email công việc"
-              name="email"
-              rules={[
-                { required: true, message: "Vui lòng nhập email." },
-                { type: "email", message: "Email chưa đúng định dạng." },
-              ]}
-            >
-              <Input prefix={<MailOutlined aria-hidden="true" />} type="email" autoComplete="email" placeholder="minhanh@trungtam.edu.vn" />
-            </Form.Item>
-
-            <Form.Item
-              label="Tổ chức / trung tâm"
-              name="organization"
-              rules={[{ required: true, message: "Vui lòng nhập tên tổ chức." }]}
-            >
-              <Input prefix={<ApartmentOutlined aria-hidden="true" />} autoComplete="organization" placeholder="Tên tổ chức của bạn" />
-            </Form.Item>
-
-            <Form.Item label="Số điện thoại (không bắt buộc)" name="phone">
-              <Input type="tel" autoComplete="tel" placeholder="090 000 0000" />
-            </Form.Item>
-
-            <Form.Item
-              label="Vai trò của bạn"
-              name="role"
-              rules={[{ required: true, message: "Vui lòng chọn vai trò." }]}
-            >
-              <Select
-                placeholder="Chọn vai trò"
-                options={[
-                  { value: "owner", label: "Chủ trung tâm / lãnh đạo" },
-                  { value: "operations", label: "Quản lý vận hành" },
-                  { value: "technology", label: "Phụ trách công nghệ" },
-                  { value: "teacher", label: "Giảng viên" },
-                  { value: "other", label: "Vai trò khác" },
-                ]}
-              />
-            </Form.Item>
-
-            <Form.Item
-              label="Quy mô hiện tại"
-              name="scale"
-              rules={[{ required: true, message: "Vui lòng chọn quy mô." }]}
-            >
-              <Select
-                placeholder="Số học viên đang hoạt động"
-                options={[
-                  { value: "under-100", label: "Dưới 100 học viên" },
-                  { value: "100-500", label: "100–500 học viên" },
-                  { value: "501-2000", label: "501–2.000 học viên" },
-                  { value: "over-2000", label: "Trên 2.000 học viên" },
-                ]}
-              />
-            </Form.Item>
-
-            <Form.Item
-              className={interactionStyles.fullWidth}
-              label="Nhu cầu chính"
-              name="topic"
-              rules={[{ required: true, message: "Vui lòng chọn nhu cầu." }]}
-            >
-              <Select
-                placeholder="Chọn nội dung cần trao đổi"
-                options={[
-                  { value: "trial", label: "Thiết lập workspace dùng thử" },
-                  { value: "implementation", label: "Tư vấn triển khai" },
-                  { value: "pricing", label: "Tư vấn gói dịch vụ" },
-                  { value: "migration", label: "Chuyển đổi dữ liệu" },
-                  { value: "integration", label: "Tích hợp hệ thống" },
-                ]}
-              />
-            </Form.Item>
-
-            <Form.Item
-              className={interactionStyles.fullWidth}
-              label="Mô tả nhu cầu"
-              name="message"
-              rules={[
-                { required: true, message: "Vui lòng mô tả nhu cầu." },
-                { min: 20, message: "Hãy mô tả ít nhất 20 ký tự để chúng tôi hiểu đúng nhu cầu." },
-              ]}
-            >
-              <Input.TextArea
-                autoSize={{ minRows: 4, maxRows: 8 }}
-                maxLength={1000}
-                showCount
-                placeholder="Số chi nhánh, quy trình đang dùng và các mô-đun bạn muốn ưu tiên..."
-              />
-            </Form.Item>
-          </div>
-
-          <div className={interactionStyles.contactActions}>
-            <span><SafetyCertificateOutlined aria-hidden="true" /> Dữ liệu chưa được lưu hoặc truyền đi ở phiên bản này.</span>
-            <Button
-              type="primary"
-              htmlType="submit"
-              size="large"
-              icon={<ArrowRightOutlined />}
-              iconPosition="end"
-              aria-describedby="contact-channel-status"
-            >
-              Kiểm tra yêu cầu
-            </Button>
-          </div>
-        </Form>
-      </div>
-    </>
-  );
-}
+export { ContactDraft as ContactForm } from "./contact-draft";

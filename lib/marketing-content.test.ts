@@ -18,14 +18,11 @@ import {
 describe("static marketing content", () => {
   it("defines real navigation and footer destinations", () => {
     expect(marketingNavigation.items.map((item) => item.href)).toEqual([
-      "/",
       "/features",
-      "/about-us",
       "/pricing",
       "/blog",
     ]);
-    expect(marketingNavigation.primaryCta.href).toBe("/register");
-    expect(marketingNavigation.secondaryCta.href).toBe("/login");
+    expect(marketingNavigation.entryCta).toEqual({ href: "/dashboard", label: "Vào LMS" });
 
     const footerLinks: Array<{ href: string; label: string }> = [];
     for (const group of marketingFooterContent.groups) {
@@ -88,37 +85,72 @@ describe("static marketing content", () => {
     );
   });
 
-  it("offers exactly trial, Center, and Enterprise without invented prices", () => {
+  it("publishes the approved trial, Center, Business, and Enterprise pricing", () => {
     expect(marketingPricingTiers.map((tier) => tier.id)).toEqual([
       "trial",
       "center",
+      "business",
       "enterprise",
     ]);
     expect(marketingPricingTiers.map((tier) => tier.name)).toEqual([
-      "Dùng thử 14 ngày",
+      "Dùng thử 30 ngày",
       "Center",
+      "Business",
       "Enterprise",
     ]);
     expect(marketingPricingTiers[0]).toMatchObject({
       cta: { href: "/register" },
-      trialDays: 14,
+      priceLabel: "Miễn phí trong 30 ngày",
+      trialDays: 30,
     });
-    expect(
-      marketingPricingTiers
-        .slice(1)
-        .every((tier) => tier.cta.href === "/contact-us"),
-    ).toBe(true);
+    expect(marketingPricingTiers[1].cta).toEqual({
+      href: "/register",
+      label: "Dùng thử gói Center",
+    });
+    expect(marketingPricingTiers[2].cta).toEqual({
+      href: "/register",
+      label: "Dùng thử rồi nâng cấp",
+    });
+    expect(marketingPricingTiers[3]).toMatchObject({
+      cta: {
+        href: "/contact-us",
+        label: "Trao đổi nhu cầu",
+      },
+      description: expect.stringContaining("chưa mở tự phục vụ"),
+      features: expect.arrayContaining([
+        "Hạn mức kích hoạt đồng thời trên 5.000 học viên",
+        "Chưa mở đăng ký và nâng cấp tự phục vụ",
+      ]),
+      priceLabel: "Theo phương án triển khai",
+    });
+    expect(marketingPricingTiers[1]).toMatchObject({
+      priceLabel: "299.000đ / tháng",
+      priceVnd: { monthly: 299000, yearly: 2990000 },
+      features: expect.arrayContaining([
+        "Hạn mức kích hoạt đồng thời 1.000 học viên",
+      ]),
+    });
+    expect(marketingPricingTiers[2]).toMatchObject({
+      priceLabel: "799.000đ / tháng",
+      priceVnd: { monthly: 799000, yearly: 7990000 },
+      features: expect.arrayContaining([
+        "Hạn mức kích hoạt đồng thời 5.000 học viên",
+      ]),
+    });
+    expect(marketingPricingTiers[3].audience).toContain("trên 5.000");
+    expect(marketingPricingTiers.filter((tier) => tier.id !== "enterprise").every((tier) => tier.cta.href === "/register")).toBe(true);
 
     const pricingCopy = JSON.stringify(marketingPricingTiers);
-    expect(pricingCopy).not.toMatch(
-      /(?:₫|\bVND\b|\$|\d[\d.,]*\s*đ(?:ồng)?\b)/i,
-    );
+    expect(pricingCopy).not.toMatch(/MANA|API|tên miền tùy chỉnh/i);
   });
 
-  it("answers seven distinct product and trial questions", () => {
-    expect(marketingFaqItems).toHaveLength(7);
-    expect(new Set(marketingFaqItems.map((item) => item.id)).size).toBe(7);
-    expect(marketingFaqItems[0].answer).toContain("14 ngày");
+  it("answers eight distinct product, trial, and quota questions", () => {
+    expect(marketingFaqItems).toHaveLength(8);
+    expect(new Set(marketingFaqItems.map((item) => item.id)).size).toBe(8);
+    expect(marketingFaqItems[0].answer).toContain("Workspace mới được kích hoạt dùng thử 30 ngày");
+    expect(marketingFaqItems.find((item) => item.id === "active-learners")?.answer).toMatch(
+      /ACTIVE.*LEARNER.*không phải số lượt đăng nhập/i,
+    );
     expect(
       marketingFaqItems.some((item) => item.answer.includes("chỉ đọc")),
     ).toBe(true);
@@ -135,9 +167,9 @@ describe("static marketing content", () => {
     );
     expect(new Set(marketingBlogPosts.map((post) => post.slug)).size).toBe(10);
     expect(marketingBlogPosts.map((post) => post.hero)).toEqual([
-      "/marketing/blog/maximize-potential.webp",
-      "/marketing/blog/evolution-learning.webp",
-      "/marketing/blog/smart-features.webp",
+      "/marketing/blog/learning-path-v2.webp",
+      "/marketing/blog/blended-class-v2.webp",
+      "/marketing/blog/teaching-workflow-v2.webp",
       "/marketing/blog/trends-insights.webp",
       "/marketing/blog/short-lessons.webp",
       "/marketing/blog/learning-on-the-go.webp",

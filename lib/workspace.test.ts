@@ -58,7 +58,10 @@ describe("tenant workspace configuration", () => {
     expect(settings).toContain("primaryColor: DEFAULT_PRIMARY_COLOR");
     expect(settings).toContain("organizationInitial(previewName ?? organization?.name)");
     expect(tenants).toContain("primaryColor: DEFAULT_PRIMARY_COLOR");
-    expect(shell).toContain("organizationInitial(organization?.name)");
+    expect(shell).toContain('className="sider-tenant-avatar"');
+    expect(shell).toContain('data-workspace-identity={user.role === "SUPER_ADMIN" ? "platform" : "organization"}');
+    expect(shell).toContain('src={organization?.logoUrl || undefined}');
+    expect(shell).not.toContain("organizationInitial(organization?.name)");
     expect(shell).not.toContain("#5B5BD6");
   });
 });

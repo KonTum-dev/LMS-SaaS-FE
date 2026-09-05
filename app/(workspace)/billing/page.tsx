@@ -1,4 +1,10 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsMessages } from "@/lib/i18n/operations-messages";
+import { useMemo as useI18nMemo } from "react";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
 
 import {
   CheckOutlined,
@@ -9,13 +15,14 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
-  App,
   Button,
   Card,
   Col,
   Empty,
+  Input,
   Row,
   Segmented,
+  Select,
   Space,
   Table,
   Tag,
@@ -24,8 +31,13 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
+import { listPageCount } from "@/lib/list-controls";
 import { useAuth } from "@/components/providers/app-providers";
-import { billingApi, submitCheckoutForm } from "@/lib/api";
+import {
+  billingApi,
+  submitCheckoutForm,
+  type TenantOrdersQuery,
+} from "@/lib/api";
 import {
   formatEntitlementLimit,
   getSubscriptionAccessPresentation,
@@ -34,50 +46,49 @@ import {
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
 import type { BillingCycle, BillingPlan, PaymentOrder } from "@/lib/types";
 import { getBillingStatusPresentation } from "./billing-state";
-
-const money = new Intl.NumberFormat("vi-VN", {
-  currency: "VND",
-  maximumFractionDigits: 0,
-  style: "currency",
-});
-const date = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-const orderTypeLabel: Record<PaymentOrder["type"], string> = {
-  NEW: "Đăng ký mới",
-  RENEWAL: "Gia hạn",
-  UPGRADE: "Nâng gói",
-};
-
-function entityId(
-  value: string | { _id: string } | null | undefined,
-): string | null {
-  if (!value) return null;
-  return typeof value === "string" ? value : value._id;
-}
+import styles from "./billing-layout.module.css";
 
 function BillingOnboardingNotice() {
+  const { t } = useOperationsCopy();
   const searchParams = useSearchParams();
   if (searchParams.get("onboarding") !== "1") return null;
   return (
     <Alert
       className="billing-notice"
-      description="Kỳ dùng thử đã được gắn với workspace này. Bạn có thể tiếp tục dùng thử hoặc chọn một gói bên dưới; hệ thống chỉ tạo đơn khi bạn xác nhận thanh toán."
+      description={t(
+        "Kỳ dùng thử đã được gắn với workspace này. Bạn có thể tiếp tục dùng thử hoặc chọn một gói bên dưới; hệ thống chỉ tạo đơn khi bạn xác nhận thanh toán.",
+      )}
       showIcon
-      title="Workspace đã sẵn sàng"
+      title={t("Workspace đã sẵn sàng")}
       type="success"
     />
   );
 }
 
 export default function BillingPage() {
-  const { message, modal } = App.useApp();
+  const {
+    t,
+    money,
+    date,
+    orderTypeLabel,
+    entityId,
+    lmsModuleLabels,
+    getSubscriptionAccessPresentation,
+    getBillingStatusPresentation,
+    formatEntitlementLimit,
+    locale,
+  } = useOperationsCopy();
+  const { message, modal, reportError } = useFeedback();
   const router = useRouter();
   const { effectiveAccess, organization, token, updateEffectiveAccess, user } =
     useAuth();
   const queryClient = useQueryClient();
   const [cycle, setCycle] = useState<BillingCycle>("MONTHLY");
+  const [historyQuery, setHistoryQuery] = useState<TenantOrdersQuery>({
+    page: 1,
+    limit: 20,
+  });
+  const [historySearch, setHistorySearch] = useState("");
   const checkoutAttempt = useRef<{
     fingerprint: string;
     idempotencyKey: string;
@@ -110,6 +121,28 @@ export default function BillingPage() {
       ? lmsQueryKeys.billingOrders(scope)
       : [...billingKey, "orders"],
   });
+  // History filters must not hide the pending order used by checkout controls.
+  const history = useQuery({
+    enabled,
+    queryFn: ({ signal }) =>
+      billingApi.listOrdersDirectory({ token }, historyQuery, { signal }),
+    queryKey: [
+      ...(scope
+        ? lmsQueryKeys.billingOrders(scope)
+        : [...billingKey, "orders"]),
+      "directory",
+      historyQuery,
+    ],
+  });
+  useEffect(() => {
+    if (history.isFetching || !history.data) return;
+    const lastPage = listPageCount(history.data.total, historyQuery.limit);
+    if (historyQuery.page > lastPage) {
+      // Synchronize pagination with the completed server query after records disappear.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHistoryQuery((current) => ({ ...current, page: lastPage }));
+    }
+  }, [history.data, history.isFetching, historyQuery.limit, historyQuery.page]);
 
   const refresh = async () =>
     queryClient.invalidateQueries({ queryKey: billingKey });
@@ -120,11 +153,7 @@ export default function BillingPage() {
       planId: string;
     }) => billingApi.createCheckout({ token }, input),
     onError: (error) => {
-      message.error(
-        error instanceof Error
-          ? error.message
-          : "Không thể tạo yêu cầu thanh toán",
-      );
+      reportError(error, "Không thể tạo yêu cầu thanh toán");
     },
     onSuccess: async (response) => {
       if (response.order.status !== "PENDING") {
@@ -148,12 +177,7 @@ export default function BillingPage() {
   const simulate = useMutation({
     mutationFn: ({ id, result }: { id: string; result: "PAID" | "CANCELED" }) =>
       billingApi.simulate({ token }, id, result),
-    onError: (error) =>
-      message.error(
-        error instanceof Error
-          ? error.message
-          : "Không thể mô phỏng thanh toán",
-      ),
+    onError: (error) => reportError(error, "Không thể mô phỏng thanh toán"),
     onSuccess: async (order) => {
       message.success(
         order.status === "PAID"
@@ -167,10 +191,7 @@ export default function BillingPage() {
   const scheduleDowngrade = useMutation({
     mutationFn: (planId: string) =>
       billingApi.scheduleDowngrade({ token }, planId),
-    onError: (error) =>
-      message.error(
-        error instanceof Error ? error.message : "Không thể hẹn hạ gói",
-      ),
+    onError: (error) => reportError(error, "Không thể hẹn hạ gói"),
     onSuccess: async () => {
       message.success("Đã hẹn hạ gói; gói hiện tại vẫn giữ nguyên đến hết kỳ");
       await refresh();
@@ -178,10 +199,7 @@ export default function BillingPage() {
   });
   const cancelDowngrade = useMutation({
     mutationFn: () => billingApi.cancelScheduledDowngrade({ token }),
-    onError: (error) =>
-      message.error(
-        error instanceof Error ? error.message : "Không thể hủy lịch hạ gói",
-      ),
+    onError: (error) => reportError(error, "Không thể hủy lịch hạ gói"),
     onSuccess: async () => {
       message.success("Đã hủy lịch hạ gói");
       await refresh();
@@ -224,12 +242,13 @@ export default function BillingPage() {
 
   const confirmDowngrade = (plan: BillingPlan) => {
     modal.confirm({
-      cancelText: "Hủy",
-      content:
+      cancelText: t("Hủy"),
+      content: t(
         "Gói hiện tại và ngày hết hạn không thay đổi. Không phát sinh thanh toán hay hoàn tiền.",
-      okText: "Hẹn hạ gói",
+      ),
+      okText: t("Hẹn hạ gói"),
       onOk: () => scheduleDowngrade.mutateAsync(plan._id),
-      title: `Lưu lựa chọn hạ xuống gói ${plan.name}?`,
+      title: t("Lưu lựa chọn hạ xuống gói {value0}?", { value0: plan.name }),
     });
   };
 
@@ -240,7 +259,7 @@ export default function BillingPage() {
       render: (value: string) => (
         <Typography.Text copyable>{value}</Typography.Text>
       ),
-      title: "Hóa đơn",
+      title: t("Hóa đơn"),
     },
     {
       key: "plan",
@@ -250,18 +269,18 @@ export default function BillingPage() {
           <div className="table-muted">
             {orderTypeLabel[order.type]} ·{" "}
             {order.planSnapshot.billingCycle === "MONTHLY"
-              ? "Theo tháng"
-              : "Theo năm"}
+              ? t("Theo tháng")
+              : t("Theo năm")}
           </div>
         </div>
       ),
-      title: "Gói",
+      title: t("Gói"),
     },
     {
       dataIndex: "amountVnd",
       key: "amount",
       render: (value: number) => money.format(value),
-      title: "Số tiền",
+      title: t("Số tiền"),
     },
     {
       dataIndex: "status",
@@ -270,14 +289,14 @@ export default function BillingPage() {
         const state = getBillingStatusPresentation(value);
         return <Tag color={state.color}>{state.label}</Tag>;
       },
-      title: "Trạng thái",
+      title: t("Trạng thái"),
     },
     {
       dataIndex: "createdAt",
       key: "created",
       render: (value?: string) => (value ? date.format(new Date(value)) : "—"),
       responsive: ["md"],
-      title: "Tạo lúc",
+      title: t("Tạo lúc"),
     },
     {
       key: "actions",
@@ -288,7 +307,7 @@ export default function BillingPage() {
             onClick={() => router.push(`/billing/status/${order._id}`)}
             size="small"
           >
-            Chi tiết
+            {t("Chi tiết")}{" "}
           </Button>
           {process.env.NEXT_PUBLIC_ENABLE_BILLING_SIMULATOR === "true" &&
             order.provider === "MOCK" &&
@@ -302,7 +321,7 @@ export default function BillingPage() {
                   }
                   size="small"
                 >
-                  Mô phỏng hủy
+                  {t("Mô phỏng hủy")}{" "}
                 </Button>
                 <Button
                   loading={simulate.isPending}
@@ -312,13 +331,13 @@ export default function BillingPage() {
                   size="small"
                   type="primary"
                 >
-                  Mô phỏng đã thanh toán
+                  {t("Mô phỏng đã thanh toán")}{" "}
                 </Button>
               </>
             )}
         </Space>
       ),
-      title: "Thao tác",
+      title: t("Thao tác"),
     },
   ];
 
@@ -326,7 +345,7 @@ export default function BillingPage() {
     return (
       <Alert
         showIcon
-        title="Chỉ quản trị tổ chức được truy cập thanh toán thuê bao."
+        title={t("Chỉ quản trị tổ chức được truy cập thanh toán thuê bao.")}
         type="warning"
       />
     );
@@ -359,6 +378,12 @@ export default function BillingPage() {
   const currentMaxCourses = currentAccess
     ? currentAccess.limits.maxCourses
     : (current?.entitlements.maxCourses ?? null);
+  const currentMaxActiveLearners = currentAccess
+    ? currentAccess.limits.maxActiveLearners
+    : (current?.entitlements.maxActiveLearners ?? null);
+  const currentMaxBranches = currentAccess
+    ? currentAccess.limits.maxBranches
+    : (current?.entitlements.maxBranches ?? null);
   const accessPresentation = currentAccess
     ? getSubscriptionAccessPresentation(currentAccess.state)
     : null;
@@ -368,17 +393,18 @@ export default function BillingPage() {
     <div className="page-shell">
       <div className="page-heading">
         <div>
-          <h1>Thuê bao DX LMS</h1>
+          <h1>{t("Thuê bao DX LMS")}</h1>
           <p>
-            Theo dõi gói hiện tại, chọn chu kỳ và điều chỉnh thuê bao theo nhu
-            cầu vận hành.
+            {t(
+              "Theo dõi gói hiện tại, chọn chu kỳ và điều chỉnh thuê bao theo nhu cầu vận hành.",
+            )}{" "}
           </p>
         </div>
         <Segmented<BillingCycle>
           onChange={setCycle}
           options={[
-            { label: "Theo tháng", value: "MONTHLY" },
-            { label: "Theo năm", value: "YEARLY" },
+            { label: t("Theo tháng"), value: "MONTHLY" },
+            { label: t("Theo năm"), value: "YEARLY" },
           ]}
           value={cycle}
         />
@@ -392,8 +418,12 @@ export default function BillingPage() {
           showIcon
           title={
             error instanceof Error
-              ? error.message
-              : "Không tải được dữ liệu thuê bao"
+              ? describeOperationsError(
+                  error,
+                  locale,
+                  t("Không tải được dữ liệu thuê bao"),
+                )
+              : t("Không tải được dữ liệu thuê bao")
           }
           type="error"
         />
@@ -401,29 +431,38 @@ export default function BillingPage() {
       {!subscription.isLoading && !current && (
         <Alert
           className="billing-notice"
-          description="Chọn một gói bên dưới để cấp module và hạn mức vận hành cho workspace."
+          description={t(
+            "Chọn một gói bên dưới để cấp module và hạn mức vận hành cho workspace.",
+          )}
           showIcon
-          title="Tổ chức chưa có thuê bao"
+          title={t("Tổ chức chưa có thuê bao")}
           type="warning"
         />
       )}
       {current && (
         <section
-          className="billing-current-summary"
-          aria-label="Thuê bao hiện tại"
+          className={`billing-current-summary ${styles.currentSummary}`}
+          aria-label={t("Thuê bao hiện tại")}
         >
           <div>
-            <span>Gói hiện tại</span>
+            <span>{t("Gói hiện tại")}</span>
             <strong>{currentPlanName}</strong>
             <p>
-              {isTrial ? "Dùng thử miễn phí đến" : "Hiệu lực đến"}{" "}
+              {isTrial ? t("Dùng thử miễn phí đến") : t("Hiệu lực đến")}{" "}
               {date.format(new Date(trialEnd ?? current.endAt))} ·{" "}
               {money.format(current.currentPriceVnd)}/
-              {current.billingCycle === "MONTHLY" ? "tháng" : "năm"}
+              {current.billingCycle === "MONTHLY" ? t("tháng") : t("năm")}
             </p>
             <p>
               {formatEntitlementLimit(currentMaxUsers, "users")} ·{" "}
               {formatEntitlementLimit(currentMaxCourses, "courses")}
+            </p>
+            <p>
+              {formatEntitlementLimit(
+                currentMaxActiveLearners,
+                "activeLearners",
+              )}{" "}
+              · {formatEntitlementLimit(currentMaxBranches, "branches")}
             </p>
             <Space size={[4, 4]} wrap>
               {currentModules.map((module) => (
@@ -432,7 +471,7 @@ export default function BillingPage() {
             </Space>
           </div>
           <Space wrap>
-            {isTrial && <Tag color="cyan">Dùng thử miễn phí</Tag>}
+            {isTrial && <Tag color="cyan">{t("Dùng thử miễn phí")}</Tag>}
             {accessPresentation && (
               <Tag color={accessPresentation.color}>
                 {accessPresentation.label}
@@ -444,27 +483,44 @@ export default function BillingPage() {
       {isTrial && current && trialEnd && (
         <Alert
           className="billing-notice"
-          description={`Workspace đang dùng các quyền hiện được cấp theo gói ${currentPlanName}. Chọn gói bên dưới để chuyển sang thuê bao trả phí trước ngày ${date.format(new Date(trialEnd))}.`}
+          description={t(
+            "Workspace đang dùng các quyền hiện được cấp theo gói {value0}. Chọn gói bên dưới để chuyển sang thuê bao trả phí trước ngày {value1}.",
+            {
+              value0: currentPlanName ?? "—",
+              value1: date.format(new Date(trialEnd)),
+            },
+          )}
           showIcon
-          title="Bạn đang dùng thử miễn phí"
+          title={t("Bạn đang dùng thử miễn phí")}
           type="info"
         />
       )}
       {currentAccess?.state === "GRACE" && (
         <Alert
           className="billing-notice"
-          description={`Workspace vẫn có quyền ghi${currentAccess.graceEndsAt ? ` đến ${date.format(new Date(currentAccess.graceEndsAt))}` : " trong thời gian gia hạn"}. Gia hạn để tránh chuyển sang chỉ đọc.`}
+          description={t(
+            "Workspace vẫn có quyền ghi{value0}. Gia hạn để tránh chuyển sang chỉ đọc.",
+            {
+              value0: currentAccess.graceEndsAt
+                ? t(" đến {value0}", {
+                    value0: date.format(new Date(currentAccess.graceEndsAt)),
+                  })
+                : t(" trong thời gian gia hạn"),
+            },
+          )}
           showIcon
-          title="Thuê bao đang trong thời gian gia hạn"
+          title={t("Thuê bao đang trong thời gian gia hạn")}
           type="warning"
         />
       )}
       {currentAccess?.state === "READ_ONLY" && (
         <Alert
           className="billing-notice"
-          description="Dữ liệu vẫn xem được, nhưng các thao tác tạo, sửa và xóa sẽ chỉ mở lại sau khi thuê bao được gia hạn."
+          description={t(
+            "Dữ liệu vẫn xem được, nhưng các thao tác tạo, sửa và xóa sẽ chỉ mở lại sau khi thuê bao được gia hạn.",
+          )}
           showIcon
-          title="Workspace đang ở chế độ chỉ đọc"
+          title={t("Workspace đang ở chế độ chỉ đọc")}
           type="error"
         />
       )}
@@ -475,13 +531,17 @@ export default function BillingPage() {
               loading={cancelDowngrade.isPending}
               onClick={() => cancelDowngrade.mutate()}
             >
-              Hủy lựa chọn
+              {t("Hủy lựa chọn")}{" "}
             </Button>
           }
           className="billing-notice"
-          description="Quyền hiện tại không thay đổi. Gói mới sẽ được dùng khi bạn chủ động gia hạn."
+          description={t(
+            "Quyền hiện tại không thay đổi. Gói mới sẽ được dùng khi bạn chủ động gia hạn.",
+          )}
           showIcon
-          title={`Lựa chọn hạ gói đã lưu: ${scheduledPlanName}`}
+          title={t("Lựa chọn hạ gói đã lưu: {value0}", {
+            value0: scheduledPlanName ?? "—",
+          })}
           type="info"
         />
       )}
@@ -491,13 +551,17 @@ export default function BillingPage() {
             <Button
               onClick={() => router.push(`/billing/status/${pendingOrder._id}`)}
             >
-              Theo dõi thanh toán
+              {t("Theo dõi thanh toán")}{" "}
             </Button>
           }
           className="billing-notice"
-          description={`Yêu cầu sẽ hết hạn lúc ${date.format(new Date(pendingOrder.expiresAt))}.`}
+          description={t("Yêu cầu sẽ hết hạn lúc {value0}.", {
+            value0: date.format(new Date(pendingOrder.expiresAt)),
+          })}
           showIcon
-          title={`Thanh toán đang chờ: ${pendingOrder.invoiceNumber}`}
+          title={t("Thanh toán đang chờ: {value0}", {
+            value0: pendingOrder.invoiceNumber,
+          })}
           type="info"
         />
       )}
@@ -527,38 +591,42 @@ export default function BillingPage() {
           );
           const disabled = crossCycleBlocked || equalTierDifferentPlan;
           const label = isTrial
-            ? "Bắt đầu trả phí"
+            ? t("Bắt đầu trả phí")
             : lowerTier
-              ? "Lưu lựa chọn hạ gói"
+              ? t("Lưu lựa chọn hạ gói")
               : samePlan
-                ? "Gia hạn"
+                ? t("Gia hạn")
                 : higherTier
-                  ? "Nâng gói"
-                  : "Chọn gói";
+                  ? t("Nâng gói")
+                  : t("Chọn gói");
           return (
             <Col key={plan._id} lg={8} md={12} xs={24}>
               <Card
                 className={`surface-card billing-plan-card ${samePlan ? "billing-plan-card--current" : ""}`}
                 extra={
-                  samePlan ? <Tag color="blue">Đang sử dụng</Tag> : undefined
+                  samePlan ? (
+                    <Tag color="blue">{t("Đang sử dụng")}</Tag>
+                  ) : undefined
                 }
                 title={plan.name}
               >
                 <Typography.Paragraph className="table-muted">
-                  {plan.description || "Gói vận hành LMS theo nhu cầu tổ chức."}
+                  {plan.description ||
+                    t("Gói vận hành LMS theo nhu cầu tổ chức.")}
                 </Typography.Paragraph>
                 <div className="billing-price">
                   {money.format(price)}
-                  <small>/{cycle === "MONTHLY" ? "tháng" : "năm"}</small>
+                  <small>/{cycle === "MONTHLY" ? t("tháng") : t("năm")}</small>
                 </div>
                 {higherTier && !crossCycleBlocked && (
                   <Typography.Text type="secondary">
-                    Chi phí nâng gói được tính theo thời gian còn lại của kỳ
-                    hiện tại.
+                    {t(
+                      "Chi phí nâng gói được tính theo thời gian còn lại của kỳ hiện tại.",
+                    )}{" "}
                   </Typography.Text>
                 )}
                 <Space
-                  aria-label={`Hạn mức gói ${plan.name}`}
+                  aria-label={t("Hạn mức gói {value0}", { value0: plan.name })}
                   className="billing-feature-list"
                   orientation="vertical"
                   size={8}
@@ -582,6 +650,20 @@ export default function BillingPage() {
                       "courses",
                     )}
                   </span>
+                  <span>
+                    <CheckOutlined />{" "}
+                    {formatEntitlementLimit(
+                      plan.entitlements.maxActiveLearners,
+                      "activeLearners",
+                    )}
+                  </span>
+                  <span>
+                    <CheckOutlined />{" "}
+                    {formatEntitlementLimit(
+                      plan.entitlements.maxBranches,
+                      "branches",
+                    )}
+                  </span>
                   {plan.features.map((feature) => (
                     <span key={feature}>
                       <CheckOutlined /> {feature}
@@ -602,12 +684,14 @@ export default function BillingPage() {
                 </Button>
                 {crossCycleBlocked && (
                   <Typography.Text type="secondary">
-                    Bạn có thể đổi chu kỳ khi kỳ hiện tại kết thúc.
+                    {t("Bạn có thể đổi chu kỳ khi kỳ hiện tại kết thúc.")}{" "}
                   </Typography.Text>
                 )}
                 {equalTierDifferentPlan && (
                   <Typography.Text type="secondary">
-                    Gói cùng cấp sẽ khả dụng khi kỳ hiện tại kết thúc.
+                    {t(
+                      "Gói cùng cấp sẽ khả dụng khi kỳ hiện tại kết thúc.",
+                    )}{" "}
                   </Typography.Text>
                 )}
               </Card>
@@ -617,26 +701,213 @@ export default function BillingPage() {
       </Row>
       {!plans.isLoading && !plans.data?.length && (
         <Card className="surface-card">
-          <Empty description="Chưa có gói thuê bao đang mở bán" />
+          <Empty description={t("Chưa có gói thuê bao đang mở bán")} />
         </Card>
       )}
       <Card
         className="surface-card table-surface billing-history-card"
         title={
           <span>
-            <HistoryOutlined /> &nbsp;Lịch sử thanh toán
+            <HistoryOutlined /> {t("Lịch sử thanh toán")}{" "}
           </span>
         }
       >
+        <div className="list-filter-bar">
+          <Input.Search
+            allowClear
+            aria-label={t("Tìm mã hóa đơn")}
+            placeholder={t("Tìm mã hóa đơn")}
+            maxLength={100}
+            value={historySearch}
+            onChange={(event) => {
+              setHistorySearch(event.target.value);
+              if (!event.target.value)
+                setHistoryQuery((current) => ({
+                  ...current,
+                  page: 1,
+                  search: undefined,
+                }));
+            }}
+            onSearch={(value) =>
+              setHistoryQuery((current) => ({
+                ...current,
+                page: 1,
+                search: value.trim() || undefined,
+              }))
+            }
+          />
+          <Select<PaymentOrder["status"]>
+            allowClear
+            aria-label={t("Trạng thái")}
+            placeholder={t("Mọi trạng thái")}
+            value={historyQuery.status}
+            style={{ minWidth: 160 }}
+            onChange={(status) =>
+              setHistoryQuery((current) => ({ ...current, page: 1, status }))
+            }
+            options={(
+              [
+                "PENDING",
+                "PAID",
+                "CANCELED",
+                "EXPIRED",
+                "REVIEW_REQUIRED",
+                "REFUND_REQUIRED",
+              ] as const
+            ).map((value) => ({
+              value,
+              label: getBillingStatusPresentation(value).label,
+            }))}
+          />
+          <Select<PaymentOrder["type"]>
+            allowClear
+            aria-label={t("Loại đơn")}
+            placeholder={t("Mọi loại đơn")}
+            value={historyQuery.type}
+            style={{ minWidth: 160 }}
+            onChange={(type) =>
+              setHistoryQuery((current) => ({ ...current, page: 1, type }))
+            }
+            options={(["NEW", "RENEWAL", "UPGRADE"] as const).map((value) => ({
+              value,
+              label: orderTypeLabel[value],
+            }))}
+          />
+          <Button
+            onClick={() => {
+              setHistorySearch("");
+              setHistoryQuery((current) => ({ page: 1, limit: current.limit }));
+            }}
+          >
+            {t("Xóa bộ lọc")}
+          </Button>
+        </div>
+        {history.error && (
+          <Alert
+            showIcon
+            type="error"
+            title={t("Không thể tải lịch sử thanh toán")}
+            action={
+              <Button onClick={() => void history.refetch()}>
+                {t("Thử lại")}
+              </Button>
+            }
+          />
+        )}
         <Table
+          className="data-table"
           columns={columns}
-          dataSource={orders.data ?? []}
-          loading={orders.isLoading}
-          pagination={{ pageSize: 8 }}
+          dataSource={history.error ? [] : (history.data?.items ?? [])}
+          loading={history.isFetching}
+          pagination={{
+            current: historyQuery.page,
+            pageSize: historyQuery.limit,
+            total: history.data?.total ?? 0,
+            showSizeChanger: { "aria-label": t("Số dòng mỗi trang") },
+            pageSizeOptions: [10, 20, 50, 100],
+            responsive: true,
+            disabled: history.isFetching,
+            onChange: (page, limit) =>
+              setHistoryQuery((current) => ({
+                ...current,
+                page: limit === current.limit ? page : 1,
+                limit,
+              })),
+            showTotal: (total, range) =>
+              t("{p0}–{p1} trên {p2} mục", {
+                p0: range[0],
+                p1: range[1],
+                p2: total,
+              }),
+          }}
           rowKey="_id"
           scroll={{ x: 1050 }}
         />
       </Card>
     </div>
   );
+}
+
+function useOperationsCopy() {
+  const i18n = useI18n(operationsMessages);
+  return useI18nMemo(() => {
+    const { t, locale } = i18n;
+    const money = new Intl.NumberFormat(locale === "en" ? "en-US" : "vi-VN", {
+      currency: "VND",
+      maximumFractionDigits: 0,
+      style: "currency",
+    });
+
+    const date = new Intl.DateTimeFormat(locale === "en" ? "en-US" : "vi-VN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+
+    const orderTypeLabel: Record<PaymentOrder["type"], string> = {
+      NEW: t("Đăng ký mới"),
+      RENEWAL: t("Gia hạn"),
+      UPGRADE: t("Nâng gói"),
+    };
+
+    function entityId(
+      value: string | { _id: string } | null | undefined,
+    ): string | null {
+      if (!value) return null;
+      return typeof value === "string" ? value : value._id;
+    }
+    const translatedLmsModuleLabels = Object.fromEntries(
+      Object.entries(lmsModuleLabels).map(([key, label]) => [key, t(label)]),
+    ) as typeof lmsModuleLabels;
+    const translatedGetSubscriptionAccessPresentation = (
+      state: Parameters<typeof getSubscriptionAccessPresentation>[0],
+    ) => {
+      const presentation = getSubscriptionAccessPresentation(state);
+      return {
+        ...presentation,
+        label: t(presentation.label),
+        description: t(presentation.description),
+      };
+    };
+    const translatedGetBillingStatusPresentation = (
+      state: Parameters<typeof getBillingStatusPresentation>[0],
+    ) => {
+      const presentation = getBillingStatusPresentation(state);
+      return {
+        ...presentation,
+        label: t(presentation.label),
+        description: t(presentation.description),
+      };
+    };
+    const translatedFormatEntitlementLimit = (
+      value: number | null,
+      resource: Parameters<typeof formatEntitlementLimit>[1],
+    ) => {
+      const label = t(
+        {
+          activeLearners: "học viên hoạt động",
+          branches: "chi nhánh hoạt động",
+          courses: "khóa học",
+          users: "người dùng",
+        }[resource],
+      );
+      return value === null
+        ? t("Không giới hạn {resource}", { resource: label })
+        : t("Tối đa {count} {resource}", {
+            count: i18n.formatNumber(value),
+            resource: label,
+          });
+    };
+    return {
+      ...i18n,
+      lmsModuleLabels: translatedLmsModuleLabels,
+      getSubscriptionAccessPresentation:
+        translatedGetSubscriptionAccessPresentation,
+      getBillingStatusPresentation: translatedGetBillingStatusPresentation,
+      formatEntitlementLimit: translatedFormatEntitlementLimit,
+      money,
+      date,
+      orderTypeLabel,
+      entityId,
+    };
+  }, [i18n]);
 }

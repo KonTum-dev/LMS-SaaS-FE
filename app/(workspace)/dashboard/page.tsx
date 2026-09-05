@@ -1,5 +1,10 @@
 "use client";
 
+import { useFeedback } from "@/components/feedback/feedback-provider";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+import { workspacePolishMessages } from "@/lib/i18n/workspace-polish-messages";
+
 import {
   ArrowRightOutlined,
   BookOutlined,
@@ -34,15 +39,10 @@ const statusLabel = {
   PUBLISHED: "Đang mở",
   ARCHIVED: "Đã lưu trữ",
 } as const;
-const roleLabel = {
-  SUPER_ADMIN: "Quản trị nền tảng",
-  TENANT_ADMIN: "Quản trị tổ chức",
-  INSTRUCTOR: "Giảng viên",
-  LEARNER: "Học viên",
-  GUARDIAN: "Phụ huynh",
-} as const;
-
+const dashboardMessages = { ...learningMessages, ...workspacePolishMessages };
 export default function DashboardPage() {
+  const { t, locale } = useI18n(dashboardMessages);
+  const { formatError } = useFeedback();
   const { effectiveAccess, organization, token, user } = useAuth();
   const router = useRouter();
   const scope = getViewerScope(user, organization);
@@ -54,7 +54,7 @@ export default function DashboardPage() {
     queryFn: () => apiFetch<DashboardData>("/dashboard", { token }),
   });
   const data = dashboard.data;
-  const error = dashboard.error instanceof Error ? dashboard.error.message : "";
+  const error = dashboard.isError ? formatError(dashboard.error, "") : "";
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
   const isTenantAdmin = user?.role === "TENANT_ADMIN";
   const isGlobalTenantAdmin =
@@ -77,24 +77,24 @@ export default function DashboardPage() {
   );
   const canOpenCourses = !isSuperAdmin && coursesEnabled;
   const firstName = isSuperAdmin
-    ? "Quản trị viên"
-    : user?.fullName?.trim().split(/\s+/).slice(-1)[0] || "bạn";
+    ? t("Quản trị viên")
+    : user?.fullName?.trim().split(/\s+/).slice(-1)[0] || t("bạn");
   const dashboardDescription = isSuperAdmin
-    ? "Xem nhanh số tổ chức, khóa học và người dùng đang hoạt động."
+    ? t("Theo dõi tổ chức, người dùng và khóa học.")
     : isLearner
-      ? `Nắm nhanh tiến độ học tập tại ${organization?.name ?? "tổ chức của bạn"}.`
+      ? t("Tiếp tục học và theo dõi tiến độ của bạn.")
       : isGuardian
-        ? `Theo dõi học viên và học phí tại ${organization?.name ?? "trung tâm"}.`
-        : `Theo dõi hoạt động đào tạo và những việc cần ưu tiên tại ${organization?.name ?? "tổ chức của bạn"}.`;
+        ? t("Xem tình hình học tập và học phí.")
+        : t("Theo dõi khóa học và hoạt động đào tạo.");
   const needsBillingAction =
     isGlobalTenantAdmin && (!effectiveAccess || readOnly);
   const primaryActionLabel = isSuperAdmin
-    ? "Quản lý tổ chức"
+    ? t("Quản lý tổ chức")
     : needsBillingAction
-      ? "Quản lý thuê bao"
+      ? t("Quản lý thuê bao")
       : isGuardian
-        ? "Xem học phí"
-        : "Quản lý khóa học";
+        ? t("Xem học phí")
+        : t("Quản lý khóa học");
   const primaryActionPath = isSuperAdmin
     ? "/admin/tenants"
     : needsBillingAction
@@ -103,54 +103,46 @@ export default function DashboardPage() {
         ? "/tuition"
         : "/courses";
   const showPrimaryAction = isGuardian
-    ? tuitionEnabled
+    ? false
     : !isLearner &&
-      (isSuperAdmin || needsBillingAction || (coursesEnabled && !readOnly));
+    (isSuperAdmin || needsBillingAction || (coursesEnabled && !readOnly));
   const accessPresentation = effectiveAccess
     ? getSubscriptionAccessPresentation(effectiveAccess.state)
     : null;
   const emptyTitle = isSuperAdmin
-    ? "Chưa có dữ liệu khóa học gần đây"
+    ? t("Chưa có khóa học gần đây")
     : !coursesEnabled
-      ? "Tính năng khóa học đang tạm tắt"
+      ? t("Tính năng khóa học đang tạm tắt")
       : isLearner
-        ? "Bạn chưa có khóa học nào"
-        : "Chưa có khóa học để bắt đầu";
+        ? t("Bạn chưa có khóa học nào")
+        : t("Chưa có khóa học");
   const emptyDescription = isSuperAdmin
-    ? "Dữ liệu sẽ xuất hiện khi các tổ chức bắt đầu vận hành khóa học."
+    ? t("Khóa học sẽ xuất hiện khi tổ chức bắt đầu sử dụng.")
     : !coursesEnabled
-      ? "Quyền module được xác định bởi gói thuê bao và cấu hình của quản trị nền tảng."
+      ? t("Liên hệ quản trị viên để bật tính năng khóa học.")
       : isLearner
-        ? "Các khóa học được ghi danh sẽ xuất hiện tại đây để bạn tiếp tục học nhanh hơn."
-        : "Tạo khóa học đầu tiên để xây dựng nội dung và ghi danh học viên.";
+        ? t("Khóa học sẽ xuất hiện khi bạn được ghi danh.")
+        : t("Tạo khóa học để bắt đầu.");
   const emptyActionLabel = isSuperAdmin
-    ? "Đến trang tổ chức"
+    ? t("Đến trang tổ chức")
     : isLearner
-      ? "Xem khóa học của tôi"
-      : "Đi tới quản lý khóa học";
+      ? t("Xem khóa học của tôi")
+      : t("Đi tới quản lý khóa học");
 
   return (
     <main className="dashboard-page page-shell">
       <header className="dashboard-header page-heading">
         <div className="dashboard-header__copy">
-          <span className="dashboard-header__eyebrow">Tổng quan hôm nay</span>
-          <h1 className="dashboard-header__title">Xin chào, {firstName}</h1>
+          <h1 className="dashboard-header__title">{t("Xin chào,")} {firstName}</h1>
           <p className="dashboard-header__description">
             {dashboardDescription}
           </p>
         </div>
 
         <div className="dashboard-header__actions">
-          {user?.role && (
-            <Tag className="dashboard-header__role">
-              {isTenantAdmin && !isGlobalTenantAdmin
-                ? "Quản lý đơn vị"
-                : roleLabel[user.role]}
-            </Tag>
-          )}
           {accessPresentation && (
             <Tag color={accessPresentation.color}>
-              {accessPresentation.label}
+              {t(accessPresentation.label)}
             </Tag>
           )}
           {showPrimaryAction && (
@@ -178,6 +170,7 @@ export default function DashboardPage() {
 
       {error && (
         <Alert
+          action={<Button loading={dashboard.isFetching} onClick={() => void dashboard.refetch({ cancelRefetch: false })}>{t("Thử lại")}</Button>}
           className="dashboard-alert"
           showIcon
           title={error}
@@ -188,17 +181,17 @@ export default function DashboardPage() {
         <Alert
           action={
             isGlobalTenantAdmin ? (
-              <Button onClick={() => router.push("/billing")}>Chọn gói</Button>
+              <Button onClick={() => router.push("/billing")}>{t("Chọn gói")}</Button>
             ) : undefined
           }
           className="dashboard-alert"
           description={
             isGlobalTenantAdmin
-              ? "Chọn một gói để cấp module và hạn mức cho workspace."
-              : "Liên hệ quản trị tổ chức để kích hoạt gói dịch vụ."
+              ? t("Chọn một gói để cấp module và hạn mức cho workspace.")
+              : t("Liên hệ quản trị tổ chức để kích hoạt gói dịch vụ.")
           }
           showIcon
-          title="Workspace chưa có thuê bao"
+          title={t("Workspace chưa có thuê bao")}
           type="warning"
         />
       )}
@@ -206,7 +199,7 @@ export default function DashboardPage() {
       {!data && !error ? (
         <div
           className="dashboard-loading"
-          aria-label="Đang tải tổng quan"
+          aria-label={t("Đang tải tổng quan")}
           aria-live="polite"
           role="status"
         >
@@ -215,34 +208,25 @@ export default function DashboardPage() {
       ) : (
         data && (
           <div className="dashboard-content">
-            <section className="dashboard-stats" aria-label="Chỉ số tổng quan">
-              <Row gutter={[18, 18]}>
-                {data.stats.map((stat, index) => (
+            <section className="dashboard-stats" aria-label={t("Chỉ số tổng quan")}>
+              <Row gutter={[24, 24]}>
+                {data.stats.map((stat) => (
                   <Col
                     className="dashboard-stat-column"
                     key={stat.key}
-                    lg={6}
+                    xl={6}
                     md={12}
                     sm={12}
-                    xs={24}
+                    xs={stat.suffix === "đ" || stat.suffix === "VND" ? 24 : 12}
                   >
                     <Card className="dashboard-stat-tile surface-card stat-card">
-                      <div
-                        className="dashboard-stat-tile__top"
-                        aria-hidden="true"
-                      >
-                        <span className="dashboard-stat-tile__index">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span className="dashboard-stat-tile__icon">
-                          <RiseOutlined />
-                        </span>
-                      </div>
                       <Statistic
-                        suffix={stat.suffix}
+                        decimalSeparator={locale === "vi" ? "," : "."}
+                        groupSeparator={locale === "vi" ? "." : ","}
+                        suffix={stat.suffix === "đ" && locale === "en" ? "VND" : stat.suffix}
                         title={
                           <span className="dashboard-stat-tile__label">
-                            {stat.label}
+                            {t(stat.label)}
                           </span>
                         }
                         value={stat.value}
@@ -261,9 +245,7 @@ export default function DashboardPage() {
                 <Card
                   className="dashboard-courses surface-card"
                   title={
-                    <span id="dashboard-guardian-shortcuts">
-                      Khu vực phụ huynh
-                    </span>
+                    <span id="dashboard-guardian-shortcuts">{t("Khu vực phụ huynh")}</span>
                   }
                 >
                   <Row gutter={[12, 12]}>
@@ -272,11 +254,9 @@ export default function DashboardPage() {
                         block
                         disabled={!guardiansEnabled}
                         icon={<TeamOutlined />}
-                        onClick={() => router.push("/guardians")}
+                        onClick={() => router.push("/family")}
                         size="large"
-                      >
-                        Xem học viên được liên kết
-                      </Button>
+                      >{t("Xem học viên được liên kết")}</Button>
                     </Col>
                     <Col md={12} xs={24}>
                       <Button
@@ -285,9 +265,7 @@ export default function DashboardPage() {
                         icon={<WalletOutlined />}
                         onClick={() => router.push("/tuition")}
                         size="large"
-                      >
-                        Theo dõi học phí
-                      </Button>
+                      >{t("Theo dõi học phí")}</Button>
                     </Col>
                   </Row>
                 </Card>
@@ -305,44 +283,22 @@ export default function DashboardPage() {
                         className="dashboard-courses__action"
                         onClick={() => router.push("/courses")}
                         type="link"
-                      >
-                        Xem tất cả <ArrowRightOutlined />
+                      >{t("Xem tất cả")} <ArrowRightOutlined />
                       </Button>
                     )
                   }
                   title={
-                    <div className="dashboard-courses__title">
-                      <span
-                        className="dashboard-courses__title-icon"
-                        aria-hidden="true"
-                      >
-                        <BookOutlined />
-                      </span>
-                      <span>
-                        <span className="dashboard-courses__eyebrow">
-                          Tiếp tục công việc
-                        </span>
-                        <span
-                          className="dashboard-courses__heading"
-                          id="dashboard-recent-courses"
-                        >
-                          Khóa học gần đây
-                        </span>
-                      </span>
-                    </div>
+                    <span
+                      className="dashboard-courses__heading"
+                      id="dashboard-recent-courses"
+                    >{t("Khóa học gần đây")}</span>
                   }
                 >
                   {data.recentCourses.length ? (
                     <ul className="dashboard-course-list">
-                      {data.recentCourses.map((course, index) => {
+                      {data.recentCourses.map((course) => {
                         const content = (
                           <>
-                            <span
-                              className="dashboard-course-item__avatar"
-                              aria-hidden="true"
-                            >
-                              {String(index + 1).padStart(2, "0")}
-                            </span>
                             <span className="dashboard-course-item__body">
                               <span className="dashboard-course-item__title">
                                 <span>{course.title}</span>
@@ -353,12 +309,7 @@ export default function DashboardPage() {
                                   />
                                 )}
                               </span>
-                              <span className="dashboard-course-item__description">
-                                <span>
-                                  {course.description ||
-                                    "Khóa học chưa có mô tả."}
-                                </span>
-                              </span>
+                              {course.description && <span className="dashboard-course-item__description"><span>{course.description}</span></span>}
                             </span>
                             <Tag
                               className={`dashboard-course-item__status dashboard-course-item__status--${course.status.toLowerCase()}`}
@@ -370,7 +321,7 @@ export default function DashboardPage() {
                                     : "default"
                               }
                             >
-                              {statusLabel[course.status]}
+                              {t(statusLabel[course.status])}
                             </Tag>
                           </>
                         );
@@ -382,7 +333,7 @@ export default function DashboardPage() {
                           >
                             {canOpenCourses ? (
                               <Link
-                                aria-label={`Mở khóa học ${course.title}`}
+                                aria-label={t("Mở khóa học {p0}", { p0: course.title })}
                                 className="dashboard-course-item dashboard-course-item--clickable"
                                 href={`/courses/${course._id}`}
                               >
@@ -412,7 +363,7 @@ export default function DashboardPage() {
                       }
                       image={Empty.PRESENTED_IMAGE_SIMPLE}
                     >
-                      {(isSuperAdmin || canOpenCourses) && (
+                      {!showPrimaryAction && (isSuperAdmin || canOpenCourses) && (
                         <Button
                           className="dashboard-empty__action"
                           onClick={() => router.push(primaryActionPath)}

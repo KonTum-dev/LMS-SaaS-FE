@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import AccountSecurityPage from "./page";
+import { FeedbackLanguageSwitcher, FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 
 const mocks = vi.hoisted(() => ({
   changePassword: vi.fn(),
@@ -15,6 +16,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
 vi.mock("@/components/providers/app-providers", () => ({
   useAuth: () => ({ logout: mocks.logout, token: "session-token" }),
+}));
+vi.mock("@/components/account-security/google-sign-in-method-card", () => ({
+  GoogleSignInMethodCard: () => (
+    <section aria-label="Phương thức đăng nhập">Liên kết đăng nhập Google</section>
+  ),
 }));
 vi.mock("@/lib/account-security-api", () => ({
   accountSecurityApi: { changePassword: mocks.changePassword },
@@ -59,6 +65,29 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AccountSecurityPage", () => {
+  it("shows Google sign-in methods separately from password changes", () => {
+    renderPage();
+
+    expect(screen.getByLabelText("Phương thức đăng nhập")).toBeTruthy();
+    expect(screen.getByText("Liên kết đăng nhập Google")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Đổi mật khẩu" })).toBeTruthy();
+  });
+
+  it("keeps structured password errors localized and preserves the entered passwords", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+    const diagnostic = "Private authentication stack: credential=not-a-real-secret";
+    mocks.changePassword.mockRejectedValue(new ApiError(diagnostic, 403, "CURRENT_PASSWORD_INVALID"));
+    render(<FeedbackLocaleProvider><FeedbackLanguageSwitcher /><AccountSecurityPage /></FeedbackLocaleProvider>);
+    await submitChange();
+    expect((await screen.findByRole("alert")).textContent).toContain("Mật khẩu hiện tại chưa chính xác");
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(screen.getByRole("alert").textContent).toContain("Your current password is incorrect.");
+    expect(screen.queryByText(diagnostic)).toBeNull();
+    expect((screen.getByLabelText("Current password") as HTMLInputElement).value).toBe("CurrentPassword123");
+    expect(mocks.logout).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("đổi mật khẩu bằng token phiên rồi logout trước khi về login", async () => {
     const { queryClient } = renderPage();
     await submitChange();
@@ -80,7 +109,7 @@ describe("AccountSecurityPage", () => {
     const { queryClient } = renderPage();
     await submitChange();
 
-    expect(await screen.findByText("Mật khẩu hiện tại không đúng")).toBeTruthy();
+    expect(await screen.findByText("Mật khẩu hiện tại chưa chính xác. Hãy nhập lại; không chia sẻ mật khẩu với người khác.")).toBeTruthy();
     expect(mocks.logout).not.toHaveBeenCalled();
     expect(mocks.replace).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Đổi mật khẩu" })).toBeTruthy();

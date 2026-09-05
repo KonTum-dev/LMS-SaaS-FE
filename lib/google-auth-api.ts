@@ -14,6 +14,8 @@ export interface GoogleLinkStatus {
   linkedAt: string | null;
 }
 
+export type GoogleLoginRecoveryAction = "EMAIL_LOGIN" | "CREATE_WORKSPACE";
+
 interface AuthenticatedContext {
   token: string;
 }
@@ -129,9 +131,12 @@ export function googleAuthErrorMessage(
   if (error instanceof ApiError) {
     switch (error.code) {
       case "GOOGLE_LINK_REQUIRED":
-        return "Email này đã có tài khoản. Hãy đăng nhập bằng mật khẩu, sau đó liên kết Google trong Ứng dụng kết nối.";
+        return "Email này đã có tài khoản. Hãy đăng nhập bằng email và mật khẩu, sau đó liên kết Google trong Bảo mật tài khoản.";
       case "GOOGLE_ACCOUNT_NOT_REGISTERED":
-        return "Tài khoản Google này chưa có trên DX LMS. Hãy tạo workspace bằng biểu mẫu đăng ký trước.";
+      case "GOOGLE_SIGNUP_REQUIRED":
+        return "Tài khoản Google này chưa có trên DX LMS. Hãy tạo workspace bằng email trước, sau đó liên kết Google trong Bảo mật tài khoản.";
+      case "GOOGLE_ACCOUNT_UNAVAILABLE":
+        return "Tài khoản DX LMS đã liên kết với Google hiện không khả dụng. Hãy liên hệ quản trị viên để được hỗ trợ.";
       case "GOOGLE_AUTH_NOT_CONFIGURED":
       case "GOOGLE_LOGIN_DISABLED":
       case "GOOGLE_INTEGRATION_DISABLED":
@@ -162,6 +167,20 @@ export function googleAuthErrorMessage(
   return intent === "LOGIN"
     ? "Không thể đăng nhập bằng Google lúc này. Vui lòng thử lại hoặc dùng mật khẩu."
     : "Không thể liên kết tài khoản Google lúc này. Vui lòng thử lại.";
+}
+
+export function googleLoginRecoveryAction(
+  error: unknown,
+): GoogleLoginRecoveryAction | null {
+  if (!(error instanceof ApiError)) return null;
+  if (error.code === "GOOGLE_LINK_REQUIRED") return "EMAIL_LOGIN";
+  if (
+    error.code === "GOOGLE_ACCOUNT_NOT_REGISTERED" ||
+    error.code === "GOOGLE_SIGNUP_REQUIRED"
+  ) {
+    return "CREATE_WORKSPACE";
+  }
+  return null;
 }
 
 export const googleAuthApi = {

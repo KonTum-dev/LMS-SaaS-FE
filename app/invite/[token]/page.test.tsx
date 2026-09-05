@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import InvitationPage from "./page";
 import { ApiError } from "@/lib/api";
+import { FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -93,10 +94,24 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("public invitation flow", () => {
+  it("redacts unknown server errors and translates the same retained failure on language change", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+    const diagnostic = "DatabaseError: invitation-token=not-a-real-secret";
+    mocks.apiFetch.mockRejectedValue(new ApiError(diagnostic, 500, "UNKNOWN_SERVER_ERROR"));
+    render(<FeedbackLocaleProvider><InvitationPage /></FeedbackLocaleProvider>);
+    expect(await screen.findByText(/Chưa xác nhận được kết quả/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(screen.getByText(/The result could not be confirmed/)).toBeTruthy();
+    expect(screen.queryByText(diagnostic)).toBeNull();
+    expect(mocks.auth.consumeAuthResponse).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("chỉ đọc metadata công khai rồi hiển thị form tạo tài khoản", async () => {
     render(<InvitationPage />);
 
-    expect(await screen.findByRole("heading", { name: "Tham gia Bright Academy" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Lời mời tham gia", level: 1 })).toBeTruthy();
+    expect(await screen.findByText("Bright Academy")).toBeTruthy();
     expect(screen.getByText("learner@example.com")).toBeTruthy();
     expect(screen.getByText("Học viên")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Tạo tài khoản và tham gia" })).toBeTruthy();
@@ -104,6 +119,29 @@ describe("public invitation flow", () => {
       "/auth/invitations/invite-token",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+  });
+
+  it("keeps one brand, heading and metadata block without the decorative invitation hero", async () => {
+    render(<InvitationPage />);
+    await screen.findByText("Bright Academy");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: "DX LMS" })).toHaveLength(1);
+    expect(screen.getAllByText(inspection.email)).toHaveLength(1);
+    expect(screen.getAllByText(inspection.organization.name)).toHaveLength(1);
+    expect(screen.getAllByText("Học viên")).toHaveLength(1);
+    expect(document.querySelector("time")?.getAttribute("dateTime")).toBe(inspection.expiresAt);
+    expect(document.querySelector(".auth-hero, .auth-proof, .ant-avatar")).toBeNull();
+    expect(document.querySelector('meta[name="robots"]')?.getAttribute("content")).toBe("noindex,nofollow,noarchive");
+    expect(document.querySelector('meta[name="referrer"]')?.getAttribute("content")).toBe("no-referrer");
+  });
+
+  it("localizes the compact existing-account invitation without repeating its email", async () => {
+    mocks.apiFetch.mockResolvedValue({ ...inspection, requiresAuthentication: true });
+    render(<FeedbackLocaleProvider initialLocale="en"><InvitationPage /></FeedbackLocaleProvider>);
+    expect(await screen.findByText("This email already has an account. Enter your password to join.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Invitation to join", level: 1 })).toBeTruthy();
+    expect(screen.getAllByText(inspection.email)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Confirm and join" })).toBeTruthy();
   });
 
   it("đăng ký, nhận phiên đầy đủ và chuyển vào workspace", async () => {
@@ -169,7 +207,7 @@ describe("public invitation flow", () => {
     fireEvent.change(screen.getByLabelText("Mật khẩu tài khoản"), { target: { value: "WrongPass123" } });
     fireEvent.click(screen.getByRole("button", { name: "Xác nhận và tham gia" }));
 
-    expect(await screen.findByText("Mật khẩu không chính xác")).toBeTruthy();
+    expect(await screen.findByText("Mật khẩu hiện tại không đúng.")).toBeTruthy();
     expect(mocks.auth.consumeAuthResponse).not.toHaveBeenCalled();
     expect(mocks.replace).not.toHaveBeenCalledWith("/dashboard");
     expect(screen.getByRole("button", { name: "Xác nhận và tham gia" })).toBeTruthy();

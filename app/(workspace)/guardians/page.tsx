@@ -1,33 +1,18 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsPolishMessages as operationsMessages } from "@/lib/i18n/learning-polish-messages";
+import { userCreationMessages } from "@/components/users/user-creation-messages";
+import { useMemo as useI18nMemo } from "react";
 
-import {
-  DeleteOutlined,
-  EditOutlined,
-  PlusOutlined,
-} from "@ant-design/icons";
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
+import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  Checkbox,
-  Col,
-  Empty,
-  Form,
-  Modal,
-  Popconfirm,
-  Row,
-  Select,
-  Space,
-  Spin,
-  Statistic,
-  Table,
-  Tag,
-  Typography,
-} from "antd";
+import { Alert, Button, Card, Checkbox, Empty, Modal, Popconfirm, Select, Space, Spin, Table, Tag, Typography } from "antd";
+import { Form } from "@/components/form/localized-form";
 import type { ColumnsType } from "antd/es/table";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAuth } from "@/components/providers/app-providers";
 import {
   guardianApi,
@@ -44,26 +29,6 @@ import {
   normalizeQueryFilters,
   type ViewerScope,
 } from "@/lib/query-keys";
-
-const relationshipTypeLabels: Record<GuardianRelationshipType, string> = {
-  GUARDIAN: "Người giám hộ",
-  OTHER: "Quan hệ khác",
-  PARENT: "Cha/mẹ",
-};
-
-const relationshipTypeOptions = (
-  Object.entries(relationshipTypeLabels) as Array<
-    [GuardianRelationshipType, string]
-  >
-).map(([value, label]) => ({ label, value }));
-
-const statusOptions: Array<{
-  label: string;
-  value: GuardianRelationshipStatus;
-}> = [
-  { label: "Đang hoạt động", value: "ACTIVE" },
-  { label: "Đã lưu trữ", value: "INACTIVE" },
-];
 
 interface GuardianFormValues {
   canReceiveAcademicUpdates?: boolean;
@@ -82,58 +47,27 @@ interface EditGuardianFormValues {
   status: GuardianRelationshipStatus;
 }
 
-function guardianRootKey(scope: ViewerScope) {
-  return [...lmsQueryKeys.viewer(scope), "guardians"] as const;
-}
-
-function guardianRelationshipKey(
-  scope: ViewerScope,
-  input: {
-    learnerId?: string;
-    mode: string;
-    status: GuardianRelationshipStatus;
-  },
-) {
-  return [
-    ...guardianRootKey(scope),
-    "relationships",
-    normalizeQueryFilters(input),
-  ] as const;
-}
-
-function selectValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value !== "object" || value === null) return "";
-  const event = value as {
-    currentTarget?: { value?: unknown };
-    target?: { value?: unknown };
-  };
-  const candidate = event.currentTarget?.value ?? event.target?.value;
-  return typeof candidate === "string" ? candidate : "";
-}
-
-function roleDescription(role?: string): string {
-  if (role === "INSTRUCTOR") {
-    return "Tra cứu người liên hệ đã đồng ý nhận cập nhật học tập của học viên.";
-  }
-  if (role === "LEARNER") {
-    return "Xem người giám hộ và phạm vi cập nhật đang được liên kết với bạn.";
-  }
-  if (role === "GUARDIAN") {
-    return "Xem các học viên và phạm vi cập nhật được liên kết với tài khoản của bạn.";
-  }
-  return "Quản lý mối liên hệ giữa học viên và phụ huynh hoặc người giám hộ.";
-}
-
 export default function GuardiansPage() {
-  const { message } = App.useApp();
+  const {
+    t,
+    relationshipTypeLabels,
+    relationshipTypeOptions,
+    statusOptions,
+    guardianRootKey,
+    guardianRelationshipKey,
+    selectValue,
+    roleDescription,
+    locale,
+  } = useOperationsCopy();
+  const { message, reportError } = useFeedback();
   const { effectiveAccess, organization, token, user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedLearnerId, setSelectedLearnerId] = useState<string>();
-  const [status, setStatus] =
-    useState<GuardianRelationshipStatus>("ACTIVE");
+  const [status, setStatus] = useState<GuardianRelationshipStatus>("ACTIVE");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<GuardianRelationship | null>(null);
+  const mutationLock = useRef(false);
+  const [mutationPending, setMutationPending] = useState(false);
 
   const role = user?.role as string | undefined;
   const isTenantAdmin = role === "TENANT_ADMIN";
@@ -145,7 +79,7 @@ export default function GuardiansPage() {
   const scope = getViewerScope(user, organization);
   const canLoad = Boolean(token && scope && supportedRole);
   const readOnly = effectiveAccess?.readOnly ?? false;
-  const canManage = Boolean(isTenantAdmin && !readOnly);
+  const canManage = Boolean(token && scope && isTenantAdmin && !readOnly);
   const effectiveStatus: GuardianRelationshipStatus = isInstructor
     ? "ACTIVE"
     : status;
@@ -192,7 +126,7 @@ export default function GuardiansPage() {
     queryKey: scope
       ? guardianRelationshipKey(scope, {
           ...(targetLearnerId ? { learnerId: targetLearnerId } : {}),
-          mode: isGuardian ? "guardian-me" : role ?? "unknown",
+          mode: isGuardian ? "guardian-me" : (role ?? "unknown"),
           status: effectiveStatus,
         })
       : [...signedOutRoot, "relationships"],
@@ -252,13 +186,13 @@ export default function GuardiansPage() {
   );
   const learnerOptions = useMemo(
     () => [
-      { label: "Chọn học viên", value: "" },
+      { label: t("Chọn học viên"), value: "" },
       ...learners.map((entry) => ({
         label: `${entry.fullName} · ${entry.email}`,
         value: guardianDirectoryUserId(entry),
       })),
     ],
-    [learners],
+    [learners, t],
   );
   const guardianOptions = useMemo(
     () =>
@@ -272,74 +206,67 @@ export default function GuardiansPage() {
     () => relationshipsQuery.data ?? [],
     [relationshipsQuery.data],
   );
-  const summary = useMemo(
-    () => ({
-      academic: relationships.filter(
-        (relationship) => relationship.canReceiveAcademicUpdates,
-      ).length,
-      billing: relationships.filter(
-        (relationship) => relationship.canReceiveBillingUpdates,
-      ).length,
-      primary: relationships.filter(
-        (relationship) => relationship.primaryContact,
-      ).length,
-    }),
-    [relationships],
-  );
 
-  const createRelationship = async (values: GuardianFormValues) => {
+  const runRelationshipMutation = async (
+    operation: () => Promise<unknown>,
+    fallback: string,
+  ) => {
+    // Lock synchronously: form submits can repeat before React paints loading.
+    // Conflicting edits are dropped, never queued with an outdated consent value.
+    if (!canManage || mutationLock.current) return;
+    mutationLock.current = true;
+    setMutationPending(true);
     try {
-      await createMutation.mutateAsync({
+      await operation();
+    } catch (caught) {
+      reportError(caught, fallback);
+    } finally {
+      mutationLock.current = false;
+      setMutationPending(false);
+    }
+  };
+
+  const createRelationship = (values: GuardianFormValues) =>
+    runRelationshipMutation(
+      () => createMutation.mutateAsync({
         canReceiveAcademicUpdates: Boolean(values.canReceiveAcademicUpdates),
         canReceiveBillingUpdates: Boolean(values.canReceiveBillingUpdates),
         guardianId: values.guardianId,
         learnerId: values.learnerId,
         primaryContact: Boolean(values.primaryContact),
         relationshipType: values.relationshipType,
-      });
-    } catch (caught) {
-      message.error(
-        caught instanceof Error
-          ? caught.message
-          : "Không thể thêm người giám hộ",
-      );
-    }
-  };
+      }),
+      "Không thể thêm người giám hộ",
+    );
 
   const updateRelationship = async (values: EditGuardianFormValues) => {
     if (!editing) return;
-    try {
-      await updateMutation.mutateAsync({
+    return runRelationshipMutation(
+      () => updateMutation.mutateAsync({
         input: {
-          canReceiveAcademicUpdates: Boolean(
-            values.canReceiveAcademicUpdates,
-          ),
+          canReceiveAcademicUpdates: Boolean(values.canReceiveAcademicUpdates),
           canReceiveBillingUpdates: Boolean(values.canReceiveBillingUpdates),
           primaryContact: Boolean(values.primaryContact),
           relationshipType: values.relationshipType,
           status: values.status,
         },
         relationshipId: editing._id,
-      });
-    } catch (caught) {
-      message.error(
-        caught instanceof Error
-          ? caught.message
-          : "Không thể cập nhật người giám hộ",
-      );
-    }
+      }),
+      "Không thể cập nhật người giám hộ",
+    );
   };
 
-  const archiveRelationship = async (relationshipId: string) => {
-    try {
-      await archiveMutation.mutateAsync(relationshipId);
-    } catch (caught) {
-      message.error(
-        caught instanceof Error
-          ? caught.message
-          : "Không thể lưu trữ người giám hộ",
-      );
-    }
+  const archiveRelationship = (relationshipId: string) =>
+    runRelationshipMutation(
+      () => archiveMutation.mutateAsync(relationshipId),
+      "Không thể lưu trữ người giám hộ",
+    );
+
+  const closeCreate = () => {
+    if (!mutationLock.current) setCreateOpen(false);
+  };
+  const closeEdit = () => {
+    if (!mutationLock.current) setEditing(null);
   };
 
   const canSeeBillingConsent = !isInstructor;
@@ -353,7 +280,7 @@ export default function GuardiansPage() {
         </div>
       ),
       responsive: ["md"],
-      title: "Học viên",
+      title: t("Học viên"),
     },
     {
       key: "guardian",
@@ -363,7 +290,7 @@ export default function GuardiansPage() {
           <div className="table-muted">{relationship.guardianId.email}</div>
         </div>
       ),
-      title: "Phụ huynh / người giám hộ",
+      title: t("Phụ huynh / người giám hộ"),
     },
     {
       dataIndex: "relationshipType",
@@ -371,41 +298,43 @@ export default function GuardiansPage() {
       render: (value: GuardianRelationshipType) =>
         relationshipTypeLabels[value],
       responsive: ["sm"],
-      title: "Quan hệ",
+      title: t("Quan hệ"),
     },
     {
       key: "consents",
       render: (_, relationship) => (
         <Space wrap>
-          {relationship.primaryContact && <Tag color="blue">Liên hệ chính</Tag>}
+          {relationship.primaryContact && (
+            <Tag color="blue">{t("Liên hệ chính")}</Tag>
+          )}
           {relationship.canReceiveAcademicUpdates && (
-            <Tag color="green">Cập nhật học tập</Tag>
+            <Tag color="green">{t("Cập nhật học tập")}</Tag>
           )}
           {canSeeBillingConsent && relationship.canReceiveBillingUpdates && (
-            <Tag color="gold">Cập nhật học phí</Tag>
+            <Tag color="gold">{t("Cập nhật học phí")}</Tag>
           )}
           {!relationship.primaryContact &&
             !relationship.canReceiveAcademicUpdates &&
             (!canSeeBillingConsent ||
               !relationship.canReceiveBillingUpdates) && (
               <Typography.Text type="secondary">
-                Chưa bật cập nhật
+                {t("Chưa bật cập nhật")}{" "}
               </Typography.Text>
             )}
         </Space>
       ),
-      title: "Phạm vi liên hệ",
+      title: t("Phạm vi liên hệ"),
     },
     {
       dataIndex: "status",
       key: "status",
       render: (value: GuardianRelationshipStatus) => (
         <Tag color={value === "ACTIVE" ? "green" : "default"}>
-          {value === "ACTIVE" ? "Đang hoạt động" : "Đã lưu trữ"}
+          {value === "ACTIVE" ? t("Đang hoạt động") : t("Đã lưu trữ")}
         </Tag>
       ),
       responsive: ["lg"],
-      title: "Trạng thái",
+      title: t("Trạng thái"),
     },
     ...(isTenantAdmin
       ? [
@@ -414,26 +343,32 @@ export default function GuardiansPage() {
             render: (_: unknown, relationship: GuardianRelationship) => (
               <Space wrap>
                 <Button
-                  aria-label={`Sửa quan hệ ${relationship.guardianId.fullName}`}
-                  disabled={!canManage}
+                  aria-label={t("Sửa quan hệ {value0}", {
+                    value0: relationship.guardianId.fullName,
+                  })}
+                  disabled={!canManage || mutationPending}
                   icon={<EditOutlined />}
-                  onClick={() => setEditing(relationship)}
+                  onClick={() => {
+                    if (canManage && !mutationLock.current) setEditing(relationship);
+                  }}
                   size="small"
                 >
-                  Sửa
+                  {t("Sửa")}{" "}
                 </Button>
                 {relationship.status === "ACTIVE" && (
                   <Popconfirm
-                    cancelText="Giữ quan hệ"
-                    disabled={!canManage}
-                    okText="Xác nhận lưu trữ"
+                    cancelText={t("Giữ quan hệ")}
+                    disabled={!canManage || mutationPending}
+                    okText={t("Xác nhận lưu trữ")}
                     onConfirm={() => archiveRelationship(relationship._id)}
-                    title="Lưu trữ quan hệ người giám hộ này?"
+                    title={t("Lưu trữ quan hệ người giám hộ này?")}
                   >
                     <Button
-                      aria-label={`Lưu trữ quan hệ ${relationship.guardianId.fullName}`}
+                      aria-label={t("Lưu trữ quan hệ {value0}", {
+                        value0: relationship.guardianId.fullName,
+                      })}
                       danger
-                      disabled={!canManage}
+                      disabled={!canManage || mutationPending}
                       icon={<DeleteOutlined />}
                       loading={
                         archiveMutation.isPending &&
@@ -441,13 +376,13 @@ export default function GuardiansPage() {
                       }
                       size="small"
                     >
-                      Lưu trữ
+                      {t("Lưu trữ")}{" "}
                     </Button>
                   </Popconfirm>
                 )}
               </Space>
             ),
-            title: "Thao tác",
+            title: t("Thao tác"),
           },
         ]
       : []),
@@ -457,7 +392,7 @@ export default function GuardiansPage() {
     return (
       <Alert
         showIcon
-        title="Bạn không có quyền truy cập quan hệ người giám hộ."
+        title={t("Bạn không có quyền truy cập quan hệ người giám hộ.")}
         type="warning"
       />
     );
@@ -466,7 +401,7 @@ export default function GuardiansPage() {
     return (
       <Alert
         showIcon
-        title="Phiên làm việc thiếu phạm vi thành viên hợp lệ."
+        title={t("Phiên làm việc thiếu phạm vi thành viên hợp lệ.")}
         type="error"
       />
     );
@@ -478,58 +413,69 @@ export default function GuardiansPage() {
     <div className="page-shell">
       <div className="page-heading">
         <div>
-          <h1>Phụ huynh & người giám hộ</h1>
+          <h1>{t("Phụ huynh & người giám hộ")}</h1>
           <p>{roleDescription(role)}</p>
         </div>
         {isTenantAdmin && (
           <Button
-            disabled={!canManage || learners.length === 0 || guardians.length === 0}
+            disabled={
+              !canManage || mutationPending || learners.length === 0 || guardians.length === 0
+            }
             icon={<PlusOutlined />}
-            onClick={() => setCreateOpen(true)}
+            onClick={() => {
+              if (canManage && !mutationLock.current) setCreateOpen(true);
+            }}
             title={
               readOnly
-                ? "Workspace chỉ đọc"
+                ? t("Workspace chỉ đọc")
                 : guardians.length === 0
-                  ? "Cần ít nhất một tài khoản người giám hộ hoạt động"
+                  ? t("Cần ít nhất một tài khoản người giám hộ hoạt động")
                   : undefined
             }
             type="primary"
           >
-            Thêm người giám hộ
+            {t("Thêm người giám hộ")}{" "}
           </Button>
         )}
       </div>
 
-      {!isTenantAdmin && (
+      {isTenantAdmin && effectiveAccess?.modules.includes("USERS") && (
         <Alert
-          description={roleDescription(role)}
-          showIcon
-          title="Chế độ chỉ đọc"
           type="info"
+          showIcon
+          title={t("Tạo hoặc mời tài khoản có vai trò Phụ huynh trong mục Người dùng, sau đó liên kết với học viên tại đây.")}
+          action={<Button href="/users">{t("Tài khoản phụ huynh")}</Button>}
         />
       )}
+
       {isTenantAdmin && readOnly && (
         <Alert
-          description="Bạn vẫn có thể tra cứu dữ liệu; thêm, sửa và lưu trữ quan hệ đang tạm khóa."
+          description={t(
+            "Bạn vẫn có thể tra cứu dữ liệu; thêm, sửa và lưu trữ quan hệ đang tạm khóa.",
+          )}
           showIcon
-          title="Workspace đang ở chế độ chỉ đọc"
+          title={t("Workspace đang ở chế độ chỉ đọc")}
           type="warning"
         />
       )}
       {directoryQuery.error && (
         <Alert
           action={
-            <Button onClick={() => void directoryQuery.refetch()} size="small">
-              Thử lại
+            <Button loading={directoryQuery.isFetching} onClick={() => void directoryQuery.refetch()} size="small">
+              {t("Thử lại")}{" "}
             </Button>
           }
           description={
             directoryQuery.error instanceof Error
-              ? directoryQuery.error.message
-              : "Không thể tải danh sách người dùng"
+              ? describeOperationsError(
+                  directoryQuery.error,
+                  locale,
+                  t("Không thể tải danh sách người dùng"),
+                )
+              : t("Không thể tải danh sách người dùng")
           }
           showIcon
-          title="Không tải được danh sách học viên"
+          title={t("Không tải được danh sách học viên")}
           type="error"
         />
       )}
@@ -537,53 +483,34 @@ export default function GuardiansPage() {
         <Alert
           action={
             <Button
+              loading={relationshipsQuery.isFetching}
               onClick={() => void relationshipsQuery.refetch()}
               size="small"
             >
-              Thử lại
+              {t("Thử lại")}{" "}
             </Button>
           }
           description={
             relationshipsQuery.error instanceof Error
-              ? relationshipsQuery.error.message
-              : "Không thể tải quan hệ người giám hộ"
+              ? describeOperationsError(
+                  relationshipsQuery.error,
+                  locale,
+                  t("Không thể tải quan hệ người giám hộ"),
+                )
+              : t("Không thể tải quan hệ người giám hộ")
           }
           showIcon
-          title="Không tải được quan hệ người giám hộ"
+          title={t("Không tải được quan hệ người giám hộ")}
           type="error"
         />
       )}
 
-      <Row gutter={[16, 16]}>
-        <Col lg={canSeeBillingConsent ? 6 : 8} sm={12} xs={24}>
-          <Card className="surface-card">
-            <Statistic title="Quan hệ đang hiển thị" value={relationships.length} />
-          </Card>
-        </Col>
-        <Col lg={canSeeBillingConsent ? 6 : 8} sm={12} xs={24}>
-          <Card className="surface-card">
-            <Statistic title="Liên hệ chính" value={summary.primary} />
-          </Card>
-        </Col>
-        <Col lg={canSeeBillingConsent ? 6 : 8} sm={12} xs={24}>
-          <Card className="surface-card">
-            <Statistic title="Nhận cập nhật học tập" value={summary.academic} />
-          </Card>
-        </Col>
-        {canSeeBillingConsent && (
-          <Col lg={6} sm={12} xs={24}>
-            <Card className="surface-card">
-              <Statistic title="Nhận cập nhật học phí" value={summary.billing} />
-            </Card>
-          </Col>
-        )}
-      </Row>
-
-      <Card className="surface-card" title="Danh sách quan hệ">
-        <Space wrap>
+      <Card className="surface-card table-surface" title={t("Danh sách quan hệ")} extra={<Typography.Text type="secondary">{t("{count} quan hệ", { count: relationships.length })}</Typography.Text>}>
+        <div className="list-filter-bar admin-list-toolbar">
           {requiresLearnerSelection && (
             <Select<string>
-              aria-label="Chọn học viên để tra cứu"
+              aria-label={t("Chọn học viên để tra cứu")}
+              disabled={mutationPending}
               loading={directoryQuery.isLoading}
               onChange={(nextValue) => {
                 setSelectedLearnerId(selectValue(nextValue) || undefined);
@@ -596,29 +523,32 @@ export default function GuardiansPage() {
           )}
           {!isInstructor && (
             <Select<GuardianRelationshipStatus>
-              aria-label="Lọc trạng thái quan hệ"
+              aria-label={t("Lọc trạng thái quan hệ")}
+              disabled={mutationPending}
               onChange={(nextValue) =>
-                setStatus(
-                  selectValue(nextValue) as GuardianRelationshipStatus,
-                )
+                setStatus(selectValue(nextValue) as GuardianRelationshipStatus)
               }
               options={statusOptions}
               value={status}
             />
           )}
           {isInstructor && (
-            <Tag color="blue">Đã đồng ý nhận cập nhật học tập</Tag>
+            <Tag color="blue">{t("Đã đồng ý nhận cập nhật học tập")}</Tag>
           )}
-        </Space>
+        </div>
 
         {requiresLearnerSelection && !selectedLearnerId ? (
           directoryQuery.isLoading ? (
-            <div aria-label="Đang tải danh sách học viên" className="page-loading" role="status">
+            <div
+              aria-label={t("Đang tải danh sách học viên")}
+              className="page-loading"
+              role="status"
+            >
               <Spin size="large" />
             </div>
           ) : (
             <Empty
-              description="Chọn một học viên để xem quan hệ người giám hộ"
+              description={t("Chọn một học viên để xem quan hệ người giám hộ")}
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           )
@@ -630,7 +560,7 @@ export default function GuardiansPage() {
             locale={{
               emptyText: (
                 <Empty
-                  description="Chưa có quan hệ người giám hộ phù hợp"
+                  description={t("Chưa có quan hệ người giám hộ phù hợp")}
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
               ),
@@ -643,13 +573,17 @@ export default function GuardiansPage() {
       </Card>
 
       <Modal
+        closable={!mutationPending}
         destroyOnHidden
         footer={null}
-        onCancel={() => setCreateOpen(false)}
+        keyboard={!mutationPending}
+        mask={{ closable: !mutationPending }}
+        onCancel={closeCreate}
         open={createOpen}
-        title="Thêm người giám hộ"
+        title={t("Thêm người giám hộ")}
       >
         <Form<GuardianFormValues>
+          disabled={mutationPending || !canManage}
           initialValues={{
             canReceiveAcademicUpdates: true,
             canReceiveBillingUpdates: false,
@@ -662,74 +596,75 @@ export default function GuardiansPage() {
           preserve={false}
         >
           <Form.Item
-            label="Học viên"
+            label={t("Học viên")}
             name="learnerId"
-            rules={[{ required: true, message: "Chọn học viên" }]}
+            rules={[{ required: true, message: t("Chọn học viên") }]}
           >
             <Select
               optionFilterProp="label"
               options={learnerOptions.slice(1)}
-              placeholder="Chọn học viên"
+              placeholder={t("Chọn học viên")}
               showSearch
             />
           </Form.Item>
           <Form.Item
-            label="Phụ huynh / người giám hộ"
+            label={t("Phụ huynh / người giám hộ")}
             name="guardianId"
-            rules={[{ required: true, message: "Chọn người giám hộ" }]}
+            rules={[{ required: true, message: t("Chọn người giám hộ") }]}
           >
             <Select
               optionFilterProp="label"
               options={guardianOptions}
-              placeholder="Chọn tài khoản người giám hộ"
+              placeholder={t("Chọn tài khoản người giám hộ")}
               showSearch
             />
           </Form.Item>
           <Form.Item
-            label="Mối quan hệ"
+            label={t("Mối quan hệ")}
             name="relationshipType"
-            rules={[{ required: true, message: "Chọn mối quan hệ" }]}
+            rules={[{ required: true, message: t("Chọn mối quan hệ") }]}
           >
             <Select options={relationshipTypeOptions} />
           </Form.Item>
           <Form.Item name="primaryContact" valuePropName="checked">
-            <Checkbox>Đặt làm liên hệ chính</Checkbox>
+            <Checkbox>{t("Đặt làm liên hệ chính")}</Checkbox>
           </Form.Item>
-          <Form.Item
-            name="canReceiveAcademicUpdates"
-            valuePropName="checked"
-          >
-            <Checkbox>Nhận cập nhật học tập</Checkbox>
+          <Form.Item name="canReceiveAcademicUpdates" valuePropName="checked">
+            <Checkbox>{t("Nhận cập nhật học tập")}</Checkbox>
           </Form.Item>
           <Form.Item name="canReceiveBillingUpdates" valuePropName="checked">
-            <Checkbox>Nhận cập nhật học phí</Checkbox>
+            <Checkbox>{t("Nhận cập nhật học phí")}</Checkbox>
           </Form.Item>
           <Space>
-            <Button onClick={() => setCreateOpen(false)}>Hủy</Button>
+            <Button disabled={mutationPending} onClick={closeCreate}>{t("Hủy")}</Button>
             <Button
+              disabled={mutationPending || !canManage}
               htmlType="submit"
               loading={createMutation.isPending}
               type="primary"
             >
-              Lưu quan hệ
+              {t("Lưu quan hệ")}{" "}
             </Button>
           </Space>
         </Form>
       </Modal>
 
       <Modal
+        closable={!mutationPending}
         destroyOnHidden
         footer={null}
+        keyboard={!mutationPending}
         key={editing?._id ?? "edit-guardian"}
-        onCancel={() => setEditing(null)}
+        mask={{ closable: !mutationPending }}
+        onCancel={closeEdit}
         open={Boolean(editing)}
-        title="Sửa quan hệ người giám hộ"
+        title={t("Sửa quan hệ người giám hộ")}
       >
         {editing && (
           <Form<EditGuardianFormValues>
+            disabled={mutationPending || !canManage}
             initialValues={{
-              canReceiveAcademicUpdates:
-                editing.canReceiveAcademicUpdates,
+              canReceiveAcademicUpdates: editing.canReceiveAcademicUpdates,
               canReceiveBillingUpdates:
                 editing.canReceiveBillingUpdates ?? false,
               primaryContact: editing.primaryContact,
@@ -743,46 +678,41 @@ export default function GuardiansPage() {
             <Alert
               description={`${editing.learnerId.fullName} · ${editing.guardianId.fullName}`}
               showIcon
-              title="Quan hệ đang chỉnh sửa"
+              title={t("Quan hệ đang chỉnh sửa")}
               type="info"
             />
             <Form.Item
-              label="Mối quan hệ"
+              label={t("Mối quan hệ")}
               name="relationshipType"
-              rules={[{ required: true, message: "Chọn mối quan hệ" }]}
+              rules={[{ required: true, message: t("Chọn mối quan hệ") }]}
             >
               <Select options={relationshipTypeOptions} />
             </Form.Item>
             <Form.Item
-              label="Trạng thái"
+              label={t("Trạng thái")}
               name="status"
-              rules={[{ required: true, message: "Chọn trạng thái" }]}
+              rules={[{ required: true, message: t("Chọn trạng thái") }]}
             >
               <Select options={statusOptions} />
             </Form.Item>
             <Form.Item name="primaryContact" valuePropName="checked">
-              <Checkbox>Đặt làm liên hệ chính</Checkbox>
+              <Checkbox>{t("Đặt làm liên hệ chính")}</Checkbox>
             </Form.Item>
-            <Form.Item
-              name="canReceiveAcademicUpdates"
-              valuePropName="checked"
-            >
-              <Checkbox>Nhận cập nhật học tập</Checkbox>
+            <Form.Item name="canReceiveAcademicUpdates" valuePropName="checked">
+              <Checkbox>{t("Nhận cập nhật học tập")}</Checkbox>
             </Form.Item>
-            <Form.Item
-              name="canReceiveBillingUpdates"
-              valuePropName="checked"
-            >
-              <Checkbox>Nhận cập nhật học phí</Checkbox>
+            <Form.Item name="canReceiveBillingUpdates" valuePropName="checked">
+              <Checkbox>{t("Nhận cập nhật học phí")}</Checkbox>
             </Form.Item>
             <Space>
-              <Button onClick={() => setEditing(null)}>Hủy</Button>
+              <Button disabled={mutationPending} onClick={closeEdit}>{t("Hủy")}</Button>
               <Button
+                disabled={mutationPending || !canManage}
                 htmlType="submit"
                 loading={updateMutation.isPending}
                 type="primary"
               >
-                Lưu thay đổi
+                {t("Lưu thay đổi")}{" "}
               </Button>
             </Space>
           </Form>
@@ -790,4 +720,92 @@ export default function GuardiansPage() {
       </Modal>
     </div>
   );
+}
+
+const guardianMessages = { ...operationsMessages, ...userCreationMessages };
+
+function useOperationsCopy() {
+  const i18n = useI18n(guardianMessages);
+  return useI18nMemo(() => {
+    const { t } = i18n;
+    const relationshipTypeLabels: Record<GuardianRelationshipType, string> = {
+      GUARDIAN: t("Người giám hộ"),
+      OTHER: t("Quan hệ khác"),
+      PARENT: t("Cha/mẹ"),
+    };
+
+    const statusOptions: Array<{
+      label: string;
+      value: GuardianRelationshipStatus;
+    }> = [
+      { label: t("Đang hoạt động"), value: "ACTIVE" },
+      { label: t("Đã lưu trữ"), value: "INACTIVE" },
+    ];
+
+    function guardianRootKey(scope: ViewerScope) {
+      return [...lmsQueryKeys.viewer(scope), "guardians"] as const;
+    }
+
+    function guardianRelationshipKey(
+      scope: ViewerScope,
+      input: {
+        learnerId?: string;
+        mode: string;
+        status: GuardianRelationshipStatus;
+      },
+    ) {
+      return [
+        ...guardianRootKey(scope),
+        "relationships",
+        normalizeQueryFilters(input),
+      ] as const;
+    }
+
+    function selectValue(value: unknown): string {
+      if (typeof value === "string") return value;
+      if (typeof value !== "object" || value === null) return "";
+      const event = value as {
+        currentTarget?: { value?: unknown };
+        target?: { value?: unknown };
+      };
+      const candidate = event.currentTarget?.value ?? event.target?.value;
+      return typeof candidate === "string" ? candidate : "";
+    }
+
+    function roleDescription(role?: string): string {
+      if (role === "INSTRUCTOR") {
+        return t(
+          "Tra cứu người liên hệ đã đồng ý nhận cập nhật học tập của học viên.",
+        );
+      }
+      if (role === "LEARNER") {
+        return t(
+          "Xem người giám hộ và phạm vi cập nhật đang được liên kết với bạn.",
+        );
+      }
+      if (role === "GUARDIAN") {
+        return t(
+          "Xem các học viên và phạm vi cập nhật được liên kết với tài khoản của bạn.",
+        );
+      }
+      return t(
+        "Quản lý mối liên hệ giữa học viên và phụ huynh hoặc người giám hộ.",
+      );
+    }
+    const relationshipTypeOptions = (
+      Object.entries(relationshipTypeLabels) as Array<
+        [GuardianRelationshipType, string]
+      >
+    ).map(([value, label]) => ({ label, value }));
+    return {
+      ...i18n,
+      relationshipTypeLabels,
+      relationshipTypeOptions,
+      statusOptions,
+      guardianRootKey,
+      guardianRelationshipKey,
+      selectValue,
+      roleDescription,
+    };
+  }, [i18n]);
 }

@@ -7,6 +7,28 @@ afterEach(() => {
 });
 
 describe("apiFetch", () => {
+  it.each([undefined, "get", "HEAD", "POST", "PATCH", "DELETE"])(
+    "keeps the client request method on HTTP errors (%s)",
+    async (method) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+        JSON.stringify({ message: "Unavailable", requestMethod: "GET" }),
+        { status: 503 },
+      )));
+      await expect(apiFetch("/example", { method })).rejects.toMatchObject({
+        status: 503,
+        requestMethod: (method ?? "GET").toUpperCase(),
+      });
+    },
+  );
+
+  it.each(["GET", "POST"])("keeps %s context on network and malformed responses", async (method) => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response("not-json", { status: 200 })));
+    await expect(apiFetch("/example", { method })).rejects.toMatchObject({ status: 0, requestMethod: method });
+    await expect(apiFetch("/example", { method })).rejects.toMatchObject({ status: 200, requestMethod: method });
+  });
+
   it("xử lý response 200 rỗng như null thay vì ném lỗi JSON", async () => {
     vi.stubGlobal(
       "fetch",
@@ -144,6 +166,7 @@ describe("apiFetch", () => {
     const assertion = expect(pending).rejects.toMatchObject({
       message: "Máy chủ phản hồi quá lâu, vui lòng thử lại",
       status: 0,
+      requestMethod: "GET",
     } satisfies Partial<ApiError>);
     await vi.advanceTimersByTimeAsync(15_000);
 

@@ -1,14 +1,17 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsMessages } from "@/lib/i18n/operations-messages";
+import { workspacePolishMessages } from "@/lib/i18n/workspace-polish-messages";
+import { useMemo as useI18nMemo } from "react";
 
 import {
   ApartmentOutlined,
   CheckCircleOutlined,
-  ClockCircleOutlined,
   DollarOutlined,
   ExclamationCircleOutlined,
   ReloadOutlined,
   SearchOutlined,
-  TeamOutlined,
 } from "@ant-design/icons";
 import {
   Alert,
@@ -38,54 +41,20 @@ import {
   type AdminCrmTenant,
 } from "@/lib/admin-crm-api";
 import { getViewerScope } from "@/lib/query-keys";
-
-const currency = new Intl.NumberFormat("vi-VN", {
-  currency: "VND",
-  maximumFractionDigits: 0,
-  style: "currency",
-});
-const compactNumber = new Intl.NumberFormat("vi-VN", {
-  maximumFractionDigits: 1,
-  notation: "compact",
-});
-const dateTime = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "short",
-  timeStyle: "short",
-});
-const shortDate = new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" });
-
-const accessPresentation: Record<
-  AdminCrmAccessState,
-  { color?: string; label: string }
-> = {
-  ACTIVE: { color: "green", label: "Đang trả phí" },
-  GRACE: { color: "gold", label: "Đang gia hạn" },
-  NONE: { label: "Chưa có gói" },
-  READ_ONLY: { color: "red", label: "Chỉ đọc" },
-  TRIAL: { color: "blue", label: "Đang dùng thử" },
-};
-
-function safeDate(value: string): string {
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? dateTime.format(parsed) : "—";
-}
-
-function tenantAccessTag(state: AdminCrmAccessState) {
-  const presentation = accessPresentation[state];
-  return <Tag color={presentation.color}>{presentation.label}</Tag>;
-}
-
-function activityCopy(activity: AdminCrmActivity) {
-  if (activity.kind === "TENANT_CREATED") {
-    return { label: "Workspace mới", tone: "blue" };
-  }
-  if (activity.kind === "PAYMENT_PAID") {
-    return { label: "Thanh toán thành công", tone: "green" };
-  }
-  return { label: "Thanh toán cần xử lý", tone: "red" };
-}
+const crmMessages = { ...operationsMessages, ...workspacePolishMessages };
 
 export default function AdminCrmPage() {
+  const {
+    t,
+    currency,
+    compactNumber,
+    shortDate,
+    accessPresentation,
+    safeDate,
+    tenantAccessTag,
+    activityCopy,
+    locale,
+  } = useOperationsCopy();
   const { organization, token, user } = useAuth();
   const router = useRouter();
   const [searchInput, setSearchInput] = useState("");
@@ -114,19 +83,19 @@ export default function AdminCrmPage() {
             <div className="table-muted">{row.original.slug}</div>
           </div>
         ),
-        header: "Workspace",
+        header: t("Tổ chức"),
       },
       {
         accessorKey: "accessState",
         cell: ({ getValue }) =>
           tenantAccessTag(getValue<AdminCrmAccessState>()),
-        header: "Truy cập",
+        header: t("Truy cập"),
         meta: { width: 150 },
       },
       {
         accessorKey: "memberCount",
         cell: ({ getValue }) => compactNumber.format(getValue<number>()),
-        header: "Thành viên",
+        header: t("Thành viên"),
         meta: { responsive: ["md"], width: 110 },
       },
       {
@@ -136,18 +105,26 @@ export default function AdminCrmPage() {
             <strong>{row.original.subscription?.planCode ?? "—"}</strong>
             <div className="table-muted">
               {row.original.subscription
-                ? `${row.original.subscription.billingCycle === "MONTHLY" ? "Theo tháng" : "Theo năm"} · hết hạn ${shortDate.format(new Date(row.original.subscription.endAt))}`
-                : "Chưa có thuê bao"}
+                ? t("{value0} · hết hạn {value1}", {
+                    value0:
+                      row.original.subscription.billingCycle === "MONTHLY"
+                        ? t("Theo tháng")
+                        : t("Theo năm"),
+                    value1: shortDate.format(
+                      new Date(row.original.subscription.endAt),
+                    ),
+                  })
+                : t("Chưa có thuê bao")}
             </div>
           </div>
         ),
-        header: "Gói hiện tại",
+        header: t("Gói hiện tại"),
         meta: { responsive: ["lg"], width: 230 },
       },
       {
         accessorKey: "revenueVnd",
         cell: ({ getValue }) => currency.format(getValue<number>()),
-        header: "Đã thu",
+        header: t("Đã thu"),
         meta: { responsive: ["md"], width: 150 },
       },
       {
@@ -156,22 +133,22 @@ export default function AdminCrmPage() {
           const value = getValue<AdminCrmTenant["status"]>();
           return (
             <Tag color={value === "ACTIVE" ? "green" : "red"}>
-              {value === "ACTIVE" ? "Hoạt động" : "Tạm khóa"}
+              {value === "ACTIVE" ? t("Hoạt động") : t("Tạm khóa")}
             </Tag>
           );
         },
-        header: "Tenant",
+        header: t("Trạng thái"),
         meta: { width: 110 },
       },
     ],
-    [],
+    [compactNumber, currency, shortDate, t, tenantAccessTag],
   );
 
   if (user?.role !== "SUPER_ADMIN") {
     return (
       <Alert
         showIcon
-        title="Khu vực CRM chỉ dành cho quản trị viên nền tảng."
+        title={t("Khu vực CRM chỉ dành cho quản trị viên nền tảng.")}
         type="warning"
       />
     );
@@ -186,29 +163,28 @@ export default function AdminCrmPage() {
     }));
   };
   const data = dashboard.data;
-  const error = dashboard.error instanceof Error ? dashboard.error.message : "";
+  const error =
+    dashboard.error instanceof Error
+      ? describeOperationsError(dashboard.error, locale, "")
+      : "";
 
   return (
     <main className="admin-crm-page page-shell">
       <header className="page-heading admin-crm-heading">
         <div className="page-heading-copy">
-          <span className="page-eyebrow">Điều hành nền tảng</span>
-          <h1>CRM tổng quan</h1>
-          <p>
-            Theo dõi workspace, vòng đời thuê bao và giao dịch cần chú ý trên
-            một màn hình.
-          </p>
+          <h1>{t("Tổng quan CRM")}</h1>
+          <p>{t("Theo dõi tổ chức, thuê bao và thanh toán.")}</p>
         </div>
         <div className="page-actions">
           <Button onClick={() => router.push("/admin/tenants")}>
-            Quản lý tổ chức
+            {t("Quản lý tổ chức")}{" "}
           </Button>
           <Button
             icon={<DollarOutlined />}
             onClick={() => router.push("/admin/billing")}
             type="primary"
           >
-            Thuê bao &amp; thanh toán
+            {t("Thuê bao & thanh toán")}{" "}
           </Button>
         </div>
       </header>
@@ -218,10 +194,11 @@ export default function AdminCrmPage() {
           action={
             <Button
               icon={<ReloadOutlined />}
+              loading={dashboard.isFetching}
               onClick={() => void dashboard.refetch()}
               size="small"
             >
-              Thử lại
+              {t("Thử lại")}{" "}
             </Button>
           }
           className="dashboard-alert"
@@ -235,69 +212,78 @@ export default function AdminCrmPage() {
         <Skeleton active paragraph={{ rows: 12 }} />
       ) : (
         data && (
-          <>
-            <section aria-label="Chỉ số CRM" className="admin-crm-metrics">
+            <section aria-label={t("Chỉ số CRM")} className="admin-crm-metrics">
               <Row gutter={[16, 16]}>
                 <CrmMetric
-                  detail={`${data.metrics.activeTenants} hoạt động · ${data.metrics.suspendedTenants} tạm khóa`}
+                  detail={t("{value0} hoạt động · {value1} tạm khóa", {
+                    value0: data.metrics.activeTenants,
+                    value1: data.metrics.suspendedTenants,
+                  })}
                   icon={<ApartmentOutlined />}
-                  label="Tổng workspace"
+                  label={t("Tổng tổ chức")}
                   value={compactNumber.format(data.metrics.totalTenants)}
                 />
                 <CrmMetric
-                  detail={`${data.metrics.activeSubscriptions} gói trả phí đang hiệu lực`}
+                  detail={t("{value0} thuê bao trả phí hiệu lực", {
+                    value0: data.metrics.activeSubscriptions,
+                  })}
                   icon={<CheckCircleOutlined />}
-                  label="Đang dùng thử"
+                  label={t("Đang dùng thử")}
                   value={compactNumber.format(data.metrics.trialWorkspaces)}
                 />
                 <CrmMetric
-                  detail={`${data.metrics.graceWorkspaces} đang gia hạn`}
-                  icon={<ClockCircleOutlined />}
-                  label="Workspace chỉ đọc"
-                  tone={data.metrics.readOnlyWorkspaces ? "warning" : "default"}
-                  value={compactNumber.format(data.metrics.readOnlyWorkspaces)}
-                />
-                <CrmMetric
-                  detail="Thành viên đang hoạt động trên toàn nền tảng"
-                  icon={<TeamOutlined />}
-                  label="Thành viên"
-                  value={compactNumber.format(data.metrics.activeMembers)}
-                />
-                <CrmMetric
-                  detail={`${data.metrics.paidOrders} đơn PAID · tổng ${currency.format(data.metrics.grossRevenueVnd)}`}
+                  detail={t("{value0} đơn đã thanh toán · tổng {value1}", {
+                    value0: data.metrics.paidOrders,
+                    value1: currency.format(data.metrics.grossRevenueVnd),
+                  })}
                   icon={<DollarOutlined />}
-                  label="Doanh thu 30 ngày"
+                  label={t("Doanh thu 30 ngày")}
                   value={currency.format(data.metrics.recentRevenueVnd)}
+                  wideOnMobile
                 />
                 <CrmMetric
-                  detail="Review hoặc hoàn tiền cần can thiệp"
+                  detail={t("Đối soát hoặc hoàn tiền")}
                   icon={<ExclamationCircleOutlined />}
-                  label="Hàng chờ xử lý"
+                  label={t("Cần xử lý")}
                   tone={data.metrics.reviewOrders ? "danger" : "default"}
                   value={compactNumber.format(data.metrics.reviewOrders)}
+                  wideOnMobile
                 />
               </Row>
+              <div className="admin-crm-secondary-summary" aria-label={t("Thông tin bổ sung")}>
+                <span>{t("{members} thành viên hoạt động", { members: compactNumber.format(data.metrics.activeMembers) })}</span>
+                <span>{t("{readOnly} chỉ đọc · {grace} đang gia hạn", { readOnly: compactNumber.format(data.metrics.readOnlyWorkspaces), grace: compactNumber.format(data.metrics.graceWorkspaces) })}</span>
+              </div>
             </section>
-
+        )
+      )}
             <section className="admin-crm-grid">
               <Card
                 className="surface-card table-surface admin-crm-tenants"
-                title="Sức khỏe workspace"
+                title={t("Tình trạng tổ chức")}
               >
                 <form
-                  className="admin-filter-bar admin-crm-filter"
+                  className="admin-filter-bar admin-crm-filter list-filter-bar"
                   onSubmit={submitSearch}
                 >
                   <Input
-                    aria-label="Tìm workspace"
-                    onChange={(event) => setSearchInput(event.target.value)}
-                    placeholder="Tên hoặc slug workspace"
+                    allowClear
+                    aria-label={t("Tìm tổ chức")}
+                    maxLength={100}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setSearchInput(value);
+                      if (!value.trim()) {
+                        setQuery((current) => ({ ...current, page: 1, search: undefined }));
+                      }
+                    }}
+                    placeholder={t("Tên hoặc mã tổ chức")}
                     prefix={<SearchOutlined />}
                     value={searchInput}
                   />
                   <Select
                     allowClear
-                    aria-label="Lọc trạng thái tenant"
+                    aria-label={t("Lọc trạng thái tổ chức")}
                     onChange={(status) =>
                       setQuery((current) => ({
                         ...current,
@@ -306,15 +292,15 @@ export default function AdminCrmPage() {
                       }))
                     }
                     options={[
-                      { label: "Đang hoạt động", value: "ACTIVE" },
-                      { label: "Tạm khóa", value: "SUSPENDED" },
+                      { label: t("Đang hoạt động"), value: "ACTIVE" },
+                      { label: t("Tạm khóa"), value: "SUSPENDED" },
                     ]}
-                    placeholder="Trạng thái tenant"
+                    placeholder={t("Trạng thái tổ chức")}
                     value={query.status}
                   />
                   <Select
                     allowClear
-                    aria-label="Lọc trạng thái truy cập"
+                    aria-label={t("Lọc trạng thái truy cập")}
                     onChange={(access) =>
                       setQuery((current) => ({
                         ...current,
@@ -328,33 +314,44 @@ export default function AdminCrmPage() {
                         value,
                       }),
                     )}
-                    placeholder="Trạng thái truy cập"
+                    placeholder={t("Trạng thái truy cập")}
                     value={query.access}
                   />
                   <Button htmlType="submit" loading={dashboard.isFetching}>
-                    Tìm kiếm
+                    {t("Tìm kiếm")}{" "}
                   </Button>
+                  {(searchInput || query.search || query.status || query.access) ? (
+                    <Button onClick={() => {
+                      setSearchInput("");
+                      setQuery((current) => ({ limit: current.limit, page: 1 }));
+                    }}>
+                      {t("Xóa bộ lọc")}
+                    </Button>
+                  ) : null}
                 </form>
+                {!dashboard.isError && (
                 <DataTable
-                  ariaLabel="Danh sách sức khỏe workspace"
+                  ariaLabel={t("Danh sách tổ chức")}
                   columns={columns}
-                  data={data.tenants.items}
-                  emptyText="Không tìm thấy workspace phù hợp"
+                  data={data?.tenants.items ?? []}
+                  emptyText={t(query.search || query.status || query.access ? "Không tìm thấy tổ chức phù hợp" : "Chưa có tổ chức")}
                   loading={dashboard.isFetching}
-                  onPageChange={(page) =>
-                    setQuery((current) => ({ ...current, page }))
+                  onPageChange={(page, limit) =>
+                    setQuery((current) => ({ ...current, limit, page: limit === current.limit ? page : 1 }))
                   }
-                  page={data.tenants.page}
-                  pageSize={data.tenants.limit}
+                  page={query.page}
+                  pageSize={query.limit}
                   rowKey="id"
                   scrollX={920}
-                  total={data.tenants.total}
+                  total={data?.tenants.total ?? 0}
                 />
+                )}
               </Card>
 
+              {data && !dashboard.isError && (
               <Card
                 className="surface-card admin-crm-activity"
-                title="Hoạt động gần đây"
+                title={t("Hoạt động gần đây")}
               >
                 {data.recentActivity.length ? (
                   <ol className="admin-crm-activity-list">
@@ -385,13 +382,11 @@ export default function AdminCrmPage() {
                     })}
                   </ol>
                 ) : (
-                  <Empty description="Chưa có hoạt động gần đây" />
+                  <Empty description={t("Chưa có hoạt động gần đây")} />
                 )}
               </Card>
+              )}
             </section>
-          </>
-        )
-      )}
     </main>
   );
 }
@@ -402,15 +397,17 @@ function CrmMetric({
   label,
   tone = "default",
   value,
+  wideOnMobile = false,
 }: {
   detail: string;
   icon: ReactNode;
   label: string;
   tone?: "danger" | "default" | "warning";
   value: string;
+  wideOnMobile?: boolean;
 }) {
   return (
-    <Col lg={8} md={12} xs={24}>
+    <Col xl={6} md={12} xs={wideOnMobile ? 24 : 12}>
       <Card
         className={`surface-card admin-crm-metric admin-crm-metric--${tone}`}
       >
@@ -425,4 +422,82 @@ function CrmMetric({
       </Card>
     </Col>
   );
+}
+
+function useOperationsCopy() {
+  const i18n = useI18n(crmMessages);
+  return useI18nMemo(() => {
+    const { t, locale } = i18n;
+    const currency = new Intl.NumberFormat(
+      locale === "en" ? "en-US" : "vi-VN",
+      {
+        currency: "VND",
+        maximumFractionDigits: 0,
+        style: "currency",
+      },
+    );
+
+    const compactNumber = new Intl.NumberFormat(
+      locale === "en" ? "en-US" : "vi-VN",
+      {
+        maximumFractionDigits: 1,
+        notation: "compact",
+      },
+    );
+
+    const dateTime = new Intl.DateTimeFormat(
+      locale === "en" ? "en-US" : "vi-VN",
+      {
+        dateStyle: "short",
+        timeStyle: "short",
+      },
+    );
+
+    const shortDate = new Intl.DateTimeFormat(
+      locale === "en" ? "en-US" : "vi-VN",
+      { dateStyle: "medium" },
+    );
+
+    const accessPresentation: Record<
+      AdminCrmAccessState,
+      { color?: string; label: string }
+    > = {
+      ACTIVE: { color: "green", label: t("Đang trả phí") },
+      GRACE: { color: "gold", label: t("Đang gia hạn") },
+      NONE: { label: t("Chưa có gói") },
+      READ_ONLY: { color: "red", label: t("Chỉ đọc") },
+      TRIAL: { color: "blue", label: t("Đang dùng thử") },
+    };
+
+    function safeDate(value: string): string {
+      const parsed = new Date(value);
+      return Number.isFinite(parsed.getTime()) ? dateTime.format(parsed) : "—";
+    }
+
+    function tenantAccessTag(state: AdminCrmAccessState) {
+      const presentation = accessPresentation[state];
+      return <Tag color={presentation.color}>{presentation.label}</Tag>;
+    }
+
+    function activityCopy(activity: AdminCrmActivity) {
+      if (activity.kind === "TENANT_CREATED") {
+        return { label: t("Tổ chức mới"), tone: "blue" };
+      }
+      if (activity.kind === "PAYMENT_PAID") {
+        return { label: t("Đã thanh toán"), tone: "green" };
+      }
+      return { label: t("Cần xử lý"), tone: "red" };
+    }
+    return {
+      ...i18n,
+      currency,
+      compactNumber,
+      dateTime,
+      shortDate,
+      accessPresentation,
+      safeDate,
+      tenantAccessTag,
+      activityCopy,
+    };
+  }, [i18n]);
 }

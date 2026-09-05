@@ -1,5 +1,10 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
@@ -9,7 +14,6 @@ import {
 } from "@ant-design/icons";
 import {
   Alert,
-  App,
   Button,
   Card,
   Empty,
@@ -76,41 +80,8 @@ interface CurriculumWorkspaceProps {
 const MAX_LESSON_TEXT_BYTES = 100 * 1024;
 const MAX_HTTPS_LENGTH = 2048;
 
-function resourceState(resource: { archivedAt: string | null; published: boolean }) {
-  if (resource.archivedAt) return { color: "default", label: "Đã lưu trữ" };
-  if (resource.published) return { color: "green", label: "Đã công bố" };
-  return { color: "gold", label: "Bản nháp" };
-}
-
 function sortByPosition<T extends { _id: string; position: number }>(items: readonly T[]) {
   return [...items].sort((left, right) => left.position - right.position || left._id.localeCompare(right._id));
-}
-
-function lessonContentError(draft: LessonDraft | null) {
-  if (!draft || draft.title.trim().length < 2) return "Tên bài học cần ít nhất 2 ký tự.";
-  const content = draft.content.trim();
-  if (!content) return draft.type === "TEXT" ? "Nhập nội dung bài học." : "Nhập liên kết HTTPS.";
-  if (draft.type === "TEXT") {
-    return new TextEncoder().encode(content).byteLength <= MAX_LESSON_TEXT_BYTES
-      ? null
-      : "Nội dung bài học không được vượt quá 100 KiB UTF-8.";
-  }
-  try {
-    const url = new URL(content);
-    return url.protocol === "https:"
-      && Boolean(url.hostname)
-      && !url.username
-      && !url.password
-      && url.toString().length <= MAX_HTTPS_LENGTH
-      ? null
-      : "Liên kết phải dùng HTTPS, có tên miền và không chứa thông tin đăng nhập.";
-  } catch {
-    return "Liên kết phải dùng HTTPS, có tên miền và không chứa thông tin đăng nhập.";
-  }
-}
-
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
 }
 
 function isCurriculumRevisionMismatch(error: unknown) {
@@ -119,6 +90,7 @@ function isCurriculumRevisionMismatch(error: unknown) {
 }
 
 export default function CourseCurriculumPage() {
+  const { t } = useI18n(learningMessages);
   const { id } = useParams<{ id: string }>();
   const { effectiveAccess, organization, token, user } = useAuth();
   const coursesEnabled = effectiveModuleEnabled(effectiveAccess, "COURSES");
@@ -126,10 +98,10 @@ export default function CourseCurriculumPage() {
   const scope = getViewerScope(user, organization);
 
   if (!coursesEnabled) {
-    return <main className="page-shell"><Alert showIcon title="Module Khóa học không khả dụng trong workspace này." type="warning" /></main>;
+    return <main className="page-shell"><Alert showIcon title={t("Module Khóa học không khả dụng trong workspace này.")} type="warning" /></main>;
   }
   if (!user || !organization || !scope || user.role === "SUPER_ADMIN" || !user.tenantId) {
-    return <main className="page-shell"><Alert showIcon title="Giáo trình chỉ khả dụng trong workspace của tổ chức." type="info" /></main>;
+    return <main className="page-shell"><Alert showIcon title={t("Giáo trình chỉ khả dụng trong workspace của tổ chức.")} type="info" /></main>;
   }
 
   const readOnly = effectiveAccess?.readOnly ?? false;
@@ -153,9 +125,38 @@ function CurriculumWorkspace({
   scope,
   token,
 }: CurriculumWorkspaceProps) {
+  const { t } = useI18n(learningMessages);
+  function resourceState(resource: { archivedAt: string | null; published: boolean }) {
+    if (resource.archivedAt) return { color: "default", label: t("Đã lưu trữ") };
+    if (resource.published) return { color: "green", label: t("Đã công bố") };
+    return { color: "gold", label: t("Bản nháp") };
+  }
+  function lessonContentError(draft: LessonDraft | null) {
+    if (!draft || draft.title.trim().length < 2) return t("Tên bài học cần ít nhất 2 ký tự.");
+    const content = draft.content.trim();
+    if (!content) return draft.type === "TEXT" ? t("Nhập nội dung bài học.") : t("Nhập liên kết HTTPS.");
+    if (draft.type === "TEXT") {
+      return new TextEncoder().encode(content).byteLength <= MAX_LESSON_TEXT_BYTES
+        ? null
+        : t("Nội dung bài học không được vượt quá 100 KiB UTF-8.");
+    }
+    try {
+      const url = new URL(content);
+      return url.protocol === "https:"
+        && Boolean(url.hostname)
+        && !url.username
+        && !url.password
+        && url.toString().length <= MAX_HTTPS_LENGTH
+        ? null
+        : t("Liên kết phải dùng HTTPS, có tên miền và không chứa thông tin đăng nhập.");
+    } catch {
+      return t("Liên kết phải dùng HTTPS, có tên miền và không chứa thông tin đăng nhập.");
+    }
+  }
+
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { message } = App.useApp();
+  const { message, formatError } = useFeedback();
   const manager = role === "TENANT_ADMIN" || role === "INSTRUCTOR";
   const [includeArchived, setIncludeArchived] = useState(false);
   const [sectionDraft, setSectionDraft] = useState<SectionDraft | null>(null);
@@ -176,7 +177,7 @@ function CurriculumWorkspace({
   const createSection = useMutation({
     mutationFn: (draft: SectionDraft) => {
       if (readOnly || curriculum?.course.status === "ARCHIVED") {
-        throw new Error("Workspace hoặc khóa học hiện không cho phép chỉnh sửa.");
+        throw new Error(t("Workspace hoặc khóa học hiện không cho phép chỉnh sửa."));
       }
       return curriculumApi.createSection({ token }, courseId, {
         clientMutationId: draft.clientMutationId,
@@ -194,7 +195,7 @@ function CurriculumWorkspace({
   const createLesson = useMutation({
     mutationFn: (draft: LessonDraft) => {
       if (readOnly || curriculum?.course.status === "ARCHIVED") {
-        throw new Error("Workspace hoặc khóa học hiện không cho phép chỉnh sửa.");
+        throw new Error(t("Workspace hoặc khóa học hiện không cho phép chỉnh sửa."));
       }
       return curriculumApi.createLesson({ token }, courseId, draft.sectionId, {
         clientMutationId: draft.clientMutationId,
@@ -217,7 +218,7 @@ function CurriculumWorkspace({
   const updateSection = useMutation({
     mutationFn: (draft: SectionEditDraft) => {
       if (readOnly || curriculum?.course.status === "ARCHIVED") {
-        throw new Error("Workspace hoặc khóa học hiện không cho phép chỉnh sửa.");
+        throw new Error(t("Workspace hoặc khóa học hiện không cho phép chỉnh sửa."));
       }
       return curriculumApi.updateSection({ token }, courseId, draft.sectionId, {
         description: draft.description.trim(),
@@ -234,7 +235,7 @@ function CurriculumWorkspace({
   const publishSection = useMutation({
     mutationFn: (section: CurriculumSection) => {
       if (readOnly || curriculum?.course.status !== "PUBLISHED" || section.archivedAt) {
-        throw new Error("Chương chỉ có thể được công bố trong khóa học đang công bố.");
+        throw new Error(t("Chương chỉ có thể được công bố trong khóa học đang công bố."));
       }
       return curriculumApi.publishSection(
         { token }, courseId, section._id, { expectedRevision: section.revision },
@@ -248,7 +249,7 @@ function CurriculumWorkspace({
   const archiveSection = useMutation({
     mutationFn: (section: CurriculumSection) => {
       if (readOnly || section.archivedAt) {
-        throw new Error("Workspace hoặc chương hiện không cho phép lưu trữ.");
+        throw new Error(t("Workspace hoặc chương hiện không cho phép lưu trữ."));
       }
       return curriculumApi.archiveSection(
         { token }, courseId, section._id, { expectedRevision: section.revision },
@@ -268,7 +269,7 @@ function CurriculumWorkspace({
         || !section.published
         || lesson.archivedAt
       ) {
-        throw new Error("Bài học chỉ có thể được công bố trong chương và khóa học đang công bố.");
+        throw new Error(t("Bài học chỉ có thể được công bố trong chương và khóa học đang công bố."));
       }
       return curriculumApi.publishLesson(
         { token }, courseId, lesson._id, { expectedRevision: lesson.revision },
@@ -282,7 +283,7 @@ function CurriculumWorkspace({
   const archiveLesson = useMutation({
     mutationFn: (lesson: CurriculumLesson) => {
       if (readOnly || lesson.archivedAt) {
-        throw new Error("Workspace hoặc bài học hiện không cho phép lưu trữ.");
+        throw new Error(t("Workspace hoặc bài học hiện không cho phép lưu trữ."));
       }
       return curriculumApi.archiveLesson(
         { token }, courseId, lesson._id, { expectedRevision: lesson.revision },
@@ -296,7 +297,7 @@ function CurriculumWorkspace({
   const setLessonProgress = useMutation({
     mutationFn: (lesson: CurriculumLesson) => {
       if (role !== "LEARNER" || readOnly) {
-        throw new Error("Workspace hiện không cho phép cập nhật tiến độ học tập.");
+        throw new Error(t("Workspace hiện không cho phép cập nhật tiến độ học tập."));
       }
       return curriculumApi.setLessonProgress({ token }, courseId, lesson._id, {
         completed: !lesson.progress?.completed,
@@ -325,11 +326,11 @@ function CurriculumWorkspace({
   const sectionValid = Boolean(sectionDraft && sectionDraft.title.trim().length >= 2);
   const sectionEditValid = Boolean(
     sectionEditDraft
-      && sectionEditDraft.title.trim().length >= 2
-      && (
-        sectionEditDraft.title.trim() !== sectionEditDraft.originalTitle
-        || sectionEditDraft.description.trim() !== sectionEditDraft.originalDescription
-      ),
+    && sectionEditDraft.title.trim().length >= 2
+    && (
+      sectionEditDraft.title.trim() !== sectionEditDraft.originalTitle
+      || sectionEditDraft.description.trim() !== sectionEditDraft.originalDescription
+    ),
   );
   const lessonError = lessonContentError(lessonDraft);
   const courseArchived = curriculum?.course.status === "ARCHIVED";
@@ -379,56 +380,56 @@ function CurriculumWorkspace({
   };
 
   return <main aria-labelledby="curriculum-page-title" className="page-shell">
-    <nav aria-label="Điều hướng giáo trình">
-      <Button icon={<ArrowLeftOutlined />} onClick={() => router.push(`/courses/${courseId}`)} type="text">Quay lại khóa học</Button>
+    <nav aria-label={t("Điều hướng giáo trình")}>
+      <Button icon={<ArrowLeftOutlined />} onClick={() => router.push(`/courses/${courseId}`)} type="text">{t("Quay lại khóa học")}</Button>
     </nav>
     <header className={`page-heading ${styles.pageHeader}`}>
       <div className="page-heading-copy">
-        <h1 id="curriculum-page-title">{curriculum?.course.title ?? "Giáo trình khóa học"}</h1>
-        <p>{manager ? "Xây dựng giáo trình bằng cách thêm chương và bài học." : "Học theo nội dung đã được giảng viên công bố."}</p>
+        <h1 id="curriculum-page-title">{curriculum?.course.title ?? t("Giáo trình khóa học")}</h1>
+        <p>{manager ? t("Xây dựng giáo trình bằng cách thêm chương và bài học.") : t("Học theo nội dung đã được giảng viên công bố.")}</p>
       </div>
       {manager && <div className={styles.toolbar}>
         {learnerProgressEnabled && <Button
           onClick={() => router.push(`/courses/${courseId}/progress`)}
-        >Tiến độ học viên</Button>}
+        >{t("Tiến độ học viên")}</Button>}
         <Button disabled={readOnly || busy || !curriculum || curriculum.course.status === "ARCHIVED"} icon={<PlusOutlined />} onClick={() => {
           if (!curriculum) return;
           createSection.reset();
           setSectionDraft({
             clientMutationId: createCurriculumMutationId(), description: "", expectedCurriculumRevision: curriculum.curriculumRevision, title: "",
           });
-        }} type="primary">Thêm chương</Button>
+        }} type="primary">{t("Thêm chương")}</Button>
         <Button disabled={busy} onClick={() => setIncludeArchived((current) => !current)}>
-          {includeArchived ? "Ẩn nội dung lưu trữ" : "Xem nội dung lưu trữ"}
+          {includeArchived ? t("Ẩn nội dung lưu trữ") : t("Xem nội dung lưu trữ")}
         </Button>
       </div>}
     </header>
 
     {readOnly && <Alert
       description={manager
-        ? "Bạn vẫn xem được giáo trình; thao tác thêm chương và bài học đang tạm khóa."
-        : "Bạn vẫn xem được toàn bộ nội dung đã công bố; thao tác cập nhật tiến độ đang tạm khóa."}
+        ? t("Bạn vẫn xem được giáo trình; thao tác thêm chương và bài học đang tạm khóa.")
+        : t("Bạn vẫn xem được toàn bộ nội dung đã công bố; thao tác cập nhật tiến độ đang tạm khóa.")}
       showIcon
-      title="Workspace chỉ đọc"
+      title={t("Workspace chỉ đọc")}
       type="info"
     />}
     {mutationError && <Alert
-      action={<Button onClick={() => void reloadAfterMutationError()} size="small">Tải lại giáo trình</Button>}
+      action={<Button onClick={() => void reloadAfterMutationError()} size="small">{t("Tải lại giáo trình")}</Button>}
       showIcon
-      title={errorMessage(mutationError, "Không thể cập nhật giáo trình")}
+      title={formatError(mutationError, t("Không thể cập nhật giáo trình"))}
       type="error"
     />}
     {curriculumQuery.error
-      ? <Alert showIcon title={errorMessage(curriculumQuery.error, "Không tải được giáo trình")} type="error" />
+      ? <Alert showIcon title={formatError(curriculumQuery.error, t("Không tải được giáo trình"))} type="error" />
       : curriculumQuery.isPending
-        ? <div aria-label="Đang tải giáo trình" className="page-loading" role="status"><Spin size="large" /></div>
+        ? <div aria-label={t("Đang tải giáo trình")} className="page-loading" role="status"><Spin size="large" /></div>
         : !curriculum
-          ? <Empty description="Không tìm thấy giáo trình" />
+          ? <Empty description={t("Không tìm thấy giáo trình")} />
           : <>
-            {!manager && curriculum.myProgress && <Card className="surface-card" title="Tiến độ của bạn">
-              <strong>{curriculum.myProgress.completedRequiredLessons}/{curriculum.myProgress.requiredLessons} bài bắt buộc · {curriculum.myProgress.percent}%</strong>
+            {!manager && curriculum.myProgress && <Card className="surface-card" title={t("Tiến độ của bạn")}>
+              <strong>{curriculum.myProgress.completedRequiredLessons}/{curriculum.myProgress.requiredLessons} {t("bài bắt buộc ·")} {curriculum.myProgress.percent}%</strong>
             </Card>}
-            {sections.length ? <ol aria-label="Các chương" className={styles.sectionList}>
+            {sections.length ? <ol aria-label={t("Các chương")} className={styles.sectionList}>
               {sections.map((section) => {
                 const state = resourceState(section);
                 const lessons = sortByPosition(section.lessons);
@@ -436,10 +437,10 @@ function CurriculumWorkspace({
                   <Card
                     className="surface-card"
                     extra={<Space size={[6, 6]} wrap>
-                      <Tag color={state.color}>{state.label}</Tag>
+                      <Tag color={state.color}>{t(state.label)}</Tag>
                       {manager && <>
                         <Button
-                          aria-label={`Sửa chương ${section.title}`}
+                          aria-label={t("Sửa chương {p0}", { p0: section.title })}
                           disabled={readOnly || busy || Boolean(section.archivedAt) || curriculum.course.status === "ARCHIVED"}
                           icon={<EditOutlined />}
                           onClick={() => {
@@ -454,33 +455,33 @@ function CurriculumWorkspace({
                             });
                           }}
                           size="small"
-                        >Sửa</Button>
+                        >{t("Sửa")}</Button>
                         {!section.published && !section.archivedAt && <Button
-                          aria-label={`Công bố chương ${section.title}`}
+                          aria-label={t("Công bố chương {p0}", { p0: section.title })}
                           disabled={readOnly || busy || curriculum.course.status !== "PUBLISHED"}
                           icon={<SendOutlined />}
                           onClick={() => publishSection.mutate(section)}
                           size="small"
-                        >Công bố</Button>}
+                        >{t("Công bố")}</Button>}
                         {!section.archivedAt && <Popconfirm
-                          okText="Lưu trữ chương"
+                          okText={t("Lưu trữ chương")}
                           onConfirm={() => archiveSection.mutateAsync(section)}
-                          title={`Lưu trữ chương ${section.title}? Các bài học bên trong sẽ bị ẩn khỏi học viên.`}
+                          title={t("Lưu trữ chương {p0}? Các bài học bên trong sẽ bị ẩn khỏi học viên.", { p0: section.title })}
                         >
                           <Button
-                            aria-label={`Lưu trữ chương ${section.title}`}
+                            aria-label={t("Lưu trữ chương {p0}", { p0: section.title })}
                             danger
                             disabled={readOnly || busy}
                             icon={<DeleteOutlined />}
                             size="small"
-                          >Lưu trữ</Button>
+                          >{t("Lưu trữ")}</Button>
                         </Popconfirm>}
                       </>}
                     </Space>}
                     title={section.title}
                   >
                     {section.description && <Typography.Paragraph type="secondary">{section.description}</Typography.Paragraph>}
-                    {lessons.length ? <ol aria-label={`Bài học trong ${section.title}`} className={styles.lessonList}>
+                    {lessons.length ? <ol aria-label={t("Bài học trong {p0}", { p0: section.title })} className={styles.lessonList}>
                       {lessons.map((lesson) => {
                         const lessonState = resourceState(lesson);
                         return <li className={styles.lessonItem} key={lesson._id}>
@@ -488,16 +489,16 @@ function CurriculumWorkspace({
                             <Link className={styles.lessonTitle} href={`/courses/${courseId}/lessons/${lesson._id}`}>{lesson.title}</Link>
                             {lesson.summary && <p className={styles.lessonSummary}>{lesson.summary}</p>}
                             <Space size={[6, 6]} wrap>
-                              <Tag>{lesson.type === "TEXT" ? "Văn bản" : "Liên kết HTTPS"}</Tag>
-                              <Tag>{lesson.required ? "Bắt buộc" : "Tự chọn"}</Tag>
-                              {manager && <Tag color={lessonState.color}>{lessonState.label}</Tag>}
-                              {!manager && lesson.progress?.completed && <Tag color="green">Đã hoàn thành</Tag>}
-                              {!manager && lesson.progress?.contentChangedSinceCompletion && <Tag color="gold">Nội dung mới sau khi hoàn thành</Tag>}
+                              <Tag>{lesson.type === "TEXT" ? t("Văn bản") : t("Liên kết HTTPS")}</Tag>
+                              <Tag>{lesson.required ? t("Bắt buộc") : t("Tự chọn")}</Tag>
+                              {manager && <Tag color={lessonState.color}>{t(lessonState.label)}</Tag>}
+                              {!manager && lesson.progress?.completed && <Tag color="green">{t("Đã hoàn thành")}</Tag>}
+                              {!manager && lesson.progress?.contentChangedSinceCompletion && <Tag color="gold">{t("Nội dung mới sau khi hoàn thành")}</Tag>}
                             </Space>
                           </div>
                           {manager && <div className={styles.resourceActions}>
                             {!lesson.published && !lesson.archivedAt && <Button
-                              aria-label={`Công bố bài học ${lesson.title}`}
+                              aria-label={t("Công bố bài học {p0}", { p0: lesson.title })}
                               disabled={
                                 readOnly
                                 || busy
@@ -508,34 +509,34 @@ function CurriculumWorkspace({
                               icon={<SendOutlined />}
                               onClick={() => publishLesson.mutate({ lesson, section })}
                               size="small"
-                            >Công bố</Button>}
+                            >{t("Công bố")}</Button>}
                             {!lesson.archivedAt && <Popconfirm
-                              okText="Lưu trữ bài học"
+                              okText={t("Lưu trữ bài học")}
                               onConfirm={() => archiveLesson.mutateAsync(lesson)}
-                              title={`Lưu trữ bài học ${lesson.title}?`}
+                              title={t("Lưu trữ bài học {p0}?", { p0: lesson.title })}
                             >
                               <Button
-                                aria-label={`Lưu trữ bài học ${lesson.title}`}
+                                aria-label={t("Lưu trữ bài học {p0}", { p0: lesson.title })}
                                 danger
                                 disabled={readOnly || busy}
                                 icon={<DeleteOutlined />}
                                 size="small"
-                              >Lưu trữ</Button>
+                              >{t("Lưu trữ")}</Button>
                             </Popconfirm>}
                           </div>}
                           {!manager && <div className={styles.resourceActions}>
                             <Button
-                              aria-label={`${lesson.progress?.completed ? "Đánh dấu chưa hoàn thành" : "Đánh dấu hoàn thành"} ${lesson.title}`}
+                              aria-label={`${lesson.progress?.completed ? t("Đánh dấu chưa hoàn thành") : t("Đánh dấu hoàn thành")} ${lesson.title}`}
                               disabled={readOnly || busy}
                               loading={setLessonProgress.isPending && setLessonProgress.variables?._id === lesson._id}
                               onClick={() => setLessonProgress.mutate(lesson)}
                               size="small"
                               type={lesson.progress?.completed ? "default" : "primary"}
-                            >{lesson.progress?.completed ? "Đánh dấu chưa hoàn thành" : "Đánh dấu hoàn thành"}</Button>
+                            >{lesson.progress?.completed ? t("Đánh dấu chưa hoàn thành") : t("Đánh dấu hoàn thành")}</Button>
                           </div>}
                         </li>;
                       })}
-                    </ol> : <p className={styles.emptyLessons}>Chương này chưa có bài học.</p>}
+                    </ol> : <p className={styles.emptyLessons}>{t("Chương này chưa có bài học.")}</p>}
                     {manager && !section.archivedAt && <Button
                       disabled={readOnly || busy || curriculum.course.status === "ARCHIVED"}
                       icon={<PlusOutlined />}
@@ -546,37 +547,37 @@ function CurriculumWorkspace({
                         });
                       }}
                       style={{ marginTop: 16 }}
-                    >Thêm bài học</Button>}
+                    >{t("Thêm bài học")}</Button>}
                   </Card>
                 </li>;
               })}
-            </ol> : <Card className="surface-card"><Empty description={manager ? "Chưa có chương nào" : "Giáo trình chưa có bài học được công bố"} /></Card>}
+            </ol> : <Card className="surface-card"><Empty description={manager ? t("Chưa có chương nào") : t("Giáo trình chưa có bài học được công bố")} /></Card>}
           </>}
 
     <Modal
-      cancelText="Hủy"
+      cancelText={t("Hủy")}
       okButtonProps={{ disabled: readOnly || courseArchived || !sectionValid || createSection.isPending }}
-      okText="Thêm chương"
+      okText={t("Thêm chương")}
       onCancel={() => {
         createSection.reset();
         setSectionDraft(null);
       }}
       onOk={() => sectionDraft && !readOnly && !courseArchived && createSection.mutate(sectionDraft)}
       open={Boolean(sectionDraft)}
-      title="Thêm chương"
+      title={t("Thêm chương")}
     >
       {sectionDraft && <div className={styles.modalFields}>
-        <label className={styles.field}><span className={styles.fieldLabel}>Tên chương</span><Input aria-label="Tên chương" disabled={readOnly || courseArchived} maxLength={200} onChange={(event) => setSectionDraft({ ...sectionDraft, title: event.target.value })} value={sectionDraft.title} /></label>
-        <label className={styles.field}><span className={styles.fieldLabel}>Mô tả</span><Input.TextArea aria-label="Mô tả chương" disabled={readOnly || courseArchived} maxLength={2000} onChange={(event) => setSectionDraft({ ...sectionDraft, description: event.target.value })} rows={3} value={sectionDraft.description} /></label>
+        <label className={styles.field}><span className={styles.fieldLabel}>{t("Tên chương")}</span><Input aria-label={t("Tên chương")} disabled={readOnly || courseArchived} maxLength={200} onChange={(event) => setSectionDraft({ ...sectionDraft, title: event.target.value })} value={sectionDraft.title} /></label>
+        <label className={styles.field}><span className={styles.fieldLabel}>{t("Mô tả")}</span><Input.TextArea aria-label={t("Mô tả chương")} disabled={readOnly || courseArchived} maxLength={2000} onChange={(event) => setSectionDraft({ ...sectionDraft, description: event.target.value })} rows={3} value={sectionDraft.description} /></label>
       </div>}
     </Modal>
 
     <Modal
-      cancelText="Hủy"
+      cancelText={t("Hủy")}
       okButtonProps={{
         disabled: readOnly || courseArchived || !sectionEditValid || updateSection.isPending,
       }}
-      okText="Lưu thay đổi"
+      okText={t("Lưu thay đổi")}
       onCancel={() => {
         updateSection.reset();
         setSectionEditDraft(null);
@@ -587,35 +588,35 @@ function CurriculumWorkspace({
         && sectionEditValid
         && updateSection.mutate(sectionEditDraft)}
       open={Boolean(sectionEditDraft)}
-      title="Sửa chương"
+      title={t("Sửa chương")}
     >
       {sectionEditDraft && <div className={styles.modalFields}>
-        <label className={styles.field}><span className={styles.fieldLabel}>Tên chương</span><Input aria-label="Tên chương cần sửa" disabled={readOnly || courseArchived} maxLength={200} onChange={(event) => setSectionEditDraft({ ...sectionEditDraft, title: event.target.value })} value={sectionEditDraft.title} /></label>
-        <label className={styles.field}><span className={styles.fieldLabel}>Mô tả</span><Input.TextArea aria-label="Mô tả chương cần sửa" disabled={readOnly || courseArchived} maxLength={2000} onChange={(event) => setSectionEditDraft({ ...sectionEditDraft, description: event.target.value })} rows={3} value={sectionEditDraft.description} /></label>
+        <label className={styles.field}><span className={styles.fieldLabel}>{t("Tên chương")}</span><Input aria-label={t("Tên chương cần sửa")} disabled={readOnly || courseArchived} maxLength={200} onChange={(event) => setSectionEditDraft({ ...sectionEditDraft, title: event.target.value })} value={sectionEditDraft.title} /></label>
+        <label className={styles.field}><span className={styles.fieldLabel}>{t("Mô tả")}</span><Input.TextArea aria-label={t("Mô tả chương cần sửa")} disabled={readOnly || courseArchived} maxLength={2000} onChange={(event) => setSectionEditDraft({ ...sectionEditDraft, description: event.target.value })} rows={3} value={sectionEditDraft.description} /></label>
       </div>}
     </Modal>
 
     <Modal
-      cancelText="Hủy"
+      cancelText={t("Hủy")}
       okButtonProps={{ disabled: readOnly || courseArchived || Boolean(lessonError) || createLesson.isPending }}
-      okText="Thêm bài học"
+      okText={t("Thêm bài học")}
       onCancel={() => {
         createLesson.reset();
         setLessonDraft(null);
       }}
       onOk={() => lessonDraft && !readOnly && !courseArchived && !lessonError && createLesson.mutate(lessonDraft)}
       open={Boolean(lessonDraft)}
-      title="Thêm bài học"
+      title={t("Thêm bài học")}
     >
       {lessonDraft && <div className={styles.modalFields}>
-        <label className={styles.field}><span className={styles.fieldLabel}>Tên bài học</span><Input aria-label="Tên bài học" disabled={readOnly || courseArchived} maxLength={200} onChange={(event) => setLessonDraft({ ...lessonDraft, title: event.target.value })} value={lessonDraft.title} /></label>
-        <label className={styles.field}><span className={styles.fieldLabel}>Mô tả ngắn</span><Input.TextArea aria-label="Mô tả bài học" disabled={readOnly || courseArchived} maxLength={2000} onChange={(event) => setLessonDraft({ ...lessonDraft, summary: event.target.value })} rows={2} value={lessonDraft.summary} /></label>
-        <label className={styles.field}><span className={styles.fieldLabel}>Loại bài học</span><Select<LessonType> aria-label="Loại bài học" disabled={readOnly || courseArchived} onChange={(type) => setLessonDraft({ ...lessonDraft, content: "", type })} options={[
-          { label: "Văn bản", value: "TEXT" }, { label: "Liên kết HTTPS", value: "HTTPS_LINK" },
+        <label className={styles.field}><span className={styles.fieldLabel}>{t("Tên bài học")}</span><Input aria-label={t("Tên bài học")} disabled={readOnly || courseArchived} maxLength={200} onChange={(event) => setLessonDraft({ ...lessonDraft, title: event.target.value })} value={lessonDraft.title} /></label>
+        <label className={styles.field}><span className={styles.fieldLabel}>{t("Mô tả ngắn")}</span><Input.TextArea aria-label={t("Mô tả bài học")} disabled={readOnly || courseArchived} maxLength={2000} onChange={(event) => setLessonDraft({ ...lessonDraft, summary: event.target.value })} rows={2} value={lessonDraft.summary} /></label>
+        <label className={styles.field}><span className={styles.fieldLabel}>{t("Loại bài học")}</span><Select<LessonType> aria-label={t("Loại bài học")} disabled={readOnly || courseArchived} onChange={(type) => setLessonDraft({ ...lessonDraft, content: "", type })} options={[
+          { label: t("Văn bản"), value: "TEXT" }, { label: t("Liên kết HTTPS"), value: "HTTPS_LINK" },
         ]} value={lessonDraft.type} /></label>
-        <label className={styles.field}><span className={styles.fieldLabel}>{lessonDraft.type === "TEXT" ? "Nội dung" : "Liên kết HTTPS"}</span>{lessonDraft.type === "TEXT"
-          ? <Input.TextArea aria-label="Nội dung bài học" disabled={readOnly || courseArchived} onChange={(event) => setLessonDraft({ ...lessonDraft, content: event.target.value })} rows={8} value={lessonDraft.content} />
-          : <Input aria-label="Liên kết bài học HTTPS" disabled={readOnly || courseArchived} maxLength={MAX_HTTPS_LENGTH} onChange={(event) => setLessonDraft({ ...lessonDraft, content: event.target.value })} type="url" value={lessonDraft.content} />}</label>
+        <label className={styles.field}><span className={styles.fieldLabel}>{lessonDraft.type === "TEXT" ? t("Nội dung") : t("Liên kết HTTPS")}</span>{lessonDraft.type === "TEXT"
+          ? <Input.TextArea aria-label={t("Nội dung bài học")} disabled={readOnly || courseArchived} onChange={(event) => setLessonDraft({ ...lessonDraft, content: event.target.value })} rows={8} value={lessonDraft.content} />
+          : <Input aria-label={t("Liên kết bài học HTTPS")} disabled={readOnly || courseArchived} maxLength={MAX_HTTPS_LENGTH} onChange={(event) => setLessonDraft({ ...lessonDraft, content: event.target.value })} type="url" value={lessonDraft.content} />}</label>
         {lessonDraft.title.trim() && lessonError && <Alert showIcon title={lessonError} type="warning" />}
       </div>}
     </Modal>

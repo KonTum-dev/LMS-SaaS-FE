@@ -1,9 +1,14 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { formatDate as formatUiDate } from "@/lib/i18n/translate";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Alert,
-  App,
   Button,
   Card,
   Empty,
@@ -17,7 +22,7 @@ import {
   Typography,
   type TableColumnsType,
 } from "antd";
-import dayjs from "dayjs";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -30,6 +35,7 @@ import {
   type ClassSession,
 } from "@/lib/cohort-api";
 import { getViewerScope } from "@/lib/query-keys";
+import attendanceStyles from "./attendance.module.css";
 
 interface AttendanceDraft {
   note?: string;
@@ -41,11 +47,11 @@ const attendanceStatuses: Array<{
   label: string;
   value: AttendanceStatus;
 }> = [
-  { color: "green", label: "Có mặt", value: "PRESENT" },
-  { color: "red", label: "Vắng", value: "ABSENT" },
-  { color: "orange", label: "Đi muộn", value: "LATE" },
-  { color: "blue", label: "Có phép", value: "EXCUSED" },
-];
+    { color: "green", label: "Có mặt", value: "PRESENT" },
+    { color: "red", label: "Vắng", value: "ABSENT" },
+    { color: "orange", label: "Đi muộn", value: "LATE" },
+    { color: "blue", label: "Có phép", value: "EXCUSED" },
+  ];
 
 const attendanceStatusPresentation = Object.fromEntries(
   attendanceStatuses.map(({ color, label, value }) => [
@@ -72,20 +78,13 @@ function learnerId(value: AttendanceRosterItem["learnerId"]): string {
   return typeof value === "string" ? value : value._id;
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
-
-function sessionLabel(session: ClassSession): string {
-  return `${dayjs(session.startAt).format("DD/MM/YYYY · HH:mm")}–${dayjs(
-    session.endAt,
-  ).format("HH:mm")} · ${
-    sessionStatusPresentation[session.status].label
-  }`;
-}
-
 export default function CohortAttendancePage() {
-  const { message } = App.useApp();
+  const { t, locale } = useI18n(learningMessages);
+  function sessionLabel(session: ClassSession): string {
+    return `${formatUiDate(session.startAt, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}–${formatUiDate(session.endAt, locale, { hour: "2-digit", minute: "2-digit" })} · ${t(sessionStatusPresentation[session.status].label)}`;
+  }
+
+  const { message, reportError, formatError } = useFeedback();
   const { id: rawCohortId } = useParams<{ id: string }>();
   const cohortId = Array.isArray(rawCohortId)
     ? rawCohortId[0] ?? ""
@@ -120,12 +119,12 @@ export default function CohortAttendancePage() {
     scope && activeSessionId
       ? cohortQueryKeys.attendance(scope, cohortId, activeSessionId)
       : ([
-          "lms",
-          "signed-out",
-          "cohorts",
-          cohortId,
-          "attendance",
-        ] as const);
+        "lms",
+        "signed-out",
+        "cohorts",
+        cohortId,
+        "attendance",
+      ] as const);
   const attendanceQuery = useQuery({
     enabled: Boolean(
       token && scope && roleAllowed && cohortId && activeSessionId,
@@ -142,10 +141,10 @@ export default function CohortAttendancePage() {
   const items = attendanceQuery.data?.items ?? [];
   const canMutate = Boolean(
     roleAllowed &&
-      scope &&
-      !readOnly &&
-      selectedSession &&
-      selectedSession.status !== "CANCELLED",
+    scope &&
+    !readOnly &&
+    selectedSession &&
+    selectedSession.status !== "CANCELLED",
   );
 
   const valueFor = (item: AttendanceRosterItem): AttendanceDraft => {
@@ -167,7 +166,7 @@ export default function CohortAttendancePage() {
   const saveMutation = useMutation({
     mutationFn: () => {
       if (!canMutate || !activeSessionId) {
-        throw new Error("Workspace hiện không cho phép lưu điểm danh");
+        throw new Error(t("Workspace hiện không cho phép lưu điểm danh"));
       }
       const records = items.flatMap((item) => {
         const value = valueFor(item);
@@ -181,7 +180,7 @@ export default function CohortAttendancePage() {
         ];
       });
       if (records.length === 0) {
-        throw new Error("Hãy chọn trạng thái cho ít nhất một học viên");
+        throw new Error(t("Hãy chọn trạng thái cho ít nhất một học viên"));
       }
       return cohortApi.bulkMarkAttendance(
         { token },
@@ -223,7 +222,7 @@ export default function CohortAttendancePage() {
     try {
       await saveMutation.mutateAsync();
     } catch (error) {
-      message.error(errorMessage(error, "Không thể lưu điểm danh"));
+      reportError(error, "Không thể lưu điểm danh");
     }
   };
 
@@ -240,58 +239,58 @@ export default function CohortAttendancePage() {
           )}
         </div>
       ),
-      title: "Học viên",
+      title: t("Học viên"),
     },
     {
       key: "status",
       render: (_, item) => (
         <Select<AttendanceStatus>
-          aria-label={`Trạng thái của ${personName(item.learnerId)}`}
+          aria-label={t("Trạng thái của {p0}", { p0: personName(item.learnerId) })}
           disabled={!canMutate}
           onChange={(status) => updateDraft(item, { status })}
           options={attendanceStatuses.map(({ label, value }) => ({
-            label,
+            label: t(label),
             value,
           }))}
-          placeholder="Chưa điểm danh"
+          placeholder={t("Chưa điểm danh")}
           style={{ minWidth: 145 }}
           value={valueFor(item).status}
         />
       ),
-      title: "Trạng thái",
+      title: t("Trạng thái"),
       width: 180,
     },
     {
       key: "note",
       render: (_, item) => (
         <Input
-          aria-label={`Ghi chú cho ${personName(item.learnerId)}`}
+          aria-label={t("Ghi chú cho {p0}", { p0: personName(item.learnerId) })}
           disabled={!canMutate}
           maxLength={500}
           onChange={(event) => updateDraft(item, { note: event.target.value })}
-          placeholder="Ghi chú (không bắt buộc)"
+          placeholder={t("Ghi chú (không bắt buộc)")}
           value={valueFor(item).note}
         />
       ),
-      title: "Ghi chú",
+      title: t("Ghi chú"),
     },
     {
       key: "marked",
       render: (_, item) =>
         item.markedAt ? (
-          <Space direction="vertical" size={0}>
-            <span>{dayjs(item.markedAt).format("DD/MM/YYYY HH:mm")}</span>
+          <Space orientation="vertical" size={0}>
+            <span>{formatUiDate(item.markedAt, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
             {item.status && (
               <Tag color={attendanceStatusPresentation[item.status].color}>
-                {attendanceStatusPresentation[item.status].label}
+                {t(attendanceStatusPresentation[item.status].label)}
               </Tag>
             )}
           </Space>
         ) : (
-          "Chưa lưu"
+          t("Chưa lưu")
         ),
       responsive: ["md"],
-      title: "Lần ghi nhận gần nhất",
+      title: t("Lần ghi nhận gần nhất"),
       width: 195,
     },
   ];
@@ -300,7 +299,7 @@ export default function CohortAttendancePage() {
     return (
       <Alert
         showIcon
-        title="Chỉ quản trị viên và giảng viên được điểm danh lớp học."
+        title={t("Chỉ quản trị viên và giảng viên được điểm danh lớp học.")}
         type="warning"
       />
     );
@@ -309,7 +308,7 @@ export default function CohortAttendancePage() {
     return (
       <Alert
         showIcon
-        title="Phiên làm việc thiếu phạm vi thành viên hợp lệ."
+        title={t("Phiên làm việc thiếu phạm vi thành viên hợp lệ.")}
         type="error"
       />
     );
@@ -320,60 +319,54 @@ export default function CohortAttendancePage() {
       <div className="page-heading page-toolbar">
         <div className="page-heading-copy">
           <Typography.Text>
-            <Link href="/cohorts">← Quay lại danh sách lớp</Link>
+            <Link href="/cohorts">{t("← Quay lại danh sách lớp")}</Link>
           </Typography.Text>
-          <h1>Điểm danh lớp học</h1>
-          <p>Chọn đúng buổi học, cập nhật hàng loạt rồi lưu một lần.</p>
+          <h1>{t("Điểm danh lớp học")}</h1>
+          <p>{t("Chọn đúng buổi học, cập nhật hàng loạt rồi lưu một lần.")}</p>
         </div>
         <Space wrap>
           <Button
             disabled={!canMutate || items.length === 0}
             onClick={markAllPresent}
-          >
-            Tất cả có mặt
-          </Button>
+          >{t("Tất cả có mặt")}</Button>
           <Button
             disabled={!canMutate || markedCount === 0}
             loading={saveMutation.isPending}
             onClick={() => void saveAttendance()}
             type="primary"
-          >
-            Lưu điểm danh
-          </Button>
+          >{t("Lưu điểm danh")}</Button>
         </Space>
       </div>
 
       {readOnly && (
         <Alert
-          description="Bạn vẫn xem được sổ điểm danh nhưng không thể thay đổi dữ liệu."
+          description={t("Bạn vẫn xem được sổ điểm danh nhưng không thể thay đổi dữ liệu.")}
           showIcon
-          title="Workspace chỉ đọc"
+          title={t("Workspace chỉ đọc")}
           type="info"
         />
       )}
 
-      <Card className="surface-card" title="Buổi học">
+      <Card className="surface-card" title={t("Buổi học")}>
         {sessionsQuery.isPending ? (
           <Spin />
         ) : sessionsQuery.error ? (
           <Alert
             action={
-              <Button onClick={() => void sessionsQuery.refetch()} size="small">
-                Thử lại
-              </Button>
+              <Button disabled={sessionsQuery.isFetching} loading={sessionsQuery.isFetching} onClick={() => { if (!sessionsQuery.isFetching) void sessionsQuery.refetch(); }} size="small">{t("Thử lại")}</Button>
             }
             showIcon
-            title={errorMessage(sessionsQuery.error, "Không tải được lịch học")}
+            title={formatError(sessionsQuery.error, t("Không tải được lịch học"))}
             type="error"
           />
         ) : sessions.length === 0 ? (
-          <Empty description="Lớp chưa có buổi học để điểm danh">
-            <Link href="/cohorts">Quay lại để thêm lịch học</Link>
+          <Empty description={t("Lớp chưa có buổi học để điểm danh")}>
+            <Link href="/cohorts">{t("Quay lại để thêm lịch học")}</Link>
           </Empty>
         ) : (
           <Space align="center" wrap>
             <Select
-              aria-label="Chọn buổi học"
+              aria-label={t("Chọn buổi học")}
               onChange={(sessionId) => {
                 setSelectedSessionId(sessionId);
                 setDrafts({});
@@ -391,7 +384,7 @@ export default function CohortAttendancePage() {
                   sessionStatusPresentation[selectedSession.status].color
                 }
               >
-                {sessionStatusPresentation[selectedSession.status].label}
+                {t(sessionStatusPresentation[selectedSession.status].label)}
               </Tag>
             )}
           </Space>
@@ -402,46 +395,46 @@ export default function CohortAttendancePage() {
         <Alert
           description={
             selectedSession.cancellationReason ||
-            "Buổi học này đã hủy nên sổ điểm danh chỉ được xem."
+            t("Buổi học này đã hủy nên sổ điểm danh chỉ được xem.")
           }
           showIcon
-          title="Không thể điểm danh buổi đã hủy"
+          title={t("Không thể điểm danh buổi đã hủy")}
           type="warning"
         />
       )}
 
       {activeSessionId && (
         <>
-          <div className="metric-grid">
+          <div className={attendanceStyles.summaryGrid}>
             <Card className="metric-card">
-              <Statistic title="Sĩ số" value={items.length} />
+              <Statistic title={t("Sĩ số")} value={items.length} />
             </Card>
             <Card className="metric-card">
-              <Statistic title="Đã chọn trạng thái" value={markedCount} />
+              <Statistic title={t("Đã chọn trạng thái")} value={markedCount} />
             </Card>
             <Card className="metric-card">
-              <Statistic title="Có mặt" value={presentCount} />
+              <Statistic title={t("Có mặt")} value={presentCount} />
             </Card>
             <Card className="metric-card">
-              <Statistic title="Vắng" value={absentCount} />
+              <Statistic title={t("Vắng")} value={absentCount} />
             </Card>
           </div>
 
-          <Card className="surface-card" title="Sổ điểm danh">
+          <Card className="surface-card" title={t("Sổ điểm danh")}>
             {attendanceQuery.error && !attendanceQuery.data ? (
               <Alert
                 action={
                   <Button
-                    onClick={() => void attendanceQuery.refetch()}
+                    disabled={attendanceQuery.isFetching}
+                    loading={attendanceQuery.isFetching}
+                    onClick={() => { if (!attendanceQuery.isFetching) void attendanceQuery.refetch(); }}
                     size="small"
-                  >
-                    Thử lại
-                  </Button>
+                  >{t("Thử lại")}</Button>
                 }
                 showIcon
-                title={errorMessage(
+                title={formatError(
                   attendanceQuery.error,
-                  "Không tải được sổ điểm danh",
+                  t("Không tải được sổ điểm danh"),
                 )}
                 type="error"
               />
@@ -450,7 +443,7 @@ export default function CohortAttendancePage() {
                 columns={columns}
                 dataSource={items}
                 loading={attendanceQuery.isPending}
-                locale={{ emptyText: "Lớp chưa có học viên" }}
+                locale={{ emptyText: t("Lớp chưa có học viên") }}
                 pagination={false}
                 rowKey={(item) => learnerId(item.learnerId)}
                 scroll={{ x: 850 }}

@@ -204,22 +204,31 @@
   white-space: pre-wrap;
 }
 
-.choiceGroup {
+.choiceGroup:global(.ant-radio-group),
+.choiceGroup:global(.ant-checkbox-group) {
   display: grid;
   gap: 10px;
   width: 100%;
 }
 
-.choiceOption {
+.choiceOption:global(.ant-radio-wrapper),
+.choiceOption:global(.ant-checkbox-wrapper) {
   align-items: flex-start;
   border: 1px solid var(--line, #e5eaf0);
   border-radius: 10px;
   display: flex;
   gap: 10px;
   margin: 0 !important;
+  min-height: 48px;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: 12px 14px;
   white-space: normal;
   width: 100%;
+}
+
+.choiceOption > :last-child {
+  min-width: 0;
 }
 
 .choiceOption:hover,

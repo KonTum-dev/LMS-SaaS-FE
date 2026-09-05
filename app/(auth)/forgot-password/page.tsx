@@ -1,10 +1,17 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { authMessages } from "@/lib/i18n/auth-messages";
+import { describeFeedbackError } from "@/lib/feedback-errors";
+
+
 import { ArrowLeftOutlined, MailOutlined } from "@ant-design/icons";
-import { Alert, Button, Form, Input } from "antd";
+import { Alert, Button, Input } from "antd";
+import { Form } from "@/components/form/localized-form";
 import Link from "next/link";
 import { useState } from "react";
 import { AuthSecurityLayout } from "@/components/account-security/auth-security-layout";
+import { useFeedback } from "@/components/feedback/feedback-provider";
 import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
 import { accountSecurityApi } from "@/lib/account-security-api";
 
@@ -13,8 +20,10 @@ interface ForgotPasswordValues {
 }
 
 export default function ForgotPasswordPage() {
+  const { t, locale } = useI18n(authMessages);
+  const { message, reportError } = useFeedback();
   const [accepted, setAccepted] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState<{ cause: unknown } | null>(null);
   const [pending, setPending] = useState(false);
   const tanstackForm = useAntdTanStackForm<ForgotPasswordValues>(
     { email: "" },
@@ -22,10 +31,20 @@ export default function ForgotPasswordPage() {
       setError(null);
       setPending(true);
       try {
-        await accountSecurityApi.forgotPassword({ email: values.email.trim() });
+        await accountSecurityApi.forgotPassword({
+          email: values.email.trim(),
+          locale,
+        });
         setAccepted(true);
+        message.success(
+          "Đã tiếp nhận yêu cầu. Nếu email thuộc một tài khoản, hướng dẫn đặt lại mật khẩu sẽ được gửi trong ít phút.",
+        );
       } catch (caught) {
-        setError(caught instanceof Error ? caught : new Error("Không thể gửi yêu cầu"));
+        setError({ cause: caught });
+        reportError(
+          caught,
+          "Không thể gửi yêu cầu đặt lại mật khẩu. Vui lòng thử lại.",
+        );
       } finally {
         setPending(false);
       }
@@ -38,18 +57,21 @@ export default function ForgotPasswordPage() {
 
   return (
     <AuthSecurityLayout
-      subtitle="Nhập email đăng nhập. Nếu tài khoản tồn tại, chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu."
-      title="Quên mật khẩu"
+      subtitle={t("Nhập email đăng nhập. Nếu tài khoản tồn tại, chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu.")}
+      title={t("Quên mật khẩu")}
     >
       {accepted ? (
         <>
           <Alert
-            description="Nếu email thuộc một tài khoản, hướng dẫn đặt lại mật khẩu sẽ được gửi trong ít phút."
+            description={t("Nếu email thuộc một tài khoản, hướng dẫn đặt lại mật khẩu sẽ được gửi trong ít phút.")}
             showIcon
-            title="Đã tiếp nhận yêu cầu"
+            title={t("Đã tiếp nhận yêu cầu")}
             type="success"
           />
-          <div className="auth-return-link"><Link href="/login"><ArrowLeftOutlined /> Quay lại đăng nhập</Link></div>
+          <div className="auth-return-link">
+            <Link href="/login">
+              <ArrowLeftOutlined /> {t("Quay lại đăng nhập")}</Link>
+          </div>
         </>
       ) : (
         <>
@@ -57,24 +79,45 @@ export default function ForgotPasswordPage() {
             <Alert
               showIcon
               style={{ marginBottom: 20 }}
-              title={error.message}
+              title={describeFeedbackError(error.cause, locale, t("Không thể gửi yêu cầu")).message}
               type="error"
             />
           )}
-          <Form<ForgotPasswordValues> layout="vertical" onFinish={(values) => void submit(values)} requiredMark={false} size="large">
+          <Form<ForgotPasswordValues>
+            aria-busy={pending}
+            disabled={pending}
+            layout="vertical"
+            onFinish={(values) => void submit(values)}
+            requiredMark={false}
+            size="large"
+          >
             <Form.Item
               label="Email"
               name="email"
               rules={[
-                { message: "Nhập email", required: true },
-                { message: "Email chưa đúng định dạng", type: "email" },
+                { message: t("Nhập email"), required: true },
+                { message: t("Email chưa đúng định dạng"), type: "email" },
               ]}
             >
-              <Input autoComplete="email" prefix={<MailOutlined />} placeholder="ban@truong.edu.vn" />
+              <Input
+                autoComplete="email"
+                prefix={<MailOutlined />}
+                placeholder="ban@truong.edu.vn"
+              />
             </Form.Item>
-            <Button block htmlType="submit" loading={pending} style={{ height: 48 }} type="primary">Gửi hướng dẫn</Button>
+            <Button
+              block
+              htmlType="submit"
+              loading={pending}
+              style={{ height: 48 }}
+              type="primary"
+            >
+              {t("Gửi hướng dẫn")}</Button>
           </Form>
-          <div className="auth-return-link"><Link href="/login"><ArrowLeftOutlined /> Quay lại đăng nhập</Link></div>
+          <div className="auth-return-link">
+            <Link href="/login">
+              <ArrowLeftOutlined /> {t("Quay lại đăng nhập")}</Link>
+          </div>
         </>
       )}
     </AuthSecurityLayout>

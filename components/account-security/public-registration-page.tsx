@@ -1,5 +1,9 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { accountPolishMessages as authMessages } from "@/lib/i18n/account-polish-messages";
+
+
 import {
   ApartmentOutlined,
   ArrowRightOutlined,
@@ -8,12 +12,15 @@ import {
   SafetyCertificateOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Alert, Button, Form, Input } from "antd";
+import { Alert, Button, Input } from "antd";
+import { Form } from "@/components/form/localized-form";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { DxBrandLockup } from "@/components/brand/dx-brand-lockup";
 import { AuthWorkspaceVisual } from "@/components/brand/auth-workspace-visual";
+import authStyles from "./auth-security-layout.module.css";
+import { useFeedback } from "@/components/feedback/feedback-provider";
 import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
 import { useAuth } from "@/components/providers/app-providers";
 import {
@@ -28,7 +35,6 @@ import {
   workspaceSlugFromName,
   type PublicRegistrationAttempt,
   type PublicRegistrationValues,
-  type RegistrationErrorPresentation,
 } from "@/lib/public-registration";
 import {
   passwordConfirmationError,
@@ -49,16 +55,14 @@ const initialValues: RegistrationFormValues = {
 };
 
 export function PublicRegistrationPage() {
-  const {
-    captureAuthGeneration,
-    consumeAuthResponse,
-    loading,
-    user,
-  } = useAuth();
+  const { t } = useI18n(authMessages);
+  const { message, reportError } = useFeedback();
+  const { captureAuthGeneration, consumeAuthResponse, loading, user } =
+    useAuth();
   const router = useRouter();
   const [form] = Form.useForm<RegistrationFormValues>();
-  const [notice, setNotice] =
-    useState<RegistrationErrorPresentation | null>(null);
+  const [failedAttempt, setFailedAttempt] = useState<{ error: unknown } | null>(null);
+  const notice = failedAttempt ? registrationErrorPresentation(failedAttempt.error, t) : null;
   const [submitting, setSubmitting] = useState(false);
   const attemptRef = useRef<PublicRegistrationAttempt | null>(null);
   const requestRef = useRef<AbortController | null>(null);
@@ -82,7 +86,7 @@ export function PublicRegistrationPage() {
   const register = async (values: RegistrationFormValues) => {
     if (submitInFlight.current) return;
     submitInFlight.current = true;
-    setNotice(null);
+    setFailedAttempt(null);
     setSubmitting(true);
     const controller = new AbortController();
     requestRef.current?.abort();
@@ -113,11 +117,18 @@ export function PublicRegistrationPage() {
       if (controller.signal.aborted) return;
       attemptRef.current = null;
       clearPublicRegistrationAttempt();
+      message.success(
+        "Đã tạo không gian làm việc và kích hoạt dùng thử. Bạn có thể bắt đầu thiết lập ngay.",
+      );
       router.replace("/billing?onboarding=1");
     } catch (caught) {
       if (controller.signal.aborted) return;
       registrationSucceededRef.current = false;
-      setNotice(registrationErrorPresentation(caught));
+      setFailedAttempt({ error: caught });
+      reportError(
+        caught,
+        "Chưa thể hoàn tất đăng ký. Hãy kiểm tra hướng dẫn trên biểu mẫu trước khi thử lại.",
+      );
     } finally {
       if (requestRef.current === controller) requestRef.current = null;
       submitInFlight.current = false;
@@ -136,33 +147,35 @@ export function PublicRegistrationPage() {
 
   if (loading || user) {
     return (
-      <main aria-busy="true" aria-label="Đang kiểm tra phiên đăng nhập" className="auth-page auth-page--register" />
+      <main
+        aria-busy="true"
+        aria-label={t("Đang kiểm tra phiên đăng nhập")}
+        className={`auth-page auth-page--register ${authStyles.page}`}
+      />
     );
   }
 
   return (
-    <main className="auth-page auth-page--register">
+    <main className={`auth-page auth-page--register ${authStyles.page}`}>
       <section className="auth-hero auth-register-hero">
-        <Link className="auth-brand-link" href="/" aria-label="DX LMS, về trang chủ">
+        <Link
+          className="auth-brand-link"
+          href="/"
+          aria-label={t("DX LMS, về trang chủ")}
+        >
           <DxBrandLockup variant="inverse" />
         </Link>
         <div className="auth-copy auth-register-copy">
-          <span className="auth-eyebrow">Khởi tạo workspace</span>
-          <h1>Mở không gian đào tạo của riêng bạn.</h1>
+          <h1>{t("Mở không gian đào tạo của riêng bạn.")}</h1>
           <p>
-            Tạo tài khoản quản trị, nhận workspace dùng thử tự động và bắt đầu
-            sắp xếp lớp học trong vài bước rõ ràng.
-          </p>
-          <ol className="auth-onboarding-steps" aria-label="Các bước bắt đầu">
-            <li><span>01</span><div><strong>Tạo tài khoản</strong><small>Bạn là quản trị viên đầu tiên</small></div></li>
-            <li><span>02</span><div><strong>Nhận workspace</strong><small>Dùng thử được kích hoạt tự động</small></div></li>
-            <li><span>03</span><div><strong>Chọn gói khi sẵn sàng</strong><small>Thanh toán trong trang quản lý gói</small></div></li>
-          </ol>
+            {t("Tạo không gian riêng để quản lý lớp học và học viên.")}</p>
         </div>
-        <AuthWorkspaceVisual className="auth-mascot auth-register-mascot" variant="register" />
+        <AuthWorkspaceVisual
+          className="auth-mascot auth-register-mascot"
+          variant="register"
+        />
         <div className="auth-proof">
-          <span>Không cần nhập thông tin thanh toán</span>
-          <span>Mỗi workspace một kỳ dùng thử</span>
+          <span>{t("Không cần nhập thông tin thanh toán")}</span>
         </div>
       </section>
 
@@ -170,22 +183,23 @@ export function PublicRegistrationPage() {
         <div className="auth-card auth-register-card">
           <div className="auth-register-heading">
             <DxBrandLockup />
-            <p>Đã có tài khoản? <Link href="/login">Đăng nhập</Link></p>
+            <p>
+              {t("Đã có tài khoản?")}{" "}<Link href="/login">{t("Đăng nhập")}</Link>
+            </p>
           </div>
-          <h2>Tạo tài khoản quản trị</h2>
+          <h2>{t("Tạo tài khoản quản trị")}</h2>
           <span className="subtitle">
-            Sau khi tạo xong, bạn sẽ vào trang gói để xem trial và chọn thuê bao phù hợp.
-          </span>
+            {t("Bắt đầu dùng thử, mời đồng nghiệp và tạo lớp học đầu tiên.")}</span>
 
           <div aria-live="polite">
             {notice && (
               <Alert
                 closable
-                description={notice.description}
-                onClose={() => setNotice(null)}
+                description={t(notice.description)}
+                onClose={() => setFailedAttempt(null)}
                 showIcon
                 style={{ marginBottom: 22 }}
-                title={notice.title}
+                title={t(notice.title)}
                 type={notice.type}
               />
             )}
@@ -199,7 +213,7 @@ export function PublicRegistrationPage() {
             onFinish={(values) => void submit(values)}
             onValuesChange={(changedValues) => {
               attemptRef.current = null;
-              setNotice(null);
+              setFailedAttempt(null);
               if (Object.hasOwn(changedValues, "workspaceSlug")) {
                 slugEdited.current = true;
               }
@@ -209,44 +223,74 @@ export function PublicRegistrationPage() {
               ) {
                 form.setFieldValue(
                   "workspaceSlug",
-                  workspaceSlugFromName(String(changedValues.workspaceName ?? "")),
+                  workspaceSlugFromName(
+                    String(changedValues.workspaceName ?? ""),
+                  ),
                 );
               }
             }}
             requiredMark={false}
             size="large"
           >
-            <div className="auth-form-section" role="group" aria-labelledby="owner-fields-title">
+            <div
+              className="auth-form-section"
+              role="group"
+              aria-labelledby="owner-fields-title"
+            >
               <div className="auth-form-section-title" id="owner-fields-title">
-                <span>1</span><div><strong>Thông tin của bạn</strong><small>Dùng để đăng nhập và quản trị workspace</small></div>
+                <span>1</span>
+                <div>
+                  <strong>{t("Thông tin của bạn")}</strong>
+                  <small>{t("Dùng để đăng nhập và quản trị workspace")}</small>
+                </div>
               </div>
               <div className="auth-form-grid">
                 <Form.Item
-                  label="Họ và tên"
+                  label={t("Họ và tên")}
                   name="fullName"
                   rules={[
-                    { required: true, whitespace: true, message: "Nhập họ và tên" },
-                    { min: 2, message: "Họ tên cần ít nhất 2 ký tự" },
-                    { max: 160, message: "Họ tên không được vượt quá 160 ký tự" },
+                    {
+                      required: true,
+                      whitespace: true,
+                      message: t("Nhập họ và tên"),
+                    },
+                    { min: 2, message: t("Họ tên cần ít nhất 2 ký tự") },
+                    {
+                      max: 160,
+                      message: t("Họ tên không được vượt quá 160 ký tự"),
+                    },
                   ]}
                 >
-                  <Input autoComplete="name" maxLength={160} prefix={<UserOutlined />} placeholder="Nguyễn Minh Anh" />
+                  <Input
+                    autoComplete="name"
+                    maxLength={160}
+                    prefix={<UserOutlined />}
+                    placeholder={t("Nguyễn Minh Anh")}
+                  />
                 </Form.Item>
                 <Form.Item
-                  label="Email đăng nhập"
+                  label={t("Email đăng nhập")}
                   name="email"
                   rules={[
-                    { required: true, message: "Nhập email" },
-                    { type: "email", message: "Email chưa đúng định dạng" },
-                    { max: 254, message: "Email không được vượt quá 254 ký tự" },
+                    { required: true, message: t("Nhập email") },
+                    { type: "email", message: t("Email chưa đúng định dạng") },
+                    {
+                      max: 254,
+                      message: t("Email không được vượt quá 254 ký tự"),
+                    },
                   ]}
                 >
-                  <Input autoComplete="email" maxLength={254} prefix={<MailOutlined />} placeholder="ban@trungtam.edu.vn" />
+                  <Input
+                    autoComplete="email"
+                    maxLength={254}
+                    prefix={<MailOutlined />}
+                    placeholder="ban@trungtam.edu.vn"
+                  />
                 </Form.Item>
               </div>
               <div className="auth-form-grid">
                 <Form.Item
-                  label="Mật khẩu"
+                  label={t("Mật khẩu")}
                   name="password"
                   rules={[
                     {
@@ -255,61 +299,89 @@ export function PublicRegistrationPage() {
                         const issue = passwordValidationError(
                           typeof value === "string" ? value : "",
                         );
-                        if (issue) throw new Error(issue);
+                        if (issue) throw new Error(t(issue));
                       },
                     },
                   ]}
                 >
-                  <Input.Password autoComplete="new-password" prefix={<LockOutlined />} placeholder="Tối thiểu 8 ký tự" />
+                  <Input.Password
+                    autoComplete="new-password"
+                    prefix={<LockOutlined />}
+                    placeholder={t("Tối thiểu 8 ký tự")}
+                  />
                 </Form.Item>
                 <Form.Item
                   dependencies={["password"]}
-                  label="Nhập lại mật khẩu"
+                  label={t("Nhập lại mật khẩu")}
                   name="passwordConfirmation"
                   rules={[
-                    { required: true, message: "Nhập lại mật khẩu" },
+                    { required: true, message: t("Nhập lại mật khẩu") },
                     ({ getFieldValue }) => ({
                       validator: async (_, value: unknown) => {
                         const issue = passwordConfirmationError(
                           String(getFieldValue("password") ?? ""),
                           typeof value === "string" ? value : "",
                         );
-                        if (issue) throw new Error(issue);
+                        if (issue) throw new Error(t(issue));
                       },
                     }),
                   ]}
                 >
-                  <Input.Password autoComplete="new-password" prefix={<LockOutlined />} placeholder="Nhập lại mật khẩu" />
+                  <Input.Password
+                    autoComplete="new-password"
+                    prefix={<LockOutlined />}
+                    placeholder={t("Nhập lại mật khẩu")}
+                  />
                 </Form.Item>
               </div>
             </div>
 
-            <div className="auth-form-section" role="group" aria-labelledby="workspace-fields-title">
-              <div className="auth-form-section-title" id="workspace-fields-title">
-                <span>2</span><div><strong>Workspace đào tạo</strong><small>Có thể đổi tên và màu nhận diện sau</small></div>
+            <div
+              className="auth-form-section"
+              role="group"
+              aria-labelledby="workspace-fields-title"
+            >
+              <div
+                className="auth-form-section-title"
+                id="workspace-fields-title"
+              >
+                <span>2</span>
+                <div>
+                  <strong>{t("Workspace đào tạo")}</strong>
+                  <small>{t("Có thể đổi tên và màu nhận diện sau")}</small>
+                </div>
               </div>
               <Form.Item
-                label="Tên workspace"
+                label={t("Tên workspace")}
                 name="workspaceName"
                 rules={[
-                  { required: true, whitespace: true, message: "Nhập tên workspace" },
-                  { min: 2, message: "Tên cần ít nhất 2 ký tự" },
-                  { max: 160, message: "Tên không được vượt quá 160 ký tự" },
+                  {
+                    required: true,
+                    whitespace: true,
+                    message: t("Nhập tên workspace"),
+                  },
+                  { min: 2, message: t("Tên cần ít nhất 2 ký tự") },
+                  { max: 160, message: t("Tên không được vượt quá 160 ký tự") },
                 ]}
               >
-                <Input autoComplete="organization" maxLength={160} prefix={<ApartmentOutlined />} placeholder="Trung tâm Ánh Dương" />
+                <Input
+                  autoComplete="organization"
+                  maxLength={160}
+                  prefix={<ApartmentOutlined />}
+                  placeholder={t("Trung tâm Ánh Dương")}
+                />
               </Form.Item>
               <Form.Item
-                extra="Mã nhận diện nội bộ, viết thường và dùng số hoặc dấu gạch ngang."
-                label="Mã workspace"
+                extra={t("Mã nhận diện nội bộ, viết thường và dùng số hoặc dấu gạch ngang.")}
+                label={t("Mã workspace")}
                 name="workspaceSlug"
                 rules={[
-                  { required: true, message: "Nhập mã workspace" },
+                  { required: true, message: t("Nhập mã workspace") },
                   {
                     pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-                    message: "Chỉ dùng chữ thường, số và dấu gạch ngang",
+                    message: t("Chỉ dùng chữ thường, số và dấu gạch ngang"),
                   },
-                  { max: 100, message: "Mã không được vượt quá 100 ký tự" },
+                  { max: 100, message: t("Mã không được vượt quá 100 ký tự") },
                 ]}
               >
                 <Input maxLength={100} placeholder="trung-tam-anh-duong" />
@@ -318,7 +390,8 @@ export function PublicRegistrationPage() {
 
             <div className="auth-trial-note">
               <SafetyCertificateOutlined />
-              <span><strong>Trial tự động theo workspace.</strong> Thành viên bạn mời sau này dùng chung quyền của workspace, không tạo trial mới.</span>
+              <span>
+                {t("Không cần thông tin thanh toán để bắt đầu.")}</span>
             </div>
             <Button
               block
@@ -330,12 +403,10 @@ export function PublicRegistrationPage() {
               className="auth-register-submit"
               type="primary"
             >
-              Tạo workspace dùng thử
-            </Button>
+              {t("Tạo workspace dùng thử")}</Button>
           </Form>
           <p className="auth-register-legal">
-            Bạn có thể cập nhật tên, màu nhận diện và thông tin workspace sau khi đăng ký.
-          </p>
+            {t("Bạn có thể thay đổi thông tin tổ chức sau.")}</p>
         </div>
       </section>
     </main>

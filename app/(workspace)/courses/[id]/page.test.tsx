@@ -21,11 +21,15 @@ import CourseDetailPage from "./page";
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   effectiveAccess: null as EffectiveAccess | null,
+  formatError: vi.fn(),
   push: vi.fn(),
   role: "LEARNER" as UserRole,
 }));
 
 vi.mock("@/lib/api", () => ({ apiFetch: mocks.apiFetch }));
+vi.mock("@/components/feedback/feedback-provider", () => ({
+  useFeedback: () => ({ formatError: mocks.formatError }),
+}));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "course-1" }),
   useRouter: () => ({ push: mocks.push }),
@@ -101,6 +105,10 @@ describe("course detail module composition", () => {
   beforeEach(() => {
     notifyManager.setScheduler((callback) => queueMicrotask(callback));
     mocks.apiFetch.mockReset();
+    // Match the production formatter's non-empty fallback for absent errors.
+    mocks.formatError.mockReset().mockImplementation((error: unknown) =>
+      error instanceof Error ? error.message : "Không thể hoàn tất yêu cầu",
+    );
     mocks.push.mockReset();
     mocks.role = "LEARNER";
     mocks.effectiveAccess = {
@@ -142,8 +150,20 @@ describe("course detail module composition", () => {
       ),
     ).toBe(false);
     expect(screen.queryByText("Bài tập")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(mocks.formatError).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Mở giáo trình" }));
     expect(mocks.push).toHaveBeenCalledWith("/courses/course-1/curriculum");
+  });
+
+  it("vẫn hiển thị lỗi thật khi không tải được khóa học", async () => {
+    const error = new Error("Không tải được khóa học");
+    mocks.apiFetch.mockRejectedValue(error);
+    renderPage();
+
+    expect(await screen.findByText(error.message)).toBeTruthy();
+    expect(mocks.formatError).toHaveBeenCalledWith(error, "");
+    expect(screen.queryByRole("heading", { name: course.title })).toBeNull();
   });
 
   it("không hiện lối vào giáo trình khi COURSES bị tắt", async () => {

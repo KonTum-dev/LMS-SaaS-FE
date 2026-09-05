@@ -1,12 +1,14 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
 import { YoutubeOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   Button,
   Checkbox,
-  Form,
   Input,
   Modal,
   Progress,
@@ -14,6 +16,7 @@ import {
   Select,
   Tag,
 } from "antd";
+import { Form } from "@/components/form/localized-form";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "@/lib/api";
 import type { MediaAsset } from "@/lib/media-api";
@@ -70,24 +73,6 @@ const statusLabels: Record<YouTubeUploadJob["status"], string> = {
   UPLOADING: "Đang tải lên",
 };
 
-function safeFailureMessage(job: YouTubeUploadJob): string {
-  switch (job.failureCode) {
-    case "MEDIA_STORAGE_UNAVAILABLE":
-      return "Kho media đang tạm khóa. Không có video nào được gửi lên YouTube.";
-    case "MEDIA_ASSET_NOT_AVAILABLE":
-    case "MEDIA_VIDEO_SOURCE_INVALID":
-      return "Video không còn ở trạng thái sẵn sàng để xuất bản.";
-    case "YOUTUBE_REAUTH_REQUIRED":
-      return "Quyền YouTube đã hết hiệu lực. Hãy kết nối lại trong Ứng dụng kết nối.";
-    case "YOUTUBE_QUOTA_EXCEEDED":
-      return "Hạn mức YouTube hiện đã hết. Vui lòng thử lại sau.";
-    case "YOUTUBE_COMPLETION_UNKNOWN":
-      return "YouTube có thể đã nhận video này nhưng DX LMS chưa xác nhận được kết quả. Không xuất bản lại; hãy liên hệ quản trị viên hoặc bộ phận hỗ trợ để đối soát.";
-    default:
-      return "YouTube chưa thể xử lý video này. Vui lòng kiểm tra kết nối và thử lại.";
-  }
-}
-
 export function YouTubePublishAction({
   asset,
   courseId,
@@ -99,6 +84,33 @@ export function YouTubePublishAction({
   title,
   token,
 }: YouTubePublishActionProps) {
+  const { t } = useI18n(learningMessages);
+  function safeFailureMessage(job: YouTubeUploadJob): string {
+    switch (job.failureCode) {
+      case "MEDIA_STORAGE_UNAVAILABLE":
+        return t(
+          "Kho media đang tạm khóa. Không có video nào được gửi lên YouTube.",
+        );
+      case "MEDIA_ASSET_NOT_AVAILABLE":
+      case "MEDIA_VIDEO_SOURCE_INVALID":
+        return t("Video không còn ở trạng thái sẵn sàng để xuất bản.");
+      case "YOUTUBE_REAUTH_REQUIRED":
+        return t(
+          "Quyền YouTube đã hết hiệu lực. Hãy kết nối lại trong Ứng dụng kết nối.",
+        );
+      case "YOUTUBE_QUOTA_EXCEEDED":
+        return t("Hạn mức YouTube hiện đã hết. Vui lòng thử lại sau.");
+      case "YOUTUBE_COMPLETION_UNKNOWN":
+        return t(
+          "YouTube có thể đã nhận video này nhưng DX LMS chưa xác nhận được kết quả. Không xuất bản lại; hãy liên hệ quản trị viên hoặc bộ phận hỗ trợ để đối soát.",
+        );
+      default:
+        return t(
+          "YouTube chưa thể xử lý video này. Vui lòng kiểm tra kết nối và thử lại.",
+        );
+    }
+  }
+
   const eligible =
     mediaEnabled &&
     asset.status === "AVAILABLE" &&
@@ -120,7 +132,11 @@ export function YouTubePublishAction({
   const [form] = Form.useForm<PublishValues>();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
+  const publishInFlight = useRef(false);
+  const [submitError, setSubmitError] = useState<{
+    source: string;
+    retrySafe: boolean;
+  } | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const pendingMutationRef = useRef<PendingYouTubeUploadMutation | null>(null);
   const latestTokenRef = useRef(token);
@@ -173,21 +189,21 @@ export function YouTubePublishAction({
     ? Math.min(100, Math.round((job.uploadedBytes / job.totalBytes) * 100))
     : 0;
   const unavailableReason = uploadsQuery.isError
-    ? youtubeErrorMessage(uploadsQuery.error)
+    ? t(youtubeErrorMessage(uploadsQuery.error))
     : connectionQuery.isError
-      ? youtubeErrorMessage(connectionQuery.error)
+      ? t(youtubeErrorMessage(connectionQuery.error))
       : connection?.state === "REAUTH_REQUIRED"
-        ? "Kênh YouTube cần được kết nối lại."
+        ? t("Kênh YouTube cần được kết nối lại.")
         : connection?.state === "DISCONNECTED"
-          ? "Hãy kết nối kênh trong Ứng dụng kết nối."
+          ? t("Hãy kết nối kênh trong Ứng dụng kết nối.")
           : connection?.state === "CONNECTED" && !connection.channel
-            ? "Không thể xác định kênh YouTube đích. Hãy kết nối lại."
+            ? t("Không thể xác định kênh YouTube đích. Hãy kết nối lại.")
             : connection && !connection.uploadEnabled
-              ? "Backend hoặc kho media hiện đang khóa upload YouTube."
-              : "Đang kiểm tra quyền xuất bản YouTube.";
+              ? t("Backend hoặc kho media hiện đang khóa upload YouTube.")
+              : t("Đang kiểm tra quyền xuất bản YouTube.");
 
   const openDialog = () => {
-    setSubmitError("");
+    setSubmitError(null);
     form.setFieldsValue({
       consentAccepted: false,
       description: description.slice(0, 5_000),
@@ -199,17 +215,19 @@ export function YouTubePublishAction({
   };
 
   const closeDialog = () => {
-    if (submitting) return;
+    if (publishInFlight.current) return;
     form.resetFields();
-    setSubmitError("");
+    setSubmitError(null);
     setOpen(false);
   };
 
   const publish = async (values: PublishValues) => {
-    if (!ready || disabled || !values.madeForKids) return;
+    if (publishInFlight.current || !ready || disabled || !values.madeForKids)
+      return;
+    publishInFlight.current = true;
     const requestedToken = token;
     setSubmitting(true);
-    setSubmitError("");
+    setSubmitError(null);
     const request: YouTubeUploadRequest = {
       assetId: asset._id,
       consentAccepted: true,
@@ -283,18 +301,18 @@ export function YouTubePublishAction({
         await uploadsQuery.refetch();
         if (latestTokenRef.current !== requestedToken) return;
       }
-      setSubmitError(
-        caught instanceof ApiError && caught.status === 0
-          ? `${youtubeErrorMessage(caught)} Nếu yêu cầu đã tới máy chủ, lần thử lại sẽ dùng cùng mã an toàn để không tạo bản sao.`
-          : youtubeErrorMessage(caught),
-      );
+      setSubmitError({
+        source: youtubeErrorMessage(caught),
+        retrySafe: caught instanceof ApiError && caught.status === 0,
+      });
     } finally {
+      publishInFlight.current = false;
       setSubmitting(false);
     }
   };
 
   return (
-    <div className={styles.root}>
+    <div aria-busy={submitting} className={styles.root}>
       <Button
         disabled={
           disabled ||
@@ -311,15 +329,15 @@ export function YouTubePublishAction({
         size="small"
         title={
           completionUnknown
-            ? "Cần đối soát kết quả với YouTube trước khi xuất bản lại"
+            ? t("Cần đối soát kết quả với YouTube trước khi xuất bản lại")
             : job && activeUploadStates.has(job.status)
-            ? "Video này đang được xuất bản"
-            : ready
-              ? undefined
-              : unavailableReason
+              ? t("Video này đang được xuất bản")
+              : ready
+                ? undefined
+                : unavailableReason
         }
       >
-        Xuất bản lên YouTube
+        {t("Xuất bản lên YouTube")}
       </Button>
       {!ready && !connectionQuery.isLoading && (
         <span className={styles.hint}>{unavailableReason}</span>
@@ -336,9 +354,11 @@ export function YouTubePublishAction({
                     : "processing"
               }
             >
-              {statusLabels[job.status]}
+              {t(statusLabels[job.status])}
             </Tag>
-            <span className={styles.hint}>Lần thử: {job.attempts}</span>
+            <span className={styles.hint}>
+              {t("Lần thử:")} {job.attempts}
+            </span>
           </div>
           {activeUploadStates.has(job.status) && (
             <Progress percent={percentage} size="small" />
@@ -356,7 +376,7 @@ export function YouTubePublishAction({
               rel="noopener noreferrer"
               target="_blank"
             >
-              Mở video trên YouTube
+              {t("Mở video trên YouTube")}
             </a>
           )}
         </div>
@@ -364,21 +384,39 @@ export function YouTubePublishAction({
 
       <Modal
         cancelButtonProps={{ disabled: submitting }}
-        cancelText="Hủy"
+        cancelText={t("Hủy")}
         confirmLoading={submitting}
+        closable={!submitting}
         destroyOnHidden
         mask={{ closable: !submitting }}
-        okText="Xác nhận xuất bản"
+        keyboard={!submitting}
+        okText={t("Xác nhận xuất bản")}
         onCancel={closeDialog}
-        onOk={() => form.submit()}
+        onOk={() => {
+          if (!publishInFlight.current) form.submit();
+        }}
         open={open}
-        title="Xuất bản video lên YouTube"
+        title={t("Xuất bản video lên YouTube")}
       >
         <p className={styles.modalNote}>
-          Video chỉ được gửi sau khi bạn xác nhận từng lần. V1 không tự gắn
-          video vào nội dung bài học và không tự động công khai video.
+          {t(
+            "Video chỉ được gửi sau khi bạn xác nhận từng lần. V1 không tự gắn video vào nội dung bài học và không tự động công khai video.",
+          )}
         </p>
-        {submitError && <Alert showIcon title={submitError} type="error" />}
+        {submitError && (
+          <Alert
+            showIcon
+            title={
+              submitError.retrySafe
+                ? t(
+                    "{p0} Nếu yêu cầu đã tới máy chủ, lần thử lại sẽ dùng cùng mã an toàn để không tạo bản sao.",
+                    { p0: t(submitError.source) },
+                  )
+                : t(submitError.source)
+            }
+            type="error"
+          />
+        )}
         <Form<PublishValues>
           form={form}
           layout="vertical"
@@ -386,43 +424,45 @@ export function YouTubePublishAction({
           requiredMark={false}
         >
           <Form.Item
-            label="Tiêu đề YouTube"
+            label={t("Tiêu đề YouTube")}
             name="title"
-            rules={[{ message: "Nhập tiêu đề video", required: true }]}
+            rules={[{ message: t("Nhập tiêu đề video"), required: true }]}
           >
             <Input disabled={submitting} maxLength={100} />
           </Form.Item>
-          <Form.Item label="Mô tả" name="description">
+          <Form.Item label={t("Mô tả")} name="description">
             <Input.TextArea disabled={submitting} maxLength={5_000} rows={4} />
           </Form.Item>
           <Form.Item
-            label="Quyền riêng tư"
+            label={t("Quyền riêng tư")}
             name="privacyStatus"
-            rules={[{ message: "Chọn quyền riêng tư", required: true }]}
+            rules={[{ message: t("Chọn quyền riêng tư"), required: true }]}
           >
             <Select
               disabled={submitting}
               options={[
-                { label: "Riêng tư (mặc định)", value: "PRIVATE" },
-                { label: "Không công khai", value: "UNLISTED" },
-                { label: "Công khai", value: "PUBLIC" },
+                { label: t("Riêng tư (mặc định)"), value: "PRIVATE" },
+                { label: t("Không công khai"), value: "UNLISTED" },
+                { label: t("Công khai"), value: "PUBLIC" },
               ]}
             />
           </Form.Item>
           <Form.Item
-            label="Video này có dành cho trẻ em không?"
+            label={t("Video này có dành cho trẻ em không?")}
             name="madeForKids"
-            rules={[{ message: "Chọn Có hoặc Không", required: true }]}
+            rules={[{ message: t("Chọn Có hoặc Không"), required: true }]}
           >
             <Radio.Group disabled={submitting}>
-              <Radio value="YES">Có</Radio>
-              <Radio value="NO">Không</Radio>
+              <Radio value="YES">{t("Có")}</Radio>
+              <Radio value="NO">{t("Không")}</Radio>
             </Radio.Group>
           </Form.Item>
           {connection?.channel && (
             <div className={styles.destination} role="status">
-              Kênh đích: <strong>{connection.channel.title}</strong>
-              <span>ID: {connection.channel.id}</span>
+              {t("Kênh đích:")} <strong>{connection.channel.title}</strong>
+              <span>
+                {t("ID:")} {connection.channel.id}
+              </span>
             </div>
           )}
           <Form.Item
@@ -434,7 +474,9 @@ export function YouTubePublishAction({
                     ? Promise.resolve()
                     : Promise.reject(
                         new Error(
-                          "Bạn cần xác nhận quyền và chính sách trước khi xuất bản",
+                          t(
+                            "Bạn cần xác nhận quyền và chính sách trước khi xuất bản",
+                          ),
                         ),
                       ),
               },
@@ -442,18 +484,19 @@ export function YouTubePublishAction({
             valuePropName="checked"
           >
             <Checkbox className={styles.consent} disabled={submitting}>
-              Tôi xác nhận có quyền xuất bản video này, đã chọn đúng quyền riêng
-              tư và trạng thái dành cho trẻ em.
+              {t(
+                "Tôi xác nhận có quyền xuất bản video này, đã chọn đúng quyền riêng tư và trạng thái dành cho trẻ em.",
+              )}
             </Checkbox>
           </Form.Item>
           <p className={styles.policyLinks}>
-            Khi tiếp tục, bạn đồng ý tuân thủ{" "}
+            {t("Khi tiếp tục, bạn đồng ý tuân thủ")}{" "}
             <a
               href="https://www.youtube.com/static?template=terms"
               rel="noopener noreferrer"
               target="_blank"
             >
-              Điều khoản dịch vụ YouTube
+              {t("Điều khoản dịch vụ YouTube")}
             </a>
             ,{" "}
             <a
@@ -461,15 +504,15 @@ export function YouTubePublishAction({
               rel="noopener noreferrer"
               target="_blank"
             >
-              Nguyên tắc cộng đồng
+              {t("Nguyên tắc cộng đồng")}
             </a>{" "}
-            và{" "}
+            {t("và")}{" "}
             <a
               href="https://policies.google.com/privacy"
               rel="noopener noreferrer"
               target="_blank"
             >
-              Chính sách quyền riêng tư của Google
+              {t("Chính sách quyền riêng tư của Google")}
             </a>
             .
           </p>

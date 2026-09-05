@@ -1,7 +1,9 @@
 import { apiFetch } from "@/lib/api";
+import type { Locale } from "@/lib/i18n/locale";
 
 export interface ForgotPasswordInput {
   email: string;
+  locale?: Locale;
 }
 
 export interface ForgotPasswordResponse {

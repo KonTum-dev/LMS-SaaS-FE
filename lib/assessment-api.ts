@@ -155,6 +155,8 @@ export interface AssessmentAttemptResult {
 export interface AssessmentManagerAttemptRow {
   _id: string;
   assessmentId: string;
+  /** Published version title; optional for compatibility with older servers. */
+  assessmentTitle?: string | null;
   attemptNumber: number;
   courseId: string;
   deadlineAt: string | null;

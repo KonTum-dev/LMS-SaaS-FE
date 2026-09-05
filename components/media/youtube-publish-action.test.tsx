@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -8,7 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { App } from "antd";
+import { App, ConfigProvider } from "antd";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import type { MediaAsset } from "@/lib/media-api";
@@ -81,18 +82,20 @@ function renderAction(overrides: Partial<{ mediaEnabled: boolean }> = {}) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <App>
-        <YouTubePublishAction
-          asset={asset}
-          courseId="course-1"
-          description="Mô tả bài học"
-          lessonId="lesson-1"
-          mediaEnabled={overrides.mediaEnabled ?? true}
-          scope={scope}
-          title="Bài học Một"
-          token="session-token"
-        />
-      </App>
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <App>
+          <YouTubePublishAction
+            asset={asset}
+            courseId="course-1"
+            description="Mô tả bài học"
+            lessonId="lesson-1"
+            mediaEnabled={overrides.mediaEnabled ?? true}
+            scope={scope}
+            title="Bài học Một"
+            token="session-token"
+          />
+        </App>
+      </ConfigProvider>
     </QueryClientProvider>,
   );
 }
@@ -156,6 +159,53 @@ afterEach(() => {
 });
 
 describe("YouTubePublishAction", () => {
+  it("shows publish loading, prevents overlapping submits and unlocks the retained draft after failure", async () => {
+    let rejectUpload!: (reason: Error) => void;
+    mocks.createUpload.mockImplementationOnce(
+      () =>
+        new Promise<YouTubeUploadJob>((_resolve, reject) => {
+          rejectUpload = reject;
+        }),
+    );
+    renderAction();
+    await submitDefaultPrivateUpload("Giữ mô tả này");
+    await waitFor(() => expect(mocks.createUpload).toHaveBeenCalledTimes(1));
+    const confirm = screen.getByRole("button", { name: /Xác nhận xuất bản/ });
+    expect(confirm.classList.contains("ant-btn-loading")).toBe(true);
+    expect(
+      (screen.getByLabelText("Mô tả") as HTMLTextAreaElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Hủy" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    const form = screen.getByLabelText("Tiêu đề YouTube").closest("form")!;
+    await act(async () => {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+    });
+    expect(mocks.createUpload).toHaveBeenCalledTimes(1);
+    expect(mocks.createMutationId).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      rejectUpload(
+        new ApiError("private provider detail", 409, "YOUTUBE_REAUTH_REQUIRED"),
+      );
+    });
+    await screen.findByText(
+      "Quyền YouTube đã hết hiệu lực. Hãy kết nối lại để tiếp tục.",
+    );
+    expect(confirm.classList.contains("ant-btn-loading")).toBe(false);
+    expect((screen.getByLabelText("Mô tả") as HTMLTextAreaElement).value).toBe(
+      "Giữ mô tả này",
+    );
+    expect(
+      (screen.getByLabelText("Mô tả") as HTMLTextAreaElement).disabled,
+    ).toBe(false);
+    fireEvent.click(confirm);
+    await screen.findByRole("link", { name: "Mở video trên YouTube" });
+    expect(mocks.createUpload).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
   it("không gọi YouTube khi MEDIA tắt", () => {
     renderAction({ mediaEnabled: false });
 

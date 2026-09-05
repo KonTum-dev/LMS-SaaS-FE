@@ -1,5 +1,8 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
@@ -23,6 +26,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
+import { useFeedback } from "@/components/feedback/feedback-provider";
 import { useAuth } from "@/components/providers/app-providers";
 import styles from "@/components/curriculum/curriculum.module.css";
 import { SecureAttachmentList } from "@/components/media/secure-attachment-list";
@@ -88,10 +92,6 @@ function safeHttpsUrl(value: string | null) {
   }
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
-}
-
 function draftFingerprint(
   draft: Omit<LessonEditDraft, "expectedRevision" | "original">,
 ) {
@@ -125,33 +125,8 @@ function draftFromLesson(lesson: LessonDetail): LessonEditDraft {
   };
 }
 
-function lessonDraftError(draft: LessonEditDraft | null) {
-  if (!draft || draft.title.trim().length < 2)
-    return "Tên bài học cần ít nhất 2 ký tự.";
-  if (draft.estimatedMinutes.trim()) {
-    const minutes = Number(draft.estimatedMinutes);
-    if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 1440) {
-      return "Thời lượng phải là số phút nguyên từ 1 đến 1440.";
-    }
-  }
-  if (!draft.content.trim()) {
-    return draft.type === "TEXT"
-      ? "Nhập nội dung bài học."
-      : "Nhập liên kết HTTPS.";
-  }
-  if (draft.type === "TEXT") {
-    return new TextEncoder().encode(draft.content).byteLength <=
-      MAX_LESSON_TEXT_BYTES
-      ? null
-      : "Nội dung bài học không được vượt quá 100 KiB UTF-8.";
-  }
-  return safeHttpsUrl(draft.content)?.length &&
-    safeHttpsUrl(draft.content)!.length <= MAX_HTTPS_LENGTH
-    ? null
-    : "Liên kết phải dùng HTTPS, có tên miền và không chứa thông tin đăng nhập.";
-}
-
 export default function LessonPage() {
+  const { t } = useI18n(learningMessages);
   const { id, lessonId } = useParams<{ id: string; lessonId: string }>();
   const { effectiveAccess, organization, token, user } = useAuth();
   const coursesEnabled = effectiveModuleEnabled(effectiveAccess, "COURSES");
@@ -163,7 +138,7 @@ export default function LessonPage() {
       <main className="page-shell">
         <Alert
           showIcon
-          title="Module Khóa học không khả dụng trong workspace này."
+          title={t("Module Khóa học không khả dụng trong workspace này.")}
           type="warning"
         />
       </main>
@@ -180,7 +155,7 @@ export default function LessonPage() {
       <main className="page-shell">
         <Alert
           showIcon
-          title="Bài học chỉ khả dụng trong workspace của tổ chức."
+          title={t("Bài học chỉ khả dụng trong workspace của tổ chức.")}
           type="info"
         />
       </main>
@@ -214,6 +189,34 @@ function LessonViewer({
   scope,
   token,
 }: LessonViewerProps) {
+  const { t } = useI18n(learningMessages);
+  function lessonDraftError(draft: LessonEditDraft | null) {
+    if (!draft || draft.title.trim().length < 2)
+      return t("Tên bài học cần ít nhất 2 ký tự.");
+    if (draft.estimatedMinutes.trim()) {
+      const minutes = Number(draft.estimatedMinutes);
+      if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 1440) {
+        return t("Thời lượng phải là số phút nguyên từ 1 đến 1440.");
+      }
+    }
+    if (!draft.content.trim()) {
+      return draft.type === "TEXT"
+        ? t("Nhập nội dung bài học.")
+        : t("Nhập liên kết HTTPS.");
+    }
+    if (draft.type === "TEXT") {
+      return new TextEncoder().encode(draft.content).byteLength <=
+        MAX_LESSON_TEXT_BYTES
+        ? null
+        : t("Nội dung bài học không được vượt quá 100 KiB UTF-8.");
+    }
+    return safeHttpsUrl(draft.content)?.length &&
+      safeHttpsUrl(draft.content)!.length <= MAX_HTTPS_LENGTH
+      ? null
+      : t("Liên kết phải dùng HTTPS, có tên miền và không chứa thông tin đăng nhập.");
+  }
+
+  const { message, reportError, formatError } = useFeedback();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [editDraft, setEditDraft] = useState<LessonEditDraft | null>(null);
@@ -236,7 +239,7 @@ function LessonViewer({
         lesson?.section.archivedAt
       ) {
         throw new Error(
-          "Workspace, khóa học hoặc chương hiện không cho phép chỉnh sửa.",
+          t("Workspace, khóa học hoặc chương hiện không cho phép chỉnh sửa."),
         );
       }
       const estimatedMinutes = draft.estimatedMinutes.trim()
@@ -256,8 +259,10 @@ function LessonViewer({
     },
     onSuccess: async () => {
       setEditDraft(null);
+      message.success("Đã cập nhật bài học");
       await refresh();
     },
+    onError: (error) => reportError(error, "Không thể cập nhật bài học"),
   });
   const publishLesson = useMutation({
     mutationFn: (current: LessonDetail) => {
@@ -269,25 +274,33 @@ function LessonViewer({
         current.course.status !== "PUBLISHED"
       ) {
         throw new Error(
-          "Bài học chỉ có thể được công bố trong chương và khóa học đang công bố.",
+          t("Bài học chỉ có thể được công bố trong chương và khóa học đang công bố."),
         );
       }
       return curriculumApi.publishLesson({ token }, courseId, lessonId, {
         expectedRevision: current.revision,
       });
     },
-    onSuccess: refresh,
+    onSuccess: async () => {
+      message.success("Đã công bố bài học");
+      await refresh();
+    },
+    onError: (error) => reportError(error, "Không thể công bố bài học"),
   });
   const archiveLesson = useMutation({
     mutationFn: (current: LessonDetail) => {
       if (readOnly || current.archivedAt) {
-        throw new Error("Workspace hoặc bài học hiện không cho phép lưu trữ.");
+        throw new Error(t("Workspace hoặc bài học hiện không cho phép lưu trữ."));
       }
       return curriculumApi.archiveLesson({ token }, courseId, lessonId, {
         expectedRevision: current.revision,
       });
     },
-    onSuccess: refresh,
+    onSuccess: async () => {
+      message.success("Đã lưu trữ bài học");
+      await refresh();
+    },
+    onError: (error) => reportError(error, "Không thể lưu trữ bài học"),
   });
   const replaceAttachments = useMutation({
     mutationFn: (attachmentIds: string[]) => {
@@ -302,7 +315,7 @@ function LessonViewer({
         current.course.status === "ARCHIVED"
       ) {
         throw new Error(
-          "Workspace, khóa học hoặc bài học hiện không cho phép cập nhật tệp.",
+          t("Workspace, khóa học hoặc bài học hiện không cho phép cập nhật tệp."),
         );
       }
       return curriculumApi.replaceLessonAttachments(
@@ -317,14 +330,17 @@ function LessonViewer({
     },
     onSuccess: async (updated) => {
       queryClient.setQueryData(lessonKey, updated);
+      message.success("Đã cập nhật tệp đính kèm của bài học");
       await refresh();
     },
+    onError: (error) =>
+      reportError(error, "Không thể cập nhật tệp đính kèm của bài học"),
   });
   const setLessonProgress = useMutation({
     mutationFn: (current: LessonDetail) => {
       if (role !== "LEARNER" || readOnly) {
         throw new Error(
-          "Workspace hiện không cho phép cập nhật tiến độ học tập.",
+          t("Workspace hiện không cho phép cập nhật tiến độ học tập."),
         );
       }
       return curriculumApi.setLessonProgress({ token }, courseId, lessonId, {
@@ -332,8 +348,21 @@ function LessonViewer({
         expectedRevision: current.progress?.revision ?? 0,
       });
     },
-    onSuccess: () =>
-      invalidateLessonProgressQueries(queryClient, scope, courseId, lessonId),
+    onSuccess: async (progress) => {
+      message.success(
+        progress.completed
+          ? "Đã đánh dấu bài học hoàn thành"
+          : "Đã bỏ đánh dấu hoàn thành bài học",
+      );
+      await invalidateLessonProgressQueries(
+        queryClient,
+        scope,
+        courseId,
+        lessonId,
+      );
+    },
+    onError: (error) =>
+      reportError(error, "Không thể cập nhật tiến độ bài học"),
   });
   const mutationError =
     updateLesson.error ||
@@ -361,10 +390,10 @@ function LessonViewer({
         return draftFingerprint(current) === canonical.original
           ? null
           : {
-              ...current,
-              expectedRevision: result.data.revision,
-              original: canonical.original,
-            };
+            ...current,
+            expectedRevision: result.data.revision,
+            original: canonical.original,
+          };
       });
     }
     updateLesson.reset();
@@ -375,12 +404,12 @@ function LessonViewer({
   };
   const attachAvailableAsset = async (asset: MediaAsset) => {
     const current = queryClient.getQueryData<LessonDetail>(lessonKey) ?? lesson;
-    if (!current) throw new Error("Không tìm thấy bài học hiện tại.");
+    if (!current) throw new Error(t("Không tìm thấy bài học hiện tại."));
     const attachmentIds = current.attachmentIds ?? [];
     if (attachmentIds.includes(asset._id)) return;
     if (attachmentIds.length >= MAX_LESSON_ATTACHMENTS) {
       throw new Error(
-        `Bài học chỉ được đính kèm tối đa ${MAX_LESSON_ATTACHMENTS} tệp.`,
+        t("Bài học chỉ được đính kèm tối đa {p0} tệp.", { p0: MAX_LESSON_ATTACHMENTS }),
       );
     }
     await replaceAttachments.mutateAsync([...attachmentIds, asset._id]);
@@ -391,26 +420,24 @@ function LessonViewer({
       aria-labelledby={lesson ? "lesson-page-title" : undefined}
       className="page-shell"
     >
-      <nav aria-label="Điều hướng bài học">
+      <nav aria-label={t("Điều hướng bài học")}>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => router.push(`/courses/${courseId}/curriculum`)}
           type="text"
-        >
-          Quay lại giáo trình
-        </Button>
+        >{t("Quay lại giáo trình")}</Button>
       </nav>
       {readOnly && manager && (
         <Alert
           showIcon
-          title="Workspace chỉ đọc; các thao tác chỉnh sửa bài học đang tạm khóa."
+          title={t("Workspace chỉ đọc; các thao tác chỉnh sửa bài học đang tạm khóa.")}
           type="info"
         />
       )}
       {readOnly && learner && (
         <Alert
           showIcon
-          title="Workspace chỉ đọc; thao tác cập nhật tiến độ đang tạm khóa."
+          title={t("Workspace chỉ đọc; thao tác cập nhật tiến độ đang tạm khóa.")}
           type="info"
         />
       )}
@@ -420,31 +447,30 @@ function LessonViewer({
             <Button
               onClick={() => void reloadAfterMutationError()}
               size="small"
-            >
-              Tải lại bài học
-            </Button>
+            >{t("Tải lại bài học")}</Button>
           }
           showIcon
-          title={errorMessage(mutationError, "Không thể cập nhật bài học")}
+          title={formatError(mutationError, t("Không thể cập nhật bài học"))}
           type="error"
         />
       )}
       {lessonQuery.error ? (
         <Alert
+          action={<Button disabled={lessonQuery.isFetching} loading={lessonQuery.isFetching} onClick={() => { if (!lessonQuery.isFetching) void lessonQuery.refetch(); }} size="small">{t("Thử lại")}</Button>}
           showIcon
-          title={errorMessage(lessonQuery.error, "Không tải được bài học")}
+          title={formatError(lessonQuery.error, t("Không tải được bài học"))}
           type="error"
         />
       ) : lessonQuery.isPending ? (
         <div
-          aria-label="Đang tải bài học"
+          aria-label={t("Đang tải bài học")}
           className="page-loading"
           role="status"
         >
           <Spin size="large" />
         </div>
       ) : !lesson ? (
-        <Alert showIcon title="Không tìm thấy bài học" type="warning" />
+        <Alert showIcon title={t("Không tìm thấy bài học")} type="warning" />
       ) : (
         <>
           <header className="page-heading">
@@ -452,15 +478,15 @@ function LessonViewer({
               <Space size={[8, 8]} wrap>
                 <Tag>{lesson.section.title}</Tag>
                 <Tag>
-                  {lesson.type === "TEXT" ? "Văn bản" : "Liên kết HTTPS"}
+                  {lesson.type === "TEXT" ? t("Văn bản") : t("Liên kết HTTPS")}
                 </Tag>
-                <Tag>{lesson.required ? "Bắt buộc" : "Tự chọn"}</Tag>
+                <Tag>{lesson.required ? t("Bắt buộc") : t("Tự chọn")}</Tag>
                 {lesson.estimatedMinutes && (
-                  <Tag>{lesson.estimatedMinutes} phút</Tag>
+                  <Tag>{lesson.estimatedMinutes} {t("phút")}</Tag>
                 )}
               </Space>
               <h1 id="lesson-page-title">{lesson.title}</h1>
-              <p>{lesson.summary || "Bài học chưa có mô tả."}</p>
+              {lesson.summary && <p>{lesson.summary}</p>}
             </div>
             {manager && (
               <div className={styles.resourceActions}>
@@ -477,9 +503,7 @@ function LessonViewer({
                     updateLesson.reset();
                     setEditDraft(draftFromLesson(lesson));
                   }}
-                >
-                  Sửa bài học
-                </Button>
+                >{t("Sửa bài học")}</Button>
                 {!lesson.published && !lesson.archivedAt && (
                   <Button
                     disabled={
@@ -492,23 +516,19 @@ function LessonViewer({
                     icon={<SendOutlined />}
                     onClick={() => publishLesson.mutate(lesson)}
                     type="primary"
-                  >
-                    Công bố bài học
-                  </Button>
+                  >{t("Công bố bài học")}</Button>
                 )}
                 {!lesson.archivedAt && (
                   <Popconfirm
-                    okText="Lưu trữ bài học"
+                    okText={t("Lưu trữ bài học")}
                     onConfirm={() => archiveLesson.mutateAsync(lesson)}
-                    title={`Lưu trữ bài học ${lesson.title}?`}
+                    title={t("Lưu trữ bài học {p0}?", { p0: lesson.title })}
                   >
                     <Button
                       danger
                       disabled={readOnly || busy}
                       icon={<DeleteOutlined />}
-                    >
-                      Lưu trữ
-                    </Button>
+                    >{t("Lưu trữ")}</Button>
                   </Popconfirm>
                 )}
               </div>
@@ -517,49 +537,44 @@ function LessonViewer({
 
           {lesson.progress?.contentChangedSinceCompletion && (
             <Alert
-              description="Trạng thái hoàn thành được giữ nguyên; bạn nên xem lại nội dung mới."
+              description={t("Trạng thái hoàn thành được giữ nguyên; bạn nên xem lại nội dung mới.")}
               showIcon
-              title="Bài học đã được cập nhật sau lần hoàn thành của bạn"
+              title={t("Bài học đã được cập nhật sau lần hoàn thành của bạn")}
               type="warning"
             />
           )}
 
           {lesson.type === "TEXT" ? (
-            <Card className="surface-card" title="Nội dung bài học">
+            <Card className="surface-card" title={t("Nội dung bài học")}>
               <Typography.Paragraph className={styles.lessonContent}>
-                {lesson.textContent || "Bài học chưa có nội dung."}
+                {lesson.textContent || t("Bài học chưa có nội dung.")}
               </Typography.Paragraph>
             </Card>
           ) : (
-            <Card className="surface-card" title="Tài liệu bên ngoài">
+            <Card className="surface-card" title={t("Tài liệu bên ngoài")}>
               {sourceUrl ? (
                 <div className={styles.externalCard}>
-                  <p>
-                    Tài liệu được mở ở tab mới. Hãy kiểm tra tên miền trước khi
-                    tiếp tục.
-                  </p>
+                  <p>{t("Tài liệu được mở ở tab mới. Hãy kiểm tra tên miền trước khi tiếp tục.")}</p>
                   <a
                     className={styles.externalLink}
                     href={sourceUrl}
                     rel="noopener noreferrer"
                     target="_blank"
                   >
-                    <LinkOutlined />
-                    Mở tài liệu HTTPS
-                  </a>
+                    <LinkOutlined />{t("Mở tài liệu HTTPS")}</a>
                 </div>
               ) : (
                 <Alert
                   showIcon
-                  title="Liên kết bài học không hợp lệ"
+                  title={t("Liên kết bài học không hợp lệ")}
                   type="error"
                 />
               )}
             </Card>
           )}
 
-          <Card className="surface-card" title="Tệp đính kèm riêng tư">
-            <Space direction="vertical" size={14} style={{ width: "100%" }}>
+          <Card className="surface-card" title={t("Tệp đính kèm riêng tư")}>
+            <Space orientation="vertical" size={14} style={{ width: "100%" }}>
               <SecureAttachmentList
                 assetIds={lesson.attachmentIds ?? []}
                 canMutate={
@@ -579,24 +594,24 @@ function LessonViewer({
                 renderAssetAction={
                   canPublishYouTube && mediaEnabled
                     ? (asset) => (
-                        <YouTubePublishAction
-                          asset={asset}
-                          courseId={courseId}
-                          description={lesson.summary}
-                          disabled={
-                            readOnly ||
-                            busy ||
-                            Boolean(lesson.archivedAt) ||
-                            Boolean(lesson.section.archivedAt) ||
-                            lesson.course.status === "ARCHIVED"
-                          }
-                          lessonId={lessonId}
-                          mediaEnabled={mediaEnabled}
-                          scope={scope}
-                          title={lesson.title}
-                          token={token}
-                        />
-                      )
+                      <YouTubePublishAction
+                        asset={asset}
+                        courseId={courseId}
+                        description={lesson.summary}
+                        disabled={
+                          readOnly ||
+                          busy ||
+                          Boolean(lesson.archivedAt) ||
+                          Boolean(lesson.section.archivedAt) ||
+                          lesson.course.status === "ARCHIVED"
+                        }
+                        lessonId={lessonId}
+                        mediaEnabled={mediaEnabled}
+                        scope={scope}
+                        title={lesson.title}
+                        token={token}
+                      />
+                    )
                     : undefined
                 }
                 scope={scope}
@@ -614,7 +629,7 @@ function LessonViewer({
                     Boolean(lesson.section.archivedAt) ||
                     lesson.course.status === "ARCHIVED"
                   }
-                  label="Thêm tệp cho bài học"
+                  label={t("Thêm tệp cho bài học")}
                   maxBytes={DEFAULT_LESSON_MEDIA_MAX_BYTES}
                   maxCount={MAX_LESSON_ATTACHMENTS}
                   onAvailable={attachAvailableAsset}
@@ -624,9 +639,9 @@ function LessonViewer({
               )}
               {manager && !mediaEnabled && (
                 <Alert
-                  description="Bạn vẫn có thể sửa nội dung văn bản hoặc liên kết của bài học. Bật module Tài liệu riêng tư để thêm, sắp xếp hoặc tải tệp."
+                  description={t("Bạn vẫn có thể sửa nội dung văn bản hoặc liên kết của bài học. Bật module Tài liệu riêng tư để thêm, sắp xếp hoặc tải tệp.")}
                   showIcon
-                  title="Module Tài liệu riêng tư chưa khả dụng"
+                  title={t("Module Tài liệu riêng tư chưa khả dụng")}
                   type="info"
                 />
               )}
@@ -634,18 +649,18 @@ function LessonViewer({
           </Card>
 
           {learner && (
-            <Card className="surface-card" title="Trạng thái học tập">
+            <Card className="surface-card" title={t("Trạng thái học tập")}>
               <Space size={[8, 8]} wrap>
                 <Tag color={lesson.progress?.completed ? "green" : "default"}>
                   {lesson.progress?.completed
-                    ? "Đã hoàn thành"
-                    : "Chưa hoàn thành"}
+                    ? t("Đã hoàn thành")
+                    : t("Chưa hoàn thành")}
                 </Tag>
                 <Button
                   aria-label={
                     lesson.progress?.completed
-                      ? "Đánh dấu chưa hoàn thành"
-                      : "Đánh dấu hoàn thành"
+                      ? t("Đánh dấu chưa hoàn thành")
+                      : t("Đánh dấu hoàn thành")
                   }
                   disabled={readOnly || busy}
                   loading={setLessonProgress.isPending}
@@ -653,19 +668,19 @@ function LessonViewer({
                   type={lesson.progress?.completed ? "default" : "primary"}
                 >
                   {lesson.progress?.completed
-                    ? "Đánh dấu chưa hoàn thành"
-                    : "Đánh dấu hoàn thành"}
+                    ? t("Đánh dấu chưa hoàn thành")
+                    : t("Đánh dấu hoàn thành")}
                 </Button>
               </Space>
             </Card>
           )}
 
           <Modal
-            cancelText="Hủy"
+            cancelText={t("Hủy")}
             okButtonProps={{
               disabled: readOnly || busy || Boolean(editError) || !editChanged,
             }}
-            okText="Lưu thay đổi"
+            okText={t("Lưu thay đổi")}
             onCancel={() => {
               updateLesson.reset();
               setEditDraft(null);
@@ -678,14 +693,14 @@ function LessonViewer({
               updateLesson.mutate(editDraft)
             }
             open={Boolean(editDraft)}
-            title="Sửa bài học"
+            title={t("Sửa bài học")}
           >
             {editDraft && (
               <div className={styles.modalFields}>
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Tên bài học</span>
+                  <span className={styles.fieldLabel}>{t("Tên bài học")}</span>
                   <Input
-                    aria-label="Tên bài học cần sửa"
+                    aria-label={t("Tên bài học cần sửa")}
                     disabled={readOnly}
                     maxLength={200}
                     onChange={(event) =>
@@ -695,9 +710,9 @@ function LessonViewer({
                   />
                 </label>
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Mô tả ngắn</span>
+                  <span className={styles.fieldLabel}>{t("Mô tả ngắn")}</span>
                   <Input.TextArea
-                    aria-label="Mô tả bài học cần sửa"
+                    aria-label={t("Mô tả bài học cần sửa")}
                     disabled={readOnly}
                     maxLength={2000}
                     onChange={(event) =>
@@ -711,27 +726,27 @@ function LessonViewer({
                   />
                 </label>
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Loại bài học</span>
+                  <span className={styles.fieldLabel}>{t("Loại bài học")}</span>
                   <Select<LessonType>
-                    aria-label="Loại bài học cần sửa"
+                    aria-label={t("Loại bài học cần sửa")}
                     disabled={readOnly}
                     onChange={(type) =>
                       setEditDraft({ ...editDraft, content: "", type })
                     }
                     options={[
-                      { label: "Văn bản", value: "TEXT" },
-                      { label: "Liên kết HTTPS", value: "HTTPS_LINK" },
+                      { label: t("Văn bản"), value: "TEXT" },
+                      { label: t("Liên kết HTTPS"), value: "HTTPS_LINK" },
                     ]}
                     value={editDraft.type}
                   />
                 </label>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>
-                    {editDraft.type === "TEXT" ? "Nội dung" : "Liên kết HTTPS"}
+                    {editDraft.type === "TEXT" ? t("Nội dung") : t("Liên kết HTTPS")}
                   </span>
                   {editDraft.type === "TEXT" ? (
                     <Input.TextArea
-                      aria-label="Nội dung bài học cần sửa"
+                      aria-label={t("Nội dung bài học cần sửa")}
                       disabled={readOnly}
                       onChange={(event) =>
                         setEditDraft({
@@ -744,7 +759,7 @@ function LessonViewer({
                     />
                   ) : (
                     <Input
-                      aria-label="Liên kết bài học HTTPS cần sửa"
+                      aria-label={t("Liên kết bài học HTTPS cần sửa")}
                       disabled={readOnly}
                       maxLength={MAX_HTTPS_LENGTH}
                       onChange={(event) =>
@@ -759,11 +774,9 @@ function LessonViewer({
                   )}
                 </label>
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>
-                    Thời lượng (phút, để trống nếu không có)
-                  </span>
+                  <span className={styles.fieldLabel}>{t("Thời lượng (phút, để trống nếu không có)")}</span>
                   <Input
-                    aria-label="Thời lượng bài học cần sửa"
+                    aria-label={t("Thời lượng bài học cần sửa")}
                     disabled={readOnly}
                     max={1440}
                     min={1}
@@ -778,9 +791,9 @@ function LessonViewer({
                   />
                 </label>
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Yêu cầu hoàn thành</span>
+                  <span className={styles.fieldLabel}>{t("Yêu cầu hoàn thành")}</span>
                   <Select
-                    aria-label="Yêu cầu hoàn thành bài học"
+                    aria-label={t("Yêu cầu hoàn thành bài học")}
                     disabled={readOnly}
                     onChange={(value) =>
                       setEditDraft({
@@ -789,8 +802,8 @@ function LessonViewer({
                       })
                     }
                     options={[
-                      { label: "Bắt buộc", value: "required" },
-                      { label: "Tự chọn", value: "optional" },
+                      { label: t("Bắt buộc"), value: "required" },
+                      { label: t("Tự chọn"), value: "optional" },
                     ]}
                     value={editDraft.required ? "required" : "optional"}
                   />

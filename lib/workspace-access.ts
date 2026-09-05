@@ -15,13 +15,16 @@ export type WorkspaceRouteKey =
   | "platform-crm"
   | "platform-audit"
   | "platform-tenants"
+  | "platform-accounts"
   | "platform-billing"
   | "platform-notification-events"
   | "tenant-users"
+  | "tenant-crm"
   | "tenant-organization"
   | "tenant-org-access"
   | "tenant-cohorts"
   | "tenant-guardians"
+  | "guardian-family"
   | "tenant-tuition"
   | "tenant-reports"
   | "tenant-communications"
@@ -66,6 +69,7 @@ interface WorkspaceRouteRule {
   module?: LmsModule;
   path: string;
   requiresOrganization?: boolean;
+  requiresTenantMembership?: boolean;
   roles: readonly UserRole[];
   route: WorkspaceRouteKey;
 }
@@ -100,6 +104,7 @@ const WORKSPACE_ROUTE_RULES: readonly WorkspaceRouteRule[] = [
   { path: "/account/security", roles: ALL_ROLES, route: "account-security" },
   { path: "/admin/audit", roles: ["SUPER_ADMIN"], route: "platform-audit" },
   { path: "/admin/tenants", roles: ["SUPER_ADMIN"], route: "platform-tenants" },
+  { path: "/admin/accounts", roles: ["SUPER_ADMIN"], route: "platform-accounts" },
   { path: "/admin/billing", roles: ["SUPER_ADMIN"], route: "platform-billing" },
   {
     path: "/admin/notification-events",
@@ -107,6 +112,14 @@ const WORKSPACE_ROUTE_RULES: readonly WorkspaceRouteRule[] = [
     route: "platform-notification-events",
   },
   { path: "/admin", roles: ["SUPER_ADMIN"], route: "platform-crm" },
+  {
+    module: "USERS",
+    path: "/crm",
+    requiresOrganization: true,
+    requiresTenantMembership: true,
+    roles: ["TENANT_ADMIN"],
+    route: "tenant-crm",
+  },
   {
     module: "USERS",
     path: "/users",
@@ -134,6 +147,13 @@ const WORKSPACE_ROUTE_RULES: readonly WorkspaceRouteRule[] = [
     requiresOrganization: true,
     roles: ["TENANT_ADMIN", "INSTRUCTOR"],
     route: "tenant-cohorts",
+  },
+  {
+    module: "GUARDIANS",
+    path: "/family",
+    requiresOrganization: true,
+    roles: ["GUARDIAN"],
+    route: "guardian-family",
   },
   {
     module: "GUARDIANS",
@@ -322,7 +342,9 @@ export function getWorkspaceRouteAccess({
       route: rule.route,
     };
   }
-  if (rule.requiresOrganization && !organization) {
+  if (rule.requiresOrganization && (!organization || (
+    rule.requiresTenantMembership && (!hasTenantMembership(user) || user.tenantId !== organization._id)
+  ))) {
     return {
       allowed: false,
       reason: "ORGANIZATION_REQUIRED",

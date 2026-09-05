@@ -3,11 +3,13 @@
 import { App as AntdApp } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import {
   afterEach,
@@ -25,12 +27,14 @@ import type {
   UserRole,
 } from "@/lib/types";
 import type { OrgUnitTreeNode } from "@/lib/org-units-api";
+import { FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 import UsersPage from "./page";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   message: { error: vi.fn(), success: vi.fn() },
   readOnly: false,
+  guardianModule: false,
   role: "TENANT_ADMIN" as UserRole,
   scopeMode: "GLOBAL" as "GLOBAL" | "SCOPED",
   orgUnits: [] as OrgUnitTreeNode[],
@@ -47,7 +51,7 @@ vi.mock("@/components/providers/app-providers", () => ({
         maxCourses: 25,
         maxUsers: 250,
       },
-      modules: ["USERS", "COURSES"],
+      modules: ["USERS", "COURSES", ...(mocks.guardianModule ? ["GUARDIANS" as const] : [])],
       readOnly: mocks.readOnly,
       state: mocks.readOnly ? "READ_ONLY" : "ACTIVE",
     } satisfies EffectiveAccess,
@@ -77,6 +81,8 @@ vi.mock("@/components/table/data-table", () => ({
     ariaLabel,
     columns,
     data,
+    emptyText,
+    paginationResetKey,
   }: {
     ariaLabel: string;
     columns: Array<{
@@ -88,8 +94,11 @@ vi.mock("@/components/table/data-table", () => ({
       id?: string;
     }>;
     data: Array<TenantInvitation | TenantMember>;
+    emptyText?: React.ReactNode;
+    paginationResetKey?: string;
   }) => (
-    <section aria-label={ariaLabel}>
+    <section aria-label={ariaLabel} data-filter-key={paginationResetKey}>
+      {!data.length && emptyText}
       {data.map((item) => (
         <div key={item._id}>
           {columns.map((column, index) => (
@@ -122,6 +131,8 @@ vi.mock("antd", async (importOriginal) => {
   return {
     ...actual,
     Modal: ({
+      cancelButtonProps,
+      confirmLoading,
       children,
       okText,
       onCancel,
@@ -129,6 +140,8 @@ vi.mock("antd", async (importOriginal) => {
       open,
       title,
     }: {
+      cancelButtonProps?: { disabled?: boolean };
+      confirmLoading?: boolean;
       children?: React.ReactNode;
       okText?: React.ReactNode;
       onCancel?: () => void;
@@ -143,12 +156,12 @@ vi.mock("antd", async (importOriginal) => {
         >
           {children}
           {onCancel && (
-            <button onClick={onCancel} type="button">
+            <button disabled={cancelButtonProps?.disabled} onClick={onCancel} type="button">
               Hủy
             </button>
           )}
           {onOk && (
-            <button onClick={onOk} type="button">
+            <button aria-busy={confirmLoading} onClick={onOk} type="button">
               {okText}
             </button>
           )}
@@ -182,6 +195,13 @@ const invitation: TenantInvitation = {
   tenantId: "tenant-1",
   updatedAt: "2026-08-01T00:00:00.000Z",
 };
+
+function deferred<T = unknown>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
 
 const orgUnitTree: OrgUnitTreeNode[] = [
   {
@@ -261,13 +281,13 @@ function installApi() {
   });
 }
 
-function renderPage() {
+function renderPage(locale: "vi" | "en" = "vi") {
   const client = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <UsersPage />
+      {locale === "en" ? <FeedbackLocaleProvider initialLocale="en"><UsersPage /></FeedbackLocaleProvider> : <UsersPage />}
     </QueryClientProvider>,
   );
 }
@@ -299,6 +319,7 @@ describe("UsersPage", () => {
     mocks.message.error.mockReset();
     mocks.message.success.mockReset();
     mocks.readOnly = false;
+    mocks.guardianModule = false;
     mocks.role = "TENANT_ADMIN";
     mocks.scopeMode = "GLOBAL";
     mocks.orgUnits = [];
@@ -316,6 +337,135 @@ describe("UsersPage", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it("shows resend loading per invitation, blocks same-tick repeats and conflicting revoke, then recovers after error", async () => {
+    const pending = deferred();
+    const base = mocks.apiFetch.getMockImplementation()!;
+    mocks.apiFetch.mockImplementation((path, options) => {
+      if (path === "/users/invitations" && !options?.method) return Promise.resolve([invitation, { ...invitation, _id: "invite-2", email: "second@example.test" }]);
+      if (path === "/users/invitations/invite-1/resend") return pending.promise;
+      return base(path, options);
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "Lời mời" }));
+    await screen.findByText(invitation.email);
+    const [first, second] = screen.getAllByRole("button", { name: "Gửi lại" });
+    act(() => { fireEvent.click(first); fireEvent.click(first); });
+    expect(first.classList.contains("ant-btn-loading")).toBe(true);
+    expect(second.classList.contains("ant-btn-loading")).toBe(false);
+    expect(second).toHaveProperty("disabled", false);
+    expect(screen.getAllByRole("button", { name: "Thu hồi" })[0]).toHaveProperty("disabled", true);
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([path]) => path.endsWith("/resend"))).toHaveLength(1));
+    await act(async () => pending.reject(new Error("Temporary failure")));
+    await waitFor(() => expect(first.classList.contains("ant-btn-loading")).toBe(false));
+    expect(screen.getAllByRole("button", { name: "Thu hồi" })[0]).toHaveProperty("disabled", false);
+    fireEvent.click(first);
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([path]) => path.endsWith("/resend"))).toHaveLength(2));
+    await waitFor(() => expect(first.classList.contains("ant-btn-loading")).toBe(false));
+  });
+
+  it("keeps revoke confirmation and target action visibly pending until completion", async () => {
+    const pending = deferred();
+    const base = mocks.apiFetch.getMockImplementation()!;
+    mocks.apiFetch.mockImplementation((path, options) => path === "/users/invitations/invite-1/revoke" ? pending.promise : base(path, options));
+    renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "Lời mời" }));
+    await screen.findByText(invitation.email);
+    const trigger = screen.getByRole("button", { name: "Thu hồi" });
+    fireEvent.click(trigger);
+    await screen.findByText("Thu hồi lời mời này?");
+    const confirm = screen.getAllByRole("button", { name: "Thu hồi" }).at(-1)!;
+    act(() => { fireEvent.click(confirm); fireEvent.click(confirm); });
+    await waitFor(() => expect(confirm.classList.contains("ant-btn-loading")).toBe(true));
+    expect(trigger.classList.contains("ant-btn-loading")).toBe(true);
+    expect(screen.getByRole("button", { name: "Gửi lại" })).toHaveProperty("disabled", true);
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([path]) => path.endsWith("/revoke"))).toHaveLength(1));
+    await act(async () => pending.resolve({ ...invitation, status: "REVOKED" }));
+    await waitFor(() => expect(trigger.classList.contains("ant-btn-loading")).toBe(false));
+    expect(mocks.message.success).toHaveBeenCalledWith("Đã thu hồi lời mời");
+  });
+
+  it("shows promotion loading on only its member and leaves its confirmation pending", async () => {
+    const pending = deferred();
+    member.role = "TENANT_ADMIN";
+    member.orgUnitScopeMode = "SCOPED";
+    const base = mocks.apiFetch.getMockImplementation()!;
+    mocks.apiFetch.mockImplementation((path, options) => {
+      if (path === "/users") return Promise.resolve([member, { ...member, _id: "membership-2", membershipId: "membership-2", fullName: "Second manager" }]);
+      if (path === "/users/membership-1/promote-global-admin") return pending.promise;
+      return base(path, options);
+    });
+    renderPage();
+    await screen.findByText(member.fullName);
+    const [first, second] = screen.getAllByRole("button", { name: "Trao quyền toàn tổ chức" });
+    fireEvent.click(first);
+    const confirm = await screen.findByRole("button", { name: "Trao quyền" });
+    act(() => { fireEvent.click(confirm); fireEvent.click(confirm); });
+    await waitFor(() => expect(confirm.classList.contains("ant-btn-loading")).toBe(true));
+    expect(first.classList.contains("ant-btn-loading")).toBe(true);
+    expect(second.classList.contains("ant-btn-loading")).toBe(false);
+    expect(second).toHaveProperty("disabled", false);
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([path]) => path.endsWith("/promote-global-admin"))).toHaveLength(1));
+    await act(async () => pending.reject(new Error("Revision changed")));
+    await waitFor(() => expect(first.classList.contains("ant-btn-loading")).toBe(false));
+    expect(mocks.message.error).toHaveBeenCalledWith("Revision changed");
+  });
+
+  it("makes member query retry visibly pending and deduplicates repeated retry clicks", async () => {
+    const pending = deferred<TenantMember[]>();
+    const base = mocks.apiFetch.getMockImplementation()!;
+    let reads = 0;
+    mocks.apiFetch.mockImplementation((path, options) => path === "/users" ? (++reads === 1 ? Promise.reject(new Error("Offline")) : pending.promise) : base(path, options));
+    renderPage();
+    const retry = await screen.findByRole("button", { name: "Thử lại" });
+    act(() => { fireEvent.click(retry); fireEvent.click(retry); });
+    await waitFor(() => expect(retry.classList.contains("ant-btn-loading")).toBe(true));
+    expect(reads).toBe(2);
+    await act(async () => pending.resolve([member]));
+    expect(await screen.findByText(member.fullName)).toBeTruthy();
+  });
+
+  it("tìm không dấu kết hợp vai trò/trạng thái, giữ bộ lọc riêng cho từng tab", async () => {
+    const teacher = { ...member, _id: "member-2", membershipId: "membership-2", fullName: "Đỗ Minh", email: "minh@example.test", role: "INSTRUCTOR", status: "INACTIVE" };
+    const original = mocks.apiFetch.getMockImplementation()!;
+    mocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === "/users" && !options?.method ? Promise.resolve([member, teacher]) : original(path, options));
+    renderPage();
+    const members = await screen.findByRole("region", { name: "Danh sách thành viên" });
+    expect(await within(members).findByText(teacher.fullName)).toBeTruthy();
+    const search = screen.getByRole("searchbox", { name: "Tìm thành viên" });
+    fireEvent.change(search, { target: { value: "  DO   MINH  " } });
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Lọc vai trò" }));
+    fireEvent.click(screen.getByText("Giảng viên", { selector: ".ant-select-item-option-content" }));
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Lọc trạng thái thành viên" }));
+    fireEvent.click(screen.getByText("Tạm ngưng", { selector: ".ant-select-item-option-content" }));
+    expect(within(members).getByText(teacher.fullName)).toBeTruthy();
+    expect(within(members).queryByText(member.fullName)).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Lời mời" }));
+    const invitations = await screen.findByRole("region", { name: "Danh sách lời mời" });
+    expect(await within(invitations).findByText(invitation.email)).toBeTruthy();
+    expect((screen.getByRole("searchbox", { name: "Tìm lời mời" }) as HTMLInputElement).value).toBe("");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Tìm lời mời" }), { target: { value: "  INVITED@BRIGHT.TEST  " } });
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Lọc trạng thái lời mời" }));
+    fireEvent.click(screen.getByText("Đã thu hồi", { selector: ".ant-select-item-option-content" }));
+    expect(within(invitations).getByText("Không có lời mời phù hợp")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    expect(within(invitations).getByText(invitation.email)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Thành viên" }));
+    expect((screen.getByRole("searchbox", { name: "Tìm thành viên" }) as HTMLInputElement).value).toBe("  DO   MINH  ");
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    expect(within(members).getByText(member.fullName)).toBeTruthy();
+    expect(mocks.apiFetch.mock.calls.filter(([path]) => path === "/users")).toHaveLength(1);
+    expect(mocks.apiFetch.mock.calls.some(([, options]) => options?.method)).toBe(false);
+  });
+
+  it("có nhãn bộ lọc tiếng Anh và giữ nguyên tên thành viên", async () => {
+    renderPage("en");
+    expect(await screen.findByText(member.fullName)).toBeTruthy();
+    expect(screen.getByRole("search", { name: "Member filters" })).toBeTruthy();
+    expect(screen.getByRole("searchbox", { name: "Find a member" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Filter by role" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Filter member status" })).toBeTruthy();
   });
 
   it("tải thành viên ngay nhưng chỉ tải lời mời khi mở tab", async () => {
@@ -336,6 +486,47 @@ describe("UsersPage", () => {
     });
   });
 
+  it.each(["vi", "en"] as const)("creates a guardian safely with pending/retry feedback (%s)", async (locale) => {
+    const en = locale === "en";
+    mocks.guardianModule = true;
+    const pending = deferred();
+    const original = mocks.apiFetch.getMockImplementation()!;
+    let createCount = 0;
+    mocks.apiFetch.mockImplementation((path, options) => path === "/users" && options?.method === "POST"
+      ? (++createCount === 1 ? pending.promise : Promise.resolve(member)) : original(path, options));
+    renderPage(locale);
+    await screen.findByText("Learner One");
+    expect(screen.getByRole("link", { name: en ? "Link guardians and learners" : "Liên kết phụ huynh – học viên" }).getAttribute("href")).toBe("/guardians");
+    const createLabel = en ? "Create account" : "Tạo tài khoản";
+    fireEvent.click(screen.getByRole("button", { name: createLabel }));
+    fireEvent.change(screen.getByLabelText(en ? "Full name" : "Họ và tên"), { target: { value: "Parent One" } });
+    const email = screen.getByLabelText("Email") as HTMLInputElement;
+    fireEvent.change(email, { target: { value: "parent@example.com" } });
+    const password = screen.getByLabelText(en ? "Initial password" : "Mật khẩu ban đầu");
+    fireEvent.change(password, { target: { value: "Parent@1234" } });
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: en ? "Role" : "Vai trò" }));
+    fireEvent.click(await screen.findByText(en ? "Guardian" : "Phụ huynh"));
+    const save = screen.getAllByRole("button", { name: createLabel }).at(-1)!;
+    fireEvent.click(save);
+    expect(await screen.findByText(en ? "Use at least 12 characters" : "Mật khẩu cần ít nhất 12 ký tự")).toBeTruthy();
+    expect(createCount).toBe(0);
+    fireEvent.change(password, { target: { value: "Parent@12345" } });
+    act(() => { fireEvent.click(save); fireEvent.click(save); });
+    await waitFor(() => expect(createCount).toBe(1));
+    expect(email.disabled).toBe(true);
+    expect(save.getAttribute("aria-busy")).toBe("true");
+    expect((screen.getByRole("button", { name: "Hủy" }) as HTMLButtonElement).disabled).toBe(true);
+    const request = mocks.apiFetch.mock.calls.find(([path, options]) => path === "/users" && options?.method === "POST")!;
+    expect(JSON.parse(request[1].body)).toEqual({ email: "parent@example.com", fullName: "Parent One", password: "Parent@12345", role: "GUARDIAN" });
+    await act(async () => { pending.reject(new Error("Offline")); });
+    await waitFor(() => expect(email.disabled).toBe(false));
+    expect(email.value).toBe("parent@example.com");
+    fireEvent.click(save);
+    await waitFor(() => expect(createCount).toBe(2));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.apiFetch.mock.calls.filter(([path, options]) => path === "/users" && !options?.method).length).toBeGreaterThan(1);
+  });
+
   it("tạo tài khoản learner bằng payload tenant-scoped tối thiểu", async () => {
     renderPage();
     await screen.findByText("Learner One");
@@ -348,7 +539,7 @@ describe("UsersPage", () => {
       target: { value: "NEW@BRIGHT.TEST" },
     });
     fireEvent.change(screen.getByLabelText("Mật khẩu ban đầu"), {
-      target: { value: "Student@123" },
+      target: { value: "Student@1234" },
     });
     fireEvent.click(
       screen.getAllByRole("button", { name: "Tạo tài khoản" }).at(-1)!,
@@ -359,7 +550,7 @@ describe("UsersPage", () => {
         body: JSON.stringify({
           email: "new@bright.test",
           fullName: "Học viên mới",
-          password: "Student@123",
+          password: "Student@1234",
           role: "LEARNER",
         }),
         method: "POST",
@@ -388,7 +579,7 @@ describe("UsersPage", () => {
       target: { value: "branch@bright.test" },
     });
     fireEvent.change(screen.getByLabelText("Mật khẩu ban đầu"), {
-      target: { value: "Student@123" },
+      target: { value: "Student@1234" },
     });
     fireEvent.mouseDown(screen.getByRole("combobox", { name: "Cơ sở chính" }));
     fireEvent.click(
@@ -404,7 +595,7 @@ describe("UsersPage", () => {
           email: "branch@bright.test",
           fullName: "Học viên chi nhánh",
           orgUnitId: "branch-1",
-          password: "Student@123",
+          password: "Student@1234",
           role: "LEARNER",
         }),
         method: "POST",
@@ -491,7 +682,7 @@ describe("UsersPage", () => {
       target: { value: "scoped@bright.test" },
     });
     fireEvent.change(screen.getByLabelText("Mật khẩu ban đầu"), {
-      target: { value: "Student@123" },
+      target: { value: "Student@1234" },
     });
     fireEvent.click(
       screen.getAllByRole("button", { name: "Tạo tài khoản" }).at(-1)!,

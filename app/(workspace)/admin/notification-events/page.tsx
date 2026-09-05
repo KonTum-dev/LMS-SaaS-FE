@@ -1,4 +1,10 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsMessages } from "@/lib/i18n/operations-messages";
+import { workspacePolishMessages } from "@/lib/i18n/workspace-polish-messages";
+import { listPageSizes } from "@/lib/list-controls";
+import { useMemo as useI18nMemo } from "react";
 
 import { ReloadOutlined, RedoOutlined } from "@ant-design/icons";
 import {
@@ -17,7 +23,7 @@ import {
 import type { TablePaginationConfig } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/components/providers/app-providers";
 import { ApiError } from "@/lib/api";
 import {
@@ -37,30 +43,7 @@ import type { NotificationType } from "@/lib/types";
 
 const OBJECT_ID = /^[a-f\d]{24}$/i;
 const MAX_ADMIN_NOTIFICATION_PAGES = 100;
-const dateTime = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "short",
-  timeStyle: "medium",
-});
-
-const typeLabels: Record<NotificationType, string> = {
-  ASSIGNMENT_PUBLISHED: "Bài tập được xuất bản",
-  COURSE_ENROLLED: "Ghi danh khóa học",
-  COURSE_WITHDRAWN: "Rút khỏi khóa học",
-  SUBMISSION_GRADED: "Bài nộp đã chấm",
-  SUBMISSION_RETURNED: "Bài nộp được trả lại",
-};
-
-const pipelineLabels: Record<AdminNotificationEvent["pipeline"], string> = {
-  DISPATCH: "Phân phối",
-  SOURCE_RELAY: "Relay nguồn",
-};
-
-const retryReasonLabels: Record<NotificationRetryReasonCode, string> = {
-  CONFIGURATION_CORRECTED: "Đã sửa cấu hình worker / kênh gửi",
-  DATA_RECONCILED: "Đã đối soát và khôi phục dữ liệu",
-  DEPENDENCY_RECOVERED: "Dependency đã hoạt động trở lại",
-  TRANSIENT_FAILURE_RESOLVED: "Lỗi tạm thời đã được xử lý",
-};
+const notificationMessages = { ...operationsMessages, ...workspacePolishMessages };
 
 type ActionNotice = {
   description?: string;
@@ -69,15 +52,8 @@ type ActionNotice = {
   type: "error" | "success" | "warning";
 };
 
-function safeErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
-}
-
-function formattedDate(value: string | null) {
-  return value ? dateTime.format(new Date(value)) : "—";
-}
-
 export default function AdminNotificationEventsPage() {
+  const { t } = useOperationsCopy();
   const { captureAuthGeneration, organization, token, user } = useAuth();
   const scope = getViewerScope(user, organization);
 
@@ -85,7 +61,7 @@ export default function AdminNotificationEventsPage() {
     return (
       <Alert
         showIcon
-        title="Chỉ quản trị viên nền tảng được vận hành sự kiện thông báo."
+        title={t("Chỉ quản trị viên nền tảng được vận hành sự kiện thông báo.")}
         type="warning"
       />
     );
@@ -107,6 +83,16 @@ function PlatformNotificationEventsPage({
   scope: ViewerScope;
   token: string;
 }) {
+  const {
+    t,
+    locale,
+    typeLabels,
+    pipelineLabels,
+    retryReasonLabels,
+    safeErrorMessage,
+    formattedDate,
+    createIdempotencyKey,
+  } = useOperationsCopy();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState<AdminNotificationEventsQuery>({
     limit: 20,
@@ -151,7 +137,7 @@ function PlatformNotificationEventsPage({
   const applyTenantFilter = () => {
     const tenantId = tenantDraft.trim();
     if (tenantId && !OBJECT_ID.test(tenantId)) {
-      setFilterError("Mã tổ chức phải gồm đúng 24 ký tự hex.");
+      setFilterError(t("Mã tổ chức phải gồm đúng 24 ký tự hex."));
       return;
     }
     setFilterError("");
@@ -181,17 +167,20 @@ function PlatformNotificationEventsPage({
     }));
   };
 
-  const openRetry = (event: AdminNotificationEvent) => {
-    if (retryInFlight.current) return;
-    setSelectedEvent(event);
-    setReasonCode("");
-    setReasonError("");
-    setActionNotice(null);
-    retryKey.current = createIdempotencyKey();
-  };
+  const openRetry = useCallback(
+    (event: AdminNotificationEvent) => {
+      if (retryInFlight.current || operationController.current) return;
+      setSelectedEvent(event);
+      setReasonCode("");
+      setReasonError("");
+      setActionNotice(null);
+      retryKey.current = createIdempotencyKey();
+    },
+    [createIdempotencyKey],
+  );
 
   const closeRetry = () => {
-    if (retryInFlight.current || checkingOperation) return;
+    if (retryInFlight.current || operationController.current) return;
     setSelectedEvent(null);
     setReasonCode("");
     setReasonError("");
@@ -199,7 +188,7 @@ function PlatformNotificationEventsPage({
   };
 
   const checkRetryOperation = async (operationId: string) => {
-    if (checkingOperation) return;
+    if (operationController.current) return;
     const controller = new AbortController();
     operationController.current = controller;
     setCheckingOperation(true);
@@ -214,8 +203,11 @@ function PlatformNotificationEventsPage({
         setReasonCode("");
         retryKey.current = null;
         setActionNotice({
-          description: `Operation ${operation.operationId} đã hoàn tất và sự kiện đã được đưa lại vào pipeline.`,
-          title: "Retry đã hoàn tất",
+          description: t(
+            "Operation {value0} đã hoàn tất và sự kiện đã được đưa lại vào pipeline.",
+            { value0: operation.operationId },
+          ),
+          title: t("Retry đã hoàn tất"),
           type: "success",
         });
         await queryClient
@@ -224,17 +216,25 @@ function PlatformNotificationEventsPage({
       } else if (operation.status === "FAILED") {
         setActionNotice({
           description: operation.failureCode
-            ? `Operation ${operation.operationId} thất bại với mã ${operation.failureCode}.`
-            : `Operation ${operation.operationId} đã kết thúc nhưng không có mã lỗi.`,
+            ? t("Operation {value0} thất bại với mã {value1}.", {
+                value0: operation.operationId,
+                value1: operation.failureCode,
+              })
+            : t("Operation {value0} đã kết thúc nhưng không có mã lỗi.", {
+                value0: operation.operationId,
+              }),
           operationId: operation.operationId,
-          title: "Retry không thành công",
+          title: t("Retry không thành công"),
           type: "error",
         });
       } else {
         setActionNotice({
-          description: `Operation ${operation.operationId} vẫn đang xử lý ở bước ${operation.phase}. Kiểm tra lại sau ít phút.`,
+          description: t(
+            "Operation {value0} vẫn đang xử lý ở bước {value1}. Kiểm tra lại sau ít phút.",
+            { value0: operation.operationId, value1: operation.phase },
+          ),
           operationId: operation.operationId,
-          title: "Retry đang được xử lý",
+          title: t("Retry đang được xử lý"),
           type: "warning",
         });
       }
@@ -243,10 +243,10 @@ function PlatformNotificationEventsPage({
       setActionNotice({
         description: safeErrorMessage(
           error,
-          "Không thể kiểm tra trạng thái operation.",
+          t("Không thể kiểm tra trạng thái operation."),
         ),
         operationId,
-        title: "Không thể kiểm tra operation",
+        title: t("Không thể kiểm tra operation"),
         type: "error",
       });
     } finally {
@@ -259,9 +259,9 @@ function PlatformNotificationEventsPage({
 
   const submitRetry = async () => {
     const event = selectedEvent;
-    if (!event || retryInFlight.current) return;
+    if (!event || retryInFlight.current || operationController.current) return;
     if (!reasonCode) {
-      setReasonError("Chọn một mã lý do retry.");
+      setReasonError(t("Chọn một mã lý do retry."));
       return;
     }
 
@@ -284,15 +284,23 @@ function PlatformNotificationEventsPage({
           description:
             operation.status === "FAILED"
               ? operation.failureCode
-                ? `Operation ${operation.operationId} thất bại với mã ${operation.failureCode}.`
-                : `Operation ${operation.operationId} đã thất bại.`
-              : `Operation ${operation.operationId} vẫn đang xử lý ở bước ${operation.phase}.`,
+                ? t("Operation {value0} thất bại với mã {value1}.", {
+                    value0: operation.operationId,
+                    value1: operation.failureCode,
+                  })
+                : t("Operation {value0} đã thất bại.", {
+                    value0: operation.operationId,
+                  })
+              : t("Operation {value0} vẫn đang xử lý ở bước {value1}.", {
+                  value0: operation.operationId,
+                  value1: operation.phase,
+                }),
           operationId:
             operation.status === "PENDING" ? operation.operationId : undefined,
           title:
             operation.status === "FAILED"
-              ? "Retry không thành công"
-              : "Retry đang được xử lý",
+              ? t("Retry không thành công")
+              : t("Retry đang được xử lý"),
           type: operation.status === "FAILED" ? "error" : "warning",
         });
         return;
@@ -300,8 +308,11 @@ function PlatformNotificationEventsPage({
       setSelectedEvent(null);
       setReasonCode("");
       setActionNotice({
-        description: `Operation ${operation.operationId} đã thành công. Danh sách đang được làm mới để phản ánh trạng thái mới nhất.`,
-        title: "Đã đưa sự kiện vào hàng đợi lại.",
+        description: t(
+          "Operation {value0} đã thành công. Danh sách đang được làm mới để phản ánh trạng thái mới nhất.",
+          { value0: operation.operationId },
+        ),
+        title: t("Đã đưa sự kiện vào hàng đợi lại."),
         type: "success",
       });
       await queryClient
@@ -315,16 +326,19 @@ function PlatformNotificationEventsPage({
       setActionNotice({
         description:
           unknown && error instanceof ApiError && error.operationId
-            ? `Kết quả chưa rõ. Kiểm tra operationId ${error.operationId} trước khi gửi lại.`
+            ? t(
+                "Kết quả chưa rõ. Kiểm tra operationId {value0} trước khi gửi lại.",
+                { value0: error.operationId },
+              )
             : safeErrorMessage(
                 error,
-                "Không thể đưa sự kiện vào hàng đợi lại.",
+                t("Không thể đưa sự kiện vào hàng đợi lại."),
               ),
         operationId:
           unknown && error instanceof ApiError ? error.operationId : undefined,
         title: unknown
-          ? "Cần kiểm tra trạng thái retry"
-          : "Retry sự kiện thất bại",
+          ? t("Cần kiểm tra trạng thái retry")
+          : t("Retry sự kiện thất bại"),
         type: unknown ? "warning" : "error",
       });
     } finally {
@@ -346,12 +360,14 @@ function PlatformNotificationEventsPage({
             <div className="table-muted">
               <Typography.Text code>{event.eventId}</Typography.Text>
             </div>
-            <div className="table-muted">
-              Tổ chức …{event.tenantId.slice(-8)}
-            </div>
+            <details className="table-metadata-disclosure">
+              <summary>{t("Tổ chức …")}{event.tenantId.slice(-8)}</summary>
+              <div><Typography.Text code>{event.tenantId}</Typography.Text></div>
+              <div>{t("Nguồn:")} {event.sourceKind} · {event.sourceId}</div>
+            </details>
           </div>
         ),
-        title: "Sự kiện",
+        title: t("Sự kiện"),
       },
       {
         key: "pipeline",
@@ -360,33 +376,23 @@ function PlatformNotificationEventsPage({
             <Tag color={event.pipeline === "DISPATCH" ? "blue" : "purple"}>
               {pipelineLabels[event.pipeline]}
             </Tag>
-            <div className="table-muted">{event.sourceKind}</div>
           </div>
         ),
-        title: "Pipeline",
-      },
-      {
-        key: "tenant",
-        render: (_, event) => (
-          <div>
-            <Typography.Text code>{event.tenantId}</Typography.Text>
-            <div className="table-muted">Nguồn: {event.sourceId}</div>
-          </div>
-        ),
-        responsive: ["lg"],
-        title: "Tổ chức / nguồn",
+        title: t("Luồng xử lý"),
       },
       {
         key: "failure",
         render: (_, event) => (
           <div>
-            <strong>{event.failureCount} lần lỗi</strong>
+            <strong>
+              {event.failureCount} {t("lần lỗi")}
+            </strong>
             <div className="table-muted">
-              {event.lastErrorCode ?? "Không có mã lỗi"}
+              {event.lastErrorCode ?? t("Không có mã lỗi")}
             </div>
           </div>
         ),
-        title: "Lỗi gần nhất",
+        title: t("Lỗi gần nhất"),
       },
       {
         key: "time",
@@ -394,32 +400,39 @@ function PlatformNotificationEventsPage({
           <div>
             <strong>{formattedDate(event.deadLetteredAt)}</strong>
             <div className="table-muted">
-              Xảy ra: {formattedDate(event.occurredAt)}
+              {t("Xảy ra:")} {formattedDate(event.occurredAt)}
             </div>
           </div>
         ),
         responsive: ["md"],
-        title: "Dead-letter lúc",
+        title: t("Thời điểm lỗi"),
       },
       {
         align: "right",
         key: "action",
         render: (_, event) => (
           <Button
-            aria-label={`Retry sự kiện ${event.eventId} của tổ chức ${event.tenantId} (${pipelineLabels[event.pipeline]})`}
-            disabled={retryingId !== null}
+            aria-label={t(
+              "Retry sự kiện {value0} của tổ chức {value1} ({value2})",
+              {
+                value0: event.eventId,
+                value1: event.tenantId,
+                value2: pipelineLabels[event.pipeline],
+              },
+            )}
+            disabled={retryingId !== null || checkingOperation}
             icon={<RedoOutlined />}
             loading={retryingId === event._id}
             onClick={() => openRetry(event)}
             type="link"
           >
-            Retry
+            {t("Thử lại")}
           </Button>
         ),
-        title: "Thao tác",
+        title: t("Thao tác"),
       },
     ],
-    [retryingId],
+    [checkingOperation, formattedDate, openRetry, pipelineLabels, retryingId, t, typeLabels],
   );
 
   const totalEvents = events.data?.total ?? 0;
@@ -428,7 +441,12 @@ function PlatformNotificationEventsPage({
     current: query.page,
     onChange: updatePage,
     pageSize: query.limit,
-    showSizeChanger: true,
+    disabled: events.isFetching,
+    responsive: true,
+    showLessItems: true,
+    pageSizeOptions: listPageSizes(query.limit),
+    showSizeChanger: { "aria-label": t("Số dòng mỗi trang"), showSearch: false },
+    showTotal: (total, range) => t("{p0}–{p1} trên {p2} mục", { p0: range[0], p1: range[1], p2: total }),
     total: Math.min(totalEvents, maximumBrowsableEvents),
   };
 
@@ -439,7 +457,7 @@ function PlatformNotificationEventsPage({
       onClick={() => void checkRetryOperation(actionNotice.operationId!)}
       size="small"
     >
-      Kiểm tra operation
+      {t("Kiểm tra operation")}{" "}
     </Button>
   ) : undefined;
 
@@ -447,30 +465,31 @@ function PlatformNotificationEventsPage({
     <div className="page-shell">
       <div className="page-heading">
         <div className="page-heading-copy">
-          <h1>Vận hành thông báo</h1>
+          <h1>{t("Vận hành thông báo")}</h1>
           <p>
-            Theo dõi metadata dead-letter và đưa sự kiện lỗi trở lại đúng
-            pipeline mà không truy cập nội dung thông báo.
+            {t(
+              "Theo dõi lỗi gửi thông báo và thử gửi lại.",
+            )}{" "}
           </p>
         </div>
         <Button
-          aria-label="Tải lại sự kiện thông báo"
+          aria-label={t("Tải lại sự kiện thông báo")}
           icon={<ReloadOutlined />}
           loading={events.isFetching}
-          onClick={() => void events.refetch()}
+          onClick={() => void events.refetch({ cancelRefetch: false })}
         >
-          Tải lại
+          {t("Tải lại")}{" "}
         </Button>
       </div>
 
       {actionNotice && !selectedEvent ? (
         <Alert
           closable
-          description={actionNotice.description}
+          description={actionNotice.description && t(actionNotice.description)}
           action={operationAction}
           onClose={() => setActionNotice(null)}
           showIcon
-          title={actionNotice.title}
+          title={t(actionNotice.title)}
           type={actionNotice.type}
         />
       ) : null}
@@ -479,56 +498,77 @@ function PlatformNotificationEventsPage({
           closable
           onClose={() => setFilterError("")}
           showIcon
-          title={filterError}
+          title={t(filterError)}
           type="error"
         />
       ) : null}
       {events.error ? (
         <Alert
           action={
-            <Button onClick={() => void events.refetch()} size="small">
-              Thử lại
+            <Button
+              loading={events.isFetching}
+              onClick={() => void events.refetch({ cancelRefetch: false })}
+              size="small"
+            >
+              {t("Thử lại")}{" "}
             </Button>
           }
           description={safeErrorMessage(
             events.error,
-            "Không tải được danh sách sự kiện thông báo.",
+            t("Không tải được danh sách sự kiện thông báo."),
           )}
           showIcon
-          title="Không tải được dead-letter"
+          title={t("Không tải được dead-letter")}
           type="error"
         />
       ) : null}
       {totalEvents > maximumBrowsableEvents ? (
         <Alert
-          description={`API chỉ cho duyệt tối đa ${MAX_ADMIN_NOTIFICATION_PAGES} trang (${maximumBrowsableEvents.toLocaleString("vi-VN")} sự kiện với kích thước trang hiện tại). Hãy lọc theo tổ chức hoặc loại sự kiện để xem đúng tập cần xử lý.`}
+          description={t(
+            "API chỉ cho duyệt tối đa {value0} trang ({value1} sự kiện với kích thước trang hiện tại). Hãy lọc theo tổ chức hoặc loại sự kiện để xem đúng tập cần xử lý.",
+            {
+              value0: MAX_ADMIN_NOTIFICATION_PAGES,
+              value1: maximumBrowsableEvents.toLocaleString(
+                locale === "en" ? "en-US" : "vi-VN",
+              ),
+            },
+          )}
           showIcon
-          title={`Có ${totalEvents.toLocaleString("vi-VN")} sự kiện phù hợp`}
+          title={t("Có {value0} sự kiện phù hợp", {
+            value0: totalEvents.toLocaleString(
+              locale === "en" ? "en-US" : "vi-VN",
+            ),
+          })}
           type="warning"
         />
       ) : null}
 
       <Card className="surface-card">
-        <div className="admin-filter-bar">
+        <div className="admin-filter-bar list-filter-bar" role="search" aria-label={t("Sự kiện thông báo")}>
           <Space.Compact>
             <Input
-              aria-label="Lọc sự kiện theo mã tổ chức"
+              allowClear
+              aria-label={t("Lọc sự kiện theo mã tổ chức")}
               disabled={events.isFetching}
-              onChange={(event) => setTenantDraft(event.target.value)}
+              onChange={(event) => {
+                setTenantDraft(event.target.value);
+                setFilterError("");
+                if (!event.target.value.trim()) setQuery((current) => ({ ...current, page: 1, tenantId: undefined }));
+              }}
               onPressEnter={applyTenantFilter}
-              placeholder="ObjectId tổ chức"
+              placeholder={t("Mã tổ chức")}
               value={tenantDraft}
             />
             <Button disabled={events.isFetching} onClick={applyTenantFilter}>
-              Áp dụng
+              {t("Áp dụng")}{" "}
             </Button>
           </Space.Compact>
           <Select
-            aria-label="Lọc theo loại sự kiện thông báo"
+            aria-label={t("Lọc theo loại sự kiện thông báo")}
             disabled={events.isFetching}
             onChange={updateType}
             options={[
-              { label: "Tất cả loại sự kiện", value: "" },
+              { label: t("Tất cả loại sự kiện"), value: "" },
               ...notificationEventTypes.map((value) => ({
                 label: typeLabels[value],
                 value,
@@ -537,45 +577,50 @@ function PlatformNotificationEventsPage({
             style={{ minWidth: 230 }}
             value={query.type ?? ""}
           />
-          <Tag color="red">DEAD_LETTER</Tag>
+          {(tenantDraft || query.tenantId || query.type) && <Button onClick={() => { setTenantDraft(""); setFilterError(""); setQuery((current) => ({ limit: current.limit, page: 1 })); }}>{t("Xóa bộ lọc")}</Button>}
         </div>
 
         {events.isLoading ? (
           <p aria-live="polite" role="status">
-            Đang tải metadata sự kiện thông báo...
+            {t("Đang tải metadata sự kiện thông báo...")}{" "}
           </p>
         ) : null}
         {!events.isLoading &&
         !events.error &&
         events.data?.items.length === 0 ? (
-          <Empty description="Không có sự kiện dead-letter phù hợp bộ lọc." />
+          <Empty
+            description={t("Không có sự kiện dead-letter phù hợp bộ lọc.")}
+          />
         ) : null}
         {events.data && !events.error ? (
           <Table
+            className="data-table"
             columns={columns}
             dataSource={events.data.items}
             loading={events.isFetching}
             locale={{ emptyText: null }}
             pagination={pagination}
             rowKey={(event) => `${event.pipeline}:${event._id}`}
-            scroll={{ x: 1120 }}
+            scroll={{ x: 880 }}
           />
         ) : null}
       </Card>
 
       <Modal
-        cancelText="Hủy"
+        cancelText={t("Hủy")}
+        cancelButtonProps={{ disabled: Boolean(retryingId) || checkingOperation }}
         closable={!retryingId && !checkingOperation}
         confirmLoading={Boolean(retryingId)}
-        maskClosable={!retryingId && !checkingOperation}
+        keyboard={!retryingId && !checkingOperation}
+        mask={{ closable: !retryingId && !checkingOperation }}
         okButtonProps={{
           disabled: !reasonCode || Boolean(retryingId) || checkingOperation,
         }}
-        okText="Đưa vào hàng đợi lại"
+        okText={t("Đưa vào hàng đợi lại")}
         onCancel={closeRetry}
         onOk={() => void submitRetry()}
         open={Boolean(selectedEvent)}
-        title="Retry sự kiện thông báo"
+        title={t("Retry sự kiện thông báo")}
       >
         {selectedEvent ? (
           <Space direction="vertical" size={14} style={{ width: "100%" }}>
@@ -587,7 +632,7 @@ function PlatformNotificationEventsPage({
                     {typeLabels[selectedEvent.type]}
                   </span>
                   <span>
-                    Tổ chức:{" "}
+                    {t("Tổ chức:")}{" "}
                     <Typography.Text
                       code
                       copyable={{ text: selectedEvent.tenantId }}
@@ -596,7 +641,7 @@ function PlatformNotificationEventsPage({
                     </Typography.Text>
                   </span>
                   <span>
-                    Nguồn {selectedEvent.sourceKind}:{" "}
+                    {t("Nguồn")} {selectedEvent.sourceKind}:{" "}
                     <Typography.Text
                       code
                       copyable={{ text: selectedEvent.sourceId }}
@@ -607,28 +652,30 @@ function PlatformNotificationEventsPage({
                 </Space>
               }
               showIcon
-              title={`Sự kiện ${selectedEvent.eventId}`}
+              title={t("Sự kiện {value0}", { value0: selectedEvent.eventId })}
               type="warning"
             />
             {actionNotice && actionNotice.type !== "success" ? (
               <Alert
                 action={operationAction}
-                description={actionNotice.description}
+                description={
+                  actionNotice.description && t(actionNotice.description)
+                }
                 showIcon
-                title={actionNotice.title}
+                title={t(actionNotice.title)}
                 type={actionNotice.type}
               />
             ) : null}
             <label htmlFor="notification-retry-reason">
-              <strong>Mã lý do retry</strong>
+              <strong>{t("Mã lý do retry")}</strong>
             </label>
             <Select
               aria-describedby={
                 reasonError ? "notification-retry-reason-error" : undefined
               }
               aria-invalid={Boolean(reasonError)}
-              aria-label="Chọn mã lý do retry"
-              disabled={Boolean(retryingId)}
+              aria-label={t("Chọn mã lý do retry")}
+              disabled={Boolean(retryingId) || checkingOperation}
               id="notification-retry-reason"
               onChange={(value) => {
                 const requested =
@@ -643,7 +690,7 @@ function PlatformNotificationEventsPage({
                 label: retryReasonLabels[value],
                 value,
               }))}
-              placeholder="Chọn lý do đã được chuẩn hóa"
+              placeholder={t("Chọn lý do đã được chuẩn hóa")}
               value={reasonCode || undefined}
             />
             {reasonError ? (
@@ -651,7 +698,7 @@ function PlatformNotificationEventsPage({
                 id="notification-retry-reason-error"
                 type="danger"
               >
-                {reasonError}
+                {t(reasonError)}
               </Typography.Text>
             ) : null}
           </Space>
@@ -661,24 +708,78 @@ function PlatformNotificationEventsPage({
   );
 }
 
-function createIdempotencyKey() {
-  const candidate = globalThis.crypto?.randomUUID?.();
-  if (
-    candidate &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      candidate,
-    )
-  ) {
-    return candidate;
-  }
-  if (typeof globalThis.crypto?.getRandomValues !== "function") {
-    throw new Error("Trình duyệt không hỗ trợ tạo khóa retry an toàn");
-  }
-  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+function useOperationsCopy() {
+  const i18n = useI18n(notificationMessages);
+  return useI18nMemo(() => {
+    const { t, locale } = i18n;
+    const dateTime = new Intl.DateTimeFormat(
+      locale === "en" ? "en-US" : "vi-VN",
+      {
+        dateStyle: "short",
+        timeStyle: "medium",
+      },
+    );
+
+    const typeLabels: Record<NotificationType, string> = {
+      ASSIGNMENT_PUBLISHED: t("Bài tập được xuất bản"),
+      COURSE_ENROLLED: t("Ghi danh khóa học"),
+      COURSE_WITHDRAWN: t("Rút khỏi khóa học"),
+      SUBMISSION_GRADED: t("Bài nộp đã chấm"),
+      SUBMISSION_RETURNED: t("Bài nộp được trả lại"),
+    };
+
+    const pipelineLabels: Record<AdminNotificationEvent["pipeline"], string> = {
+      DISPATCH: t("Phân phối"),
+      SOURCE_RELAY: t("Relay nguồn"),
+    };
+
+    const retryReasonLabels: Record<NotificationRetryReasonCode, string> = {
+      CONFIGURATION_CORRECTED: t("Đã sửa cấu hình worker / kênh gửi"),
+      DATA_RECONCILED: t("Đã đối soát và khôi phục dữ liệu"),
+      DEPENDENCY_RECOVERED: t("Dependency đã hoạt động trở lại"),
+      TRANSIENT_FAILURE_RESOLVED: t("Lỗi tạm thời đã được xử lý"),
+    };
+
+    function safeErrorMessage(error: unknown, fallback: string) {
+      return error instanceof Error
+        ? describeOperationsError(error, locale, fallback)
+        : fallback;
+    }
+
+    function formattedDate(value: string | null) {
+      return value ? dateTime.format(new Date(value)) : "—";
+    }
+
+    function createIdempotencyKey() {
+      const candidate = globalThis.crypto?.randomUUID?.();
+      if (
+        candidate &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          candidate,
+        )
+      ) {
+        return candidate;
+      }
+      if (typeof globalThis.crypto?.getRandomValues !== "function") {
+        throw new Error(t("Trình duyệt không hỗ trợ tạo khóa retry an toàn"));
+      }
+      const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+    return {
+      ...i18n,
+      dateTime,
+      typeLabels,
+      pipelineLabels,
+      retryReasonLabels,
+      safeErrorMessage,
+      formattedDate,
+      createIdempotencyKey,
+    };
+  }, [i18n]);
 }

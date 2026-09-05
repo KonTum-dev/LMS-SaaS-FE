@@ -1,241 +1,118 @@
 "use client";
 
-import {
-  ApartmentOutlined,
-  BarChartOutlined,
-  BellOutlined,
-  BookOutlined,
-  CalendarOutlined,
-  CheckCircleFilled,
-  DollarOutlined,
-  FileDoneOutlined,
-  SafetyCertificateOutlined,
-  TeamOutlined,
-} from "@ant-design/icons";
-import { Progress, Tabs, Tag } from "antd";
+import { ApartmentOutlined, ArrowRightOutlined, BarChartOutlined, BellOutlined, BookOutlined, CalendarOutlined, CheckOutlined, FileDoneOutlined, TeamOutlined } from "@ant-design/icons";
+import { Tabs } from "antd";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { marketingFeatures, type MarketingFeature } from "@/lib/marketing-content";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { marketingMessages } from "@/lib/i18n/marketing-messages";
+import { marketingFeatures } from "@/lib/marketing-content";
 import styles from "./feature-explorer.module.css";
 
 type FeatureGroupId = "teaching" | "classroom" | "operations" | "organization";
+interface FeatureGroup { id: FeatureGroupId; label: string; outcome: string; featureIds: readonly string[]; }
 
-interface FeatureGroup {
-  description: string;
-  featureIds: readonly string[];
-  icon: ReactNode;
-  id: FeatureGroupId;
-  label: string;
-  outcome: string;
-}
-
-const featureGroups: readonly FeatureGroup[] = [
-  {
-    id: "teaching",
-    label: "Giảng dạy",
-    description: "Từ giáo trình đến bài tập và bài kiểm tra trong cùng một mạch nội dung.",
-    outcome: "Soạn một lần, triển khai cho nhiều lớp",
-    icon: <BookOutlined />,
-    featureIds: ["courses-curriculum", "assignments-grading", "assessments-results"],
-  },
-  {
-    id: "classroom",
-    label: "Lớp học",
-    description: "Lịch học, điểm danh, học viên và phụ huynh được cập nhật theo đúng lớp.",
-    outcome: "Mỗi buổi học đều có trạng thái rõ ràng",
-    icon: <CalendarOutlined />,
-    featureIds: ["cohorts-attendance", "guardians-learners", "communications-scope"],
-  },
-  {
-    id: "operations",
-    label: "Vận hành",
-    description: "Theo dõi học phí và báo cáo để biết việc gì cần xử lý tiếp theo.",
-    outcome: "Dữ liệu vận hành trở thành hành động",
-    icon: <BarChartOutlined />,
-    featureIds: ["tuition-payments", "operations-reports"],
-  },
-  {
-    id: "organization",
-    label: "Tổ chức & dữ liệu",
-    description: "Phân quyền theo vai trò, workspace và chi nhánh mà không trộn phạm vi.",
-    outcome: "Mở rộng tổ chức nhưng vẫn kiểm soát được quyền",
-    icon: <ApartmentOutlined />,
-    featureIds: ["organization-structure", "communications-scope", "operations-reports"],
-  },
+const groups: readonly FeatureGroup[] = [
+  { id: "teaching", label: "Giảng dạy", outcome: "Dạy học có lộ trình", featureIds: ["courses-curriculum", "assignments-grading", "assessments-results"] },
+  { id: "classroom", label: "Lớp học", outcome: "Theo sát từng buổi học", featureIds: ["cohorts-attendance", "guardians-learners", "communications-scope"] },
+  { id: "operations", label: "Vận hành", outcome: "Nắm rõ việc cần xử lý", featureIds: ["tuition-payments", "operations-reports"] },
+  { id: "organization", label: "Tổ chức", outcome: "Quản lý rõ từng chi nhánh", featureIds: ["organization-structure", "communications-scope", "operations-reports"] },
 ];
+const summaries: Readonly<Record<string, { label: string; detail: string; icon: ReactNode }>> = {
+  "courses-curriculum": { label: "Sắp xếp khóa học và bài học", detail: "Xây giáo trình theo chương, lưu nháp và công bố khi sẵn sàng.", icon: <BookOutlined /> },
+  "assignments-grading": { label: "Giao bài, chấm bài tại một nơi", detail: "Nhận bài nộp, trả nhận xét và ghi nhận điểm.", icon: <FileDoneOutlined /> },
+  "assessments-results": { label: "Theo dõi kết quả từng học viên", detail: "Tạo bài kiểm tra và xem kết quả theo khóa học.", icon: <BarChartOutlined /> },
+  "cohorts-attendance": { label: "Lên lịch và điểm danh lớp học", detail: "Phân công giảng viên, tạo buổi học và theo dõi chuyên cần.", icon: <CalendarOutlined /> },
+  "guardians-learners": { label: "Kết nối học viên với phụ huynh", detail: "Mỗi phụ huynh xem thông tin của học viên được liên kết.", icon: <TeamOutlined /> },
+  "communications-scope": { label: "Gửi thông báo đúng người", detail: "Chọn người nhận theo tổ chức, đơn vị hoặc lớp học.", icon: <BellOutlined /> },
+  "tuition-payments": { label: "Theo dõi học phí và công nợ", detail: "Lập hóa đơn, ghi nhận tiền đã thu và theo dõi số dư.", icon: <FileDoneOutlined /> },
+  "operations-reports": { label: "Xem báo cáo theo từng đơn vị", detail: "Tổng hợp lớp học, chuyên cần và học phí trong phạm vi quản lý.", icon: <BarChartOutlined /> },
+  "organization-structure": { label: "Sắp xếp cơ cấu và phân quyền", detail: "Quản lý trụ sở, chi nhánh và quyền truy cập của thành viên.", icon: <ApartmentOutlined /> },
+};
 
-function featuresFor(group: FeatureGroup): readonly MarketingFeature[] {
-  return group.featureIds
-    .map((id) => marketingFeatures.find((feature) => feature.id === id))
-    .filter((feature) => feature !== undefined);
-}
-
-function AttendancePreview() {
-  return (
-    <div className={styles.productPreview} aria-label="Xem trước màn hình điểm danh">
-      <PreviewHeader eyebrow="LỚP HỌC HÔM NAY" title="IELTS Foundation · 19:00" action="Đang diễn ra" />
-      <div className={styles.previewStats}>
-        <PreviewMetric label="Có mặt" value="28" tone="success" />
-        <PreviewMetric label="Vắng" value="2" tone="warning" />
-        <PreviewMetric label="Chuyên cần" value="93%" tone="primary" />
-      </div>
-      <div className={styles.previewProgress}>
-        <span><strong>Tiến độ điểm danh</strong><small>28/30 học viên đã ghi nhận</small></span>
-        <Progress percent={93} showInfo={false} strokeColor="#0877dd" trailColor="#e7eef7" />
-      </div>
-      <div className={styles.previewRoster}>
-        {[
-          ["Nguyễn Minh Anh", "Có mặt", "success"],
-          ["Trần Gia Huy", "Có mặt", "success"],
-          ["Lê Hoàng Nam", "Chưa xác nhận", "warning"],
-        ].map(([name, status, tone]) => (
-          <div key={name}>
-            <span className={styles.previewAvatar}>{name.split(" ").at(-1)?.slice(0, 1)}</span>
-            <span><strong>{name}</strong><small>Học viên</small></span>
-            <Tag color={tone === "success" ? "success" : "warning"}>{status}</Tag>
-          </div>
-        ))}
-      </div>
+function PreviewFrame({ title, label, status, icon, children }: { title: string; label: string; status?: string; icon: ReactNode; children: ReactNode }) {
+  return <div className={styles.productPreview} aria-label={label}>
+    <div className={styles.previewHeader}>
+      <span className={styles.previewIcon} aria-hidden="true">{icon}</span>
+      <div><strong>{title}</strong><span>{label}</span>{status && <small className={styles.status}>{status}</small>}</div>
     </div>
-  );
+    {children}
+  </div>;
 }
 
 function TeachingPreview() {
-  return (
-    <div className={styles.productPreview} aria-label="Xem trước trình xây dựng khóa học">
-      <PreviewHeader eyebrow="TRÌNH XÂY DỰNG KHÓA HỌC" title="IELTS Foundation" action="Đã xuất bản" />
-      <div className={styles.curriculumSummary}>
-        <div><BookOutlined /><span><strong>6 chương</strong><small>Cấu trúc giáo trình</small></span></div>
-        <div><FileDoneOutlined /><span><strong>24 bài học</strong><small>Nội dung đã sắp xếp</small></span></div>
-        <div><CheckCircleFilled /><span><strong>3 bài kiểm tra</strong><small>Đánh giá theo mốc</small></span></div>
-      </div>
-      <div className={styles.lessonStack}>
-        {[
-          ["01", "Khởi động & mục tiêu", "4 bài học", "100%"],
-          ["02", "Listening foundation", "6 bài học", "75%"],
-          ["03", "Reading strategies", "5 bài học", "48%"],
-        ].map(([number, title, lessons, progress]) => (
-          <div key={number}>
-            <span>{number}</span>
-            <span><strong>{title}</strong><small>{lessons}</small></span>
-            <b>{progress}</b>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const { t } = useI18n(marketingMessages);
+  return <PreviewFrame title="IELTS Foundation" label={t("Khóa học")} status={t("Đã xuất bản")} icon={<BookOutlined />}>
+    <ol className={styles.lessonStack}>
+      {[["01", "Khởi động & mục tiêu", "4 bài học"], ["02", "Listening foundation", "6 bài học"], ["03", "Reading strategies", "5 bài học"]].map(([number, title, lessons]) => <li key={number}>
+        <span className={styles.rowNumber}>{number}</span><strong>{t(title)}</strong><small>{t(lessons)}</small>
+      </li>)}
+    </ol>
+  </PreviewFrame>;
 }
-
+function AttendancePreview() {
+  const { t } = useI18n(marketingMessages);
+  return <PreviewFrame title="IELTS Foundation · 19:00" label={t("Lớp học và điểm danh")} icon={<CalendarOutlined />}>
+    <dl className={styles.metrics}>
+      <div><dt>{t("Có mặt")}</dt><dd>28</dd></div><div><dt>{t("Vắng")}</dt><dd>2</dd></div><div><dt>{t("Chuyên cần")}</dt><dd>93%</dd></div>
+    </dl>
+    <ul className={styles.roster}>
+      {["Nguyễn Minh Anh", "Trần Gia Huy", "Lê Hoàng Nam"].map((name, index) => <li key={name}>
+        <span className={styles.avatar} aria-hidden="true">{name.split(" ").at(-1)?.slice(0, 1)}</span><strong>{name}</strong>
+        <span className={index < 2 ? styles.present : styles.pending}>{index < 2 && <CheckOutlined aria-hidden="true" />}{t(index < 2 ? "Có mặt" : "Chưa xác nhận")}</span>
+      </li>)}
+    </ul>
+  </PreviewFrame>;
+}
 function OperationsPreview() {
-  return (
-    <div className={styles.productPreview} aria-label="Xem trước báo cáo vận hành">
-      <PreviewHeader eyebrow="VẬN HÀNH THÁNG 9" title="Tổng quan trung tâm" action="Đã đồng bộ" />
-      <div className={styles.previewStats}>
-        <PreviewMetric label="Học phí đã thu" value="78%" tone="primary" />
-        <PreviewMetric label="Lớp hoạt động" value="12" tone="success" />
-        <PreviewMetric label="Việc cần xử lý" value="7" tone="warning" />
-      </div>
-      <div className={styles.revenuePanel}>
-        <div>
-          <span><strong>Hiệu suất theo tuần</strong><small>Dữ liệu mẫu trong giao diện giới thiệu</small></span>
-          <Tag color="blue">Toàn tổ chức</Tag>
-        </div>
-        <div className={styles.revenueBars} aria-hidden="true">
-          {[44, 58, 52, 72, 67, 86, 78].map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}
-        </div>
-        <div className={styles.revenueLegend}><span>Chuyên cần</span><span>Hoàn thành bài</span><span>Học phí</span></div>
-      </div>
+  const { t } = useI18n(marketingMessages);
+  return <PreviewFrame title={t("Tổng quan trung tâm")} label={t("Báo cáo vận hành")} icon={<BarChartOutlined />}>
+    <dl className={styles.metrics}>
+      <div><dt>{t("Học phí đã thu")}</dt><dd>78%</dd></div><div><dt>{t("Lớp hoạt động")}</dt><dd>12</dd></div><div><dt>{t("Việc cần xử lý")}</dt><dd>7</dd></div>
+    </dl>
+    <div className={styles.collectionProgress}>
+      <span>{t("Học phí đã thu")}</span><div role="img" aria-label={t("Học phí đã thu") + ": 78%"}><i /></div><p>{t("Theo dõi học phí và công nợ")}</p>
     </div>
-  );
+  </PreviewFrame>;
 }
-
 function OrganizationPreview() {
-  return (
-    <div className={styles.productPreview} aria-label="Xem trước cơ cấu tổ chức">
-      <PreviewHeader eyebrow="PHẠM VI WORKSPACE" title="Cơ cấu nhiều chi nhánh" action="4 đơn vị" />
-      <div className={styles.orgTree}>
-        <div className={styles.orgRoot}><span className={styles.orgIcon}><ApartmentOutlined /></span><span><strong>DX English Center</strong><small>Toàn tổ chức · 248 thành viên</small></span></div>
-        <div className={styles.orgBranches}>
-          {[
-            ["Cơ sở Quận 1", "82 học viên"],
-            ["Cơ sở Thủ Đức", "96 học viên"],
-            ["Lớp trực tuyến", "70 học viên"],
-          ].map(([name, count]) => (
-            <div key={name}><span className={styles.orgIcon}><TeamOutlined /></span><span><strong>{name}</strong><small>{count}</small></span></div>
-          ))}
-        </div>
-      </div>
-      <div className={styles.permissionStrip}>
-        <SafetyCertificateOutlined />
-        <span><strong>Quyền được kiểm tra theo vai trò và đơn vị</strong><small>Không trộn dữ liệu giữa các workspace</small></span>
-        <Tag color="success">Đang bảo vệ</Tag>
-      </div>
-    </div>
-  );
-}
-
-function PreviewHeader({ eyebrow, title, action }: { eyebrow: string; title: string; action: string }) {
-  return (
-    <div className={styles.previewHeader}>
-      <span><small>{eyebrow}</small><strong>{title}</strong></span>
-      <Tag color="processing">{action}</Tag>
-    </div>
-  );
-}
-
-function PreviewMetric({ label, value, tone }: { label: string; value: string; tone: "primary" | "success" | "warning" }) {
-  const icons = {
-    primary: <DollarOutlined />,
-    success: <CheckCircleFilled />,
-    warning: <BellOutlined />,
-  };
-  return <div data-tone={tone}><span>{icons[tone]}</span><small>{label}</small><strong>{value}</strong></div>;
-}
-
-function FeaturePreview({ id }: { id: FeatureGroupId }) {
-  if (id === "teaching") return <TeachingPreview />;
-  if (id === "classroom") return <AttendancePreview />;
-  if (id === "operations") return <OperationsPreview />;
-  return <OrganizationPreview />;
+  const { t } = useI18n(marketingMessages);
+  return <PreviewFrame title="DX English Center" label={t("Cơ cấu nhiều chi nhánh")} icon={<ApartmentOutlined />}>
+    <ul className={styles.branches}>
+      {[["Cơ sở Quận 1", "82 học viên"], ["Cơ sở Thủ Đức", "96 học viên"], ["Lớp trực tuyến", "70 học viên"]].map(([name, count]) => <li key={name}>
+        <TeamOutlined aria-hidden="true" /><strong>{t(name)}</strong><small>{t(count)}</small>
+      </li>)}
+    </ul>
+  </PreviewFrame>;
 }
 
 function GroupPane({ group, compact }: { group: FeatureGroup; compact: boolean }) {
-  return (
-    <div className={styles.featurePane}>
-      <div className={styles.featurePaneCopy}>
-        <span className={styles.featureOutcome}><CheckCircleFilled /> {group.outcome}</span>
-        <h3>{group.label}</h3>
-        <p>{group.description}</p>
-        <div className={styles.featureCapabilityList}>
-          {featuresFor(group).map((feature) => (
-            <div key={feature.id}>
-              <span className={styles.featureCapabilityIcon} aria-hidden="true">
-                {feature.capability === "TUITION" ? <DollarOutlined /> : feature.capability === "REPORTS" ? <BarChartOutlined /> : feature.capability === "COMMUNICATIONS" ? <BellOutlined /> : group.icon}
-              </span>
-              <span><strong>{feature.title}</strong>{compact ? null : <small>{feature.description}</small>}</span>
-            </div>
-          ))}
-        </div>
-        <Link className={styles.featureLink} href="/features">Khám phá nhóm tính năng <span>→</span></Link>
-      </div>
-      <FeaturePreview id={group.id} />
+  const { t } = useI18n(marketingMessages);
+  return <div className={styles.featurePane}>
+    <div className={styles.copy}>
+      <h3>{t(group.outcome)}</h3>
+      <ul className={styles.capabilities}>
+        {group.featureIds.filter(id => marketingFeatures.some(feature => feature.id === id)).map(id => {
+          const feature = summaries[id];
+          return <li key={id}><span className={styles.capabilityIcon} aria-hidden="true">{feature.icon}</span>
+            <div><strong>{t(feature.label)}</strong>{!compact && <p>{t(feature.detail)}</p>}</div>
+          </li>;
+        })}
+      </ul>
+      {compact && <Link className={styles.featureLink} href="/features">{t("Xem tất cả tính năng")}<ArrowRightOutlined aria-hidden="true" /></Link>}
     </div>
-  );
+    <figure className={styles.previewFigure}>
+      {group.id === "teaching" ? <TeachingPreview /> : group.id === "classroom" ? <AttendancePreview /> : group.id === "operations" ? <OperationsPreview /> : <OrganizationPreview />}
+      <figcaption>{t("Dữ liệu minh họa")}</figcaption>
+    </figure>
+  </div>;
 }
 
 export function FeatureExplorer({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className={`${styles.featureExplorer} ${compact ? styles.featureExplorerCompact : ""}`} data-reveal>
-      <Tabs
-        aria-label="Nhóm tính năng DX LMS"
-        defaultActiveKey="teaching"
-        items={featureGroups.map((group) => ({
-          key: group.id,
-          label: <span className={styles.featureTabLabel}><i>{group.icon}</i><span>{group.label}</span></span>,
-          children: <GroupPane compact={compact} group={group} />,
-        }))}
-        tabPlacement="start"
-      />
-    </div>
-  );
+  const { t } = useI18n(marketingMessages);
+  return <div className={styles.featureExplorer} data-reveal>
+    <Tabs aria-label={t("Nhóm tính năng DX LMS")} defaultActiveKey="teaching" destroyOnHidden
+      items={groups.map(group => ({ key: group.id, label: t(group.label), children: <GroupPane compact={compact} group={group} /> }))}
+    />
+  </div>;
 }

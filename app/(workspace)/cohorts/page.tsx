@@ -1,5 +1,12 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { formatDate as formatUiDate } from "@/lib/i18n/translate";
+import { learningPolishMessages as learningMessages } from "@/lib/i18n/learning-polish-messages";
+import polish from "@/components/layout/learning-polish.module.css";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import {
   CalendarOutlined,
   DeleteOutlined,
@@ -8,29 +15,13 @@ import {
   TeamOutlined,
   UsergroupAddOutlined,
 } from "@ant-design/icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef, StockFeatures } from "@tanstack/react-table";
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  DatePicker,
-  Empty,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Select,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-} from "antd";
+import { Alert, Button, Card, DatePicker, Empty, Input, InputNumber, Modal, Popconfirm, Select, Space, Spin, Tag, Typography } from "antd";
+import { Form } from "@/components/form/localized-form";
 import dayjs, { type Dayjs } from "dayjs";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
 import { isFormValidationError } from "@/components/form/validation-error";
 import { useAuth } from "@/components/providers/app-providers";
@@ -80,11 +71,11 @@ const cohortStatuses: Array<{
   label: string;
   value: EditableCohortStatus;
 }> = [
-  { color: "default", label: "Bản nháp", value: "DRAFT" },
-  { color: "blue", label: "Sắp khai giảng", value: "SCHEDULED" },
-  { color: "green", label: "Đang học", value: "ACTIVE" },
-  { color: "purple", label: "Đã hoàn thành", value: "COMPLETED" },
-];
+    { color: "default", label: "Bản nháp", value: "DRAFT" },
+    { color: "blue", label: "Sắp khai giảng", value: "SCHEDULED" },
+    { color: "green", label: "Đang học", value: "ACTIVE" },
+    { color: "purple", label: "Đã hoàn thành", value: "COMPLETED" },
+  ];
 
 const cohortStatusPresentation = {
   ...Object.fromEntries(
@@ -98,10 +89,10 @@ const sessionStatuses: Array<{
   label: string;
   value: EditableClassSessionStatus;
 }> = [
-  { color: "blue", label: "Đã xếp lịch", value: "SCHEDULED" },
-  { color: "green", label: "Đang diễn ra", value: "IN_PROGRESS" },
-  { color: "purple", label: "Đã hoàn thành", value: "COMPLETED" },
-];
+    { color: "blue", label: "Đã xếp lịch", value: "SCHEDULED" },
+    { color: "green", label: "Đang diễn ra", value: "IN_PROGRESS" },
+    { color: "purple", label: "Đã hoàn thành", value: "COMPLETED" },
+  ];
 
 const sessionStatusPresentation: Record<
   ClassSession["status"],
@@ -146,8 +137,10 @@ function personLabel(value: string | CohortPersonSummary): string {
   return typeof value === "string" ? value : value.fullName;
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+interface DirectoryOption { label: string; value: string }
+
+function mergeDirectoryOptions(selected: DirectoryOption[], current: DirectoryOption[]) {
+  return [...new Map([...selected, ...current].map(option => [option.value, option])).values()];
 }
 
 function flattenOrgUnits(
@@ -157,7 +150,8 @@ function flattenOrgUnits(
 }
 
 export default function CohortsPage() {
-  const { message } = App.useApp();
+  const { t, locale } = useI18n(learningMessages);
+  const { message, reportError, formatError } = useFeedback();
   const { effectiveAccess, organization, token, user } = useAuth();
   const queryClient = useQueryClient();
   const [cohortForm] = Form.useForm<CohortFormValues>();
@@ -172,17 +166,35 @@ export default function CohortsPage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [learnerSearch, setLearnerSearch] = useState("");
+  const [instructorSearch, setInstructorSearch] = useState("");
+  const [selectedInstructorOptions, setSelectedInstructorOptions] = useState<DirectoryOption[]>([]);
+  const [selectedLearnerOptions, setSelectedLearnerOptions] = useState<DirectoryOption[]>([]);
   const [selectedLearnerIds, setSelectedLearnerIds] = useState<string[]>([]);
   const [cohortOrgUnitId, setCohortOrgUnitId] = useState<
     string | undefined
   >();
   const [orgUnitId, setOrgUnitId] = useState<string | undefined>();
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [status, setStatus] = useState<Cohort["status"] | undefined>();
   const scope = useMemo(
     () => getViewerScope(user, organization),
     [organization, user],
   );
+  const actionRequests = useRef(new Map<string, Promise<void>>());
+  const [pendingActions, setPendingActions] = useState<ReadonlySet<string>>(new Set());
+  const actionKey = (action: string, id = "") => JSON.stringify([scope, action, id]);
+  const runAction = (key: string, action: () => Promise<void>) => {
+    const existing = actionRequests.current.get(key);
+    if (existing) return existing;
+    const request = Promise.resolve().then(action).finally(() => {
+      actionRequests.current.delete(key);
+      setPendingActions(current => { const next = new Set(current); next.delete(key); return next; });
+    });
+    actionRequests.current.set(key, request);
+    setPendingActions(current => new Set(current).add(key));
+    return request;
+  };
   const roleAllowed =
     user?.role === "TENANT_ADMIN" || user?.role === "INSTRUCTOR";
   const readOnly = effectiveAccess?.readOnly ?? false;
@@ -195,10 +207,10 @@ export default function CohortsPage() {
     user?.role === "TENANT_ADMIN" && user.orgUnitScopeMode === "SCOPED";
   const canMutateRoster = Boolean(
     user?.role === "TENANT_ADMIN" &&
-      scope &&
-      !readOnly &&
-      selectedCohort &&
-      selectedCohort?.status !== "ARCHIVED",
+    scope &&
+    !readOnly &&
+    selectedCohort &&
+    selectedCohort?.status !== "ARCHIVED",
   );
   const filters = useMemo(
     () => ({
@@ -216,17 +228,21 @@ export default function CohortsPage() {
     : (["lms", "signed-out", "cohorts", "course-directory"] as const);
   const instructorsKey = scope
     ? ([
-        ...cohortQueryKeys.root(scope),
-        "instructor-directory",
-        cohortOrgUnitId ?? "GLOBAL",
-      ] as const)
+      ...cohortQueryKeys.root(scope),
+      "instructor-directory",
+      cohortOrgUnitId ?? "GLOBAL",
+      "paged",
+      instructorSearch.trim(),
+    ] as const)
     : ([
-        "lms",
-        "signed-out",
-        "cohorts",
-        "instructor-directory",
-        cohortOrgUnitId ?? "GLOBAL",
-      ] as const);
+      "lms",
+      "signed-out",
+      "cohorts",
+      "instructor-directory",
+      cohortOrgUnitId ?? "GLOBAL",
+      "paged",
+      instructorSearch.trim(),
+    ] as const);
   const orgUnitsKey = scope
     ? orgUnitQueryKeys.tree(scope, false)
     : (["lms", "signed-out", "org-units", "tree"] as const);
@@ -243,8 +259,7 @@ export default function CohortsPage() {
       : (["lms", "signed-out", "cohorts", "learners"] as const);
   const learnerDirectory = useMemo(
     () => ({
-      limit: 100,
-      page: 1,
+      limit: 20,
       ...(learnerSearch.trim() ? { search: learnerSearch.trim() } : {}),
     }),
     [learnerSearch],
@@ -252,11 +267,11 @@ export default function CohortsPage() {
   const courseLearnersKey =
     scope && selectedCohort && selectedCourseId
       ? cohortQueryKeys.courseLearners(
-          scope,
-          selectedCohort._id,
-          selectedCourseId,
-          learnerDirectory,
-        )
+        scope,
+        selectedCohort._id,
+        selectedCourseId,
+        learnerDirectory,
+      )
       : (["lms", "signed-out", "cohorts", "course-roster"] as const);
 
   const cohortsQuery = useQuery({
@@ -270,20 +285,22 @@ export default function CohortsPage() {
     queryFn: ({ signal }) => cohortApi.listCourses({ token }, { signal }),
     queryKey: coursesKey,
   });
-  const instructorsQuery = useQuery({
+  const instructorsQuery = useInfiniteQuery({
+    initialPageParam: 1,
     enabled: Boolean(
       token &&
-        scope &&
-        cohortOpen &&
-        user?.role === "TENANT_ADMIN" &&
-        (!isScopedAdmin || cohortOrgUnitId),
+      scope &&
+      cohortOpen &&
+      user?.role === "TENANT_ADMIN" &&
+      (!isScopedAdmin || cohortOrgUnitId),
     ),
-    queryFn: ({ signal }) =>
+    queryFn: ({ signal, pageParam }) =>
       cohortApi.listEligibleInstructors(
         { token },
-        cohortOrgUnitId ? { orgUnitId: cohortOrgUnitId } : {},
+        { limit: 20, page: pageParam, ...(cohortOrgUnitId ? { orgUnitId: cohortOrgUnitId } : {}), ...(instructorSearch.trim() ? { search: instructorSearch.trim() } : {}) },
         { signal },
       ),
+    getNextPageParam: (lastPage) => lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined,
     queryKey: instructorsKey,
   });
   const orgUnitsQuery = useQuery({
@@ -315,39 +332,48 @@ export default function CohortsPage() {
       ),
     queryKey: rosterKey,
   });
-  const courseLearnersQuery = useQuery({
+  const courseLearnersQuery = useInfiniteQuery({
+    initialPageParam: 1,
     enabled: Boolean(
       token &&
-        scope &&
-        rosterOpen &&
-        selectedCohort &&
-        selectedCourseId &&
-        canMutateRoster,
+      scope &&
+      rosterOpen &&
+      selectedCohort &&
+      selectedCourseId &&
+      canMutateRoster,
     ),
-    queryFn: ({ signal }) =>
+    queryFn: ({ signal, pageParam }) =>
       cohortApi.listCourseLearners(
         { token },
         selectedCourseId,
-        learnerDirectory,
+        { ...learnerDirectory, page: pageParam },
         { signal },
       ),
-    queryKey: courseLearnersKey,
+    getNextPageParam: (lastPage) => lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined,
+    queryKey: [...courseLearnersKey, "paged"],
   });
 
   const cohorts = cohortsQuery.data ?? [];
   const courses = (coursesQuery.data ?? []).filter(
     (course) => course.status !== "ARCHIVED",
   );
-  const instructors = instructorsQuery.data?.items ?? [];
+  const instructors = instructorsQuery.data?.pages.flatMap(page => page.items) ?? [];
+  const instructorOptions = mergeDirectoryOptions(selectedInstructorOptions, instructors.map(instructor => ({
+    label: `${instructor.fullName} · ${instructor.email}`, value: instructor.userId,
+  })));
   const orgUnits = flattenOrgUnits(orgUnitsQuery.data?.items ?? []);
   const sessions = sessionsQuery.data ?? [];
   const roster = rosterQuery.data ?? [];
   const rosterLearnerIds = new Set(
     roster.map((item) => idOf(item.learnerId)),
   );
-  const learnerCandidates = (courseLearnersQuery.data?.items ?? []).filter(
+  const loadedLearners = courseLearnersQuery.data?.pages.flatMap(page => page.items) ?? [];
+  const learnerCandidates = loadedLearners.filter(
     (item) => !rosterLearnerIds.has(item.userId._id),
   );
+  const learnerOptions = mergeDirectoryOptions(selectedLearnerOptions.filter(option => !rosterLearnerIds.has(option.value)), learnerCandidates.map(item => ({
+    label: `${item.userId.fullName} · ${item.userId.email}`, value: item.userId._id,
+  })));
   const remainingCapacity = selectedCohort
     ? Math.max(selectedCohort.capacity - roster.length, 0)
     : 0;
@@ -355,7 +381,7 @@ export default function CohortsPage() {
   const saveCohortMutation = useMutation({
     mutationFn: async (values: CohortFormValues) => {
       if (!canMutate) {
-        throw new Error("Workspace hiện không cho phép thay đổi lớp học");
+        throw new Error(t("Workspace hiện không cho phép thay đổi lớp học"));
       }
       const common = {
         capacity: values.capacity,
@@ -372,15 +398,15 @@ export default function CohortsPage() {
       };
       return editingCohort
         ? cohortApi.updateCohort({ token }, editingCohort._id, {
-            ...common,
-            endDate: common.endDate ?? null,
-            orgUnitId: common.orgUnitId ?? null,
-            startDate: common.startDate ?? null,
-          })
+          ...common,
+          endDate: common.endDate ?? null,
+          orgUnitId: common.orgUnitId ?? null,
+          startDate: common.startDate ?? null,
+        })
         : cohortApi.createCohort({ token }, {
-            ...common,
-            courseId: values.courseId,
-          });
+          ...common,
+          courseId: values.courseId,
+        });
     },
     onSuccess: async () => {
       message.success(
@@ -398,7 +424,7 @@ export default function CohortsPage() {
   const archiveMutation = useMutation({
     mutationFn: (cohort: Cohort) => {
       if (!canMutate) {
-        throw new Error("Workspace hiện không cho phép lưu trữ lớp học");
+        throw new Error(t("Workspace hiện không cho phép lưu trữ lớp học"));
       }
       return cohortApi.archiveCohort({ token }, cohort._id);
     },
@@ -415,7 +441,7 @@ export default function CohortsPage() {
   const saveSessionMutation = useMutation({
     mutationFn: async (values: SessionFormValues) => {
       if (!canMutate || !selectedCohort) {
-        throw new Error("Workspace hiện không cho phép thay đổi lịch học");
+        throw new Error(t("Workspace hiện không cho phép thay đổi lịch học"));
       }
       const common = {
         endAt: values.endAt.toISOString(),
@@ -426,20 +452,20 @@ export default function CohortsPage() {
       };
       return editingSession
         ? cohortApi.updateSession(
-            { token },
-            selectedCohort._id,
-            editingSession._id,
-            {
-              ...common,
-              location: common.location ?? null,
-              meetingUrl: common.meetingUrl ?? null,
-            },
-          )
+          { token },
+          selectedCohort._id,
+          editingSession._id,
+          {
+            ...common,
+            location: common.location ?? null,
+            meetingUrl: common.meetingUrl ?? null,
+          },
+        )
         : cohortApi.createSession(
-            { token },
-            selectedCohort._id,
-            common,
-          );
+          { token },
+          selectedCohort._id,
+          common,
+        );
     },
     onSuccess: async () => {
       message.success(
@@ -457,7 +483,7 @@ export default function CohortsPage() {
   const cancelSessionMutation = useMutation({
     mutationFn: (session: ClassSession) => {
       if (!canMutate || !selectedCohort) {
-        throw new Error("Workspace hiện không cho phép hủy buổi học");
+        throw new Error(t("Workspace hiện không cho phép hủy buổi học"));
       }
       return cohortApi.cancelSession(
         { token },
@@ -478,7 +504,7 @@ export default function CohortsPage() {
   const addLearnersMutation = useMutation({
     mutationFn: (learnerIds: string[]) => {
       if (!canMutateRoster || !selectedCohort) {
-        throw new Error("Chỉ quản trị viên có thể thêm học viên vào lớp");
+        throw new Error(t("Chỉ quản trị viên có thể thêm học viên vào lớp"));
       }
       return cohortApi.addLearners(
         { token },
@@ -489,6 +515,7 @@ export default function CohortsPage() {
     onSuccess: async (nextRoster) => {
       message.success(`Đã thêm ${selectedLearnerIds.length} học viên vào lớp`);
       setSelectedLearnerIds([]);
+      setSelectedLearnerOptions([]);
       queryClient.setQueryData(rosterKey, nextRoster);
       if (scope && selectedCohort) {
         await Promise.all([
@@ -512,7 +539,7 @@ export default function CohortsPage() {
   const removeLearnerMutation = useMutation({
     mutationFn: (learnerId: string) => {
       if (!canMutateRoster || !selectedCohort) {
-        throw new Error("Chỉ quản trị viên có thể rút học viên khỏi lớp");
+        throw new Error(t("Chỉ quản trị viên có thể rút học viên khỏi lớp"));
       }
       return cohortApi.removeLearner(
         { token },
@@ -560,6 +587,8 @@ export default function CohortsPage() {
   );
 
   const showCreateCohort = () => {
+    setInstructorSearch("");
+    setSelectedInstructorOptions([]);
     setEditingCohort(null);
     setCohortOrgUnitId(undefined);
     cohortForm.resetFields();
@@ -568,6 +597,11 @@ export default function CohortsPage() {
   };
 
   const showEditCohort = (cohort: Cohort) => {
+    setInstructorSearch("");
+    setSelectedInstructorOptions(cohort.instructorIds.map(instructor => ({
+      label: typeof instructor === "string" ? instructor : `${instructor.fullName} · ${instructor.email}`,
+      value: idOf(instructor),
+    })));
     setEditingCohort(cohort);
     setCohortOrgUnitId(cohort.orgUnitId);
     cohortForm.resetFields();
@@ -593,6 +627,7 @@ export default function CohortsPage() {
   };
 
   const showRoster = (cohort: Cohort) => {
+    setSelectedLearnerOptions([]);
     setSelectedCohort(cohort);
     setLearnerSearch("");
     setSelectedLearnerIds([]);
@@ -625,58 +660,58 @@ export default function CohortsPage() {
     setSessionOpen(true);
   };
 
-  const saveCohort = async () => {
+  const saveCohort = () => runAction(actionKey("save-cohort"), async () => {
     try {
       await tanstackCohortForm.submit(await cohortForm.validateFields());
     } catch (error) {
       if (!isFormValidationError(error)) {
-        message.error(errorMessage(error, "Không thể lưu lớp học"));
+        reportError(error, "Không thể lưu lớp học");
       }
     }
-  };
+  });
 
-  const saveSession = async () => {
+  const saveSession = () => runAction(actionKey("save-session"), async () => {
     try {
       await tanstackSessionForm.submit(await sessionForm.validateFields());
     } catch (error) {
       if (!isFormValidationError(error)) {
-        message.error(errorMessage(error, "Không thể lưu buổi học"));
+        reportError(error, "Không thể lưu buổi học");
       }
     }
-  };
+  });
 
-  const archiveCohort = async (cohort: Cohort) => {
+  const archiveCohort = (cohort: Cohort) => runAction(actionKey("archive", cohort._id), async () => {
     try {
       await archiveMutation.mutateAsync(cohort);
     } catch (error) {
-      message.error(errorMessage(error, "Không thể lưu trữ lớp học"));
+      reportError(error, "Không thể lưu trữ lớp học");
     }
-  };
+  });
 
-  const cancelSession = async (session: ClassSession) => {
+  const cancelSession = (session: ClassSession) => runAction(actionKey("cancel", session._id), async () => {
     try {
       await cancelSessionMutation.mutateAsync(session);
     } catch (error) {
-      message.error(errorMessage(error, "Không thể hủy buổi học"));
+      reportError(error, "Không thể hủy buổi học");
     }
-  };
+  });
 
-  const addLearners = async () => {
+  const addLearners = () => runAction(actionKey("add-learners", selectedCohort?._id), async () => {
     if (selectedLearnerIds.length === 0) return;
     try {
       await addLearnersMutation.mutateAsync(selectedLearnerIds);
     } catch (error) {
-      message.error(errorMessage(error, "Không thể thêm học viên vào lớp"));
+      reportError(error, "Không thể thêm học viên vào lớp");
     }
-  };
+  });
 
-  const removeLearner = async (enrollment: CohortEnrollment) => {
+  const removeLearner = (enrollment: CohortEnrollment) => runAction(actionKey("remove", enrollment._id), async () => {
     try {
       await removeLearnerMutation.mutateAsync(idOf(enrollment.learnerId));
     } catch (error) {
-      message.error(errorMessage(error, "Không thể rút học viên khỏi lớp"));
+      reportError(error, "Không thể rút học viên khỏi lớp");
     }
-  };
+  });
 
   const cohortColumns: ColumnDef<StockFeatures, Cohort>[] = [
     {
@@ -689,12 +724,12 @@ export default function CohortsPage() {
           </Typography.Text>
         </div>
       ),
-      header: "Lớp học",
+      header: t("Lớp học"),
     },
     {
       accessorKey: "courseId",
       cell: ({ row }) => courseTitle(row.original.courseId),
-      header: "Khóa học",
+      header: t("Khóa học"),
       meta: { responsive: ["md"] },
     },
     {
@@ -702,36 +737,35 @@ export default function CohortsPage() {
       cell: ({ row }) =>
         row.original.instructorIds.length > 0
           ? row.original.instructorIds.map(personLabel).join(", ")
-          : "Chưa phân công",
-      header: "Giảng viên",
+          : t("Chưa phân công"),
+      header: t("Giảng viên"),
       meta: { responsive: ["lg"] },
     },
     ...(organizationStructureEnabled
       ? [
-          {
-            accessorKey: "orgUnitId",
-            cell: ({ row }) =>
-              row.original.orgUnitId
-                ? (orgUnits.find(
-                    (unit) => unit._id === row.original.orgUnitId,
-                  )?.name ?? "Đơn vị đã chọn")
-                : "Toàn trung tâm",
-            header: "Chi nhánh",
-            meta: { responsive: ["lg"] },
-          } satisfies ColumnDef<StockFeatures, Cohort>,
-        ]
+        {
+          accessorKey: "orgUnitId",
+          cell: ({ row }) =>
+            row.original.orgUnitId
+              ? (orgUnits.find(
+                (unit) => unit._id === row.original.orgUnitId,
+              )?.name ?? t("Đơn vị đã chọn"))
+              : t("Toàn trung tâm"),
+          header: t("Chi nhánh"),
+          meta: { responsive: ["lg"] },
+        } satisfies ColumnDef<StockFeatures, Cohort>,
+      ]
       : []),
     {
       accessorKey: "startDate",
       cell: ({ row }) =>
         row.original.startDate
-          ? `${dayjs(row.original.startDate).format("DD/MM/YYYY")} – ${
-              row.original.endDate
-                ? dayjs(row.original.endDate).format("DD/MM/YYYY")
-                : "chưa chốt"
-            }`
-          : "Chưa chốt lịch",
-      header: "Thời gian",
+          ? `${formatUiDate(row.original.startDate, locale, { day: "2-digit", month: "2-digit", year: "numeric" })} – ${row.original.endDate
+            ? formatUiDate(row.original.endDate, locale, { day: "2-digit", month: "2-digit", year: "numeric" })
+            : t("chưa chốt")
+          }`
+          : t("Chưa chốt lịch"),
+      header: t("Thời gian"),
       meta: { responsive: ["md"] },
     },
     {
@@ -739,65 +773,67 @@ export default function CohortsPage() {
       cell: ({ getValue }) => {
         const value = getValue<Cohort["status"]>();
         const presentation = cohortStatusPresentation[value];
-        return <Tag color={presentation.color}>{presentation.label}</Tag>;
+        return <Tag color={presentation.color}>{t(presentation.label)}</Tag>;
       },
-      header: "Trạng thái",
+      header: t("Trạng thái"),
       meta: { width: 145 },
     },
     {
       cell: ({ row }) => (
         <div
-          aria-label={`Thao tác với lớp ${row.original.name}`}
+          aria-label={t("Thao tác với lớp {p0}", { p0: row.original.name })}
           className="table-row-actions"
           role="group"
         >
           <Button
-            aria-label={`Học viên lớp ${row.original.name}`}
+            aria-label={t("Học viên lớp {p0}", { p0: row.original.name })}
             icon={<TeamOutlined />}
             onClick={() => showRoster(row.original)}
             size="small"
-            title="Học viên"
+            title={t("Học viên")}
             type="text"
           />
           <Button
-            aria-label={`Lịch học ${row.original.name}`}
+            aria-label={t("Lịch học {p0}", { p0: row.original.name })}
             icon={<CalendarOutlined />}
             onClick={() => showSchedule(row.original)}
             size="small"
-            title="Lịch học"
+            title={t("Lịch học")}
             type="text"
           />
           <Link href={`/cohorts/${row.original._id}/attendance`}>
             <Button
-              aria-label={`Điểm danh lớp ${row.original.name}`}
+              aria-label={t("Điểm danh lớp {p0}", { p0: row.original.name })}
               icon={<UsergroupAddOutlined />}
               size="small"
-              title="Điểm danh"
+              title={t("Điểm danh")}
               type="text"
             />
           </Link>
           {canMutate && (
             <>
               <Button
-                aria-label={`Chỉnh sửa lớp ${row.original.name}`}
+                aria-label={t("Chỉnh sửa lớp {p0}", { p0: row.original.name })}
                 icon={<EditOutlined />}
                 onClick={() => showEditCohort(row.original)}
                 size="small"
-                title="Chỉnh sửa lớp"
+                title={t("Chỉnh sửa lớp")}
                 type="text"
               />
               <Popconfirm
-                cancelText="Không"
-                okText="Lưu trữ"
-                onConfirm={() => void archiveCohort(row.original)}
-                title="Lưu trữ lớp học này?"
+                cancelText={t("Không")}
+                okText={t("Lưu trữ")}
+                onConfirm={() => archiveCohort(row.original)}
+                okButtonProps={{ loading: pendingActions.has(actionKey("archive", row.original._id)) }}
+                title={t("Lưu trữ lớp học này?")}
               >
                 <Button
-                  aria-label={`Lưu trữ lớp ${row.original.name}`}
+                  aria-label={t("Lưu trữ lớp {p0}", { p0: row.original.name })}
                   danger
+                  loading={pendingActions.has(actionKey("archive", row.original._id))}
                   icon={<DeleteOutlined />}
                   size="small"
-                  title="Lưu trữ lớp"
+                  title={t("Lưu trữ lớp")}
                   type="text"
                 />
               </Popconfirm>
@@ -816,20 +852,20 @@ export default function CohortsPage() {
       accessorKey: "startAt",
       cell: ({ row }) => (
         <div className="table-primary-cell">
-          <strong>{dayjs(row.original.startAt).format("DD/MM/YYYY")}</strong>
+          <strong>{formatUiDate(row.original.startAt, locale, { day: "2-digit", month: "2-digit", year: "numeric" })}</strong>
           <span className="table-muted">
-            {dayjs(row.original.startAt).format("HH:mm")} – {" "}
-            {dayjs(row.original.endAt).format("HH:mm")}
+            {formatUiDate(row.original.startAt, locale, { hour: "2-digit", minute: "2-digit" })} – {" "}
+            {formatUiDate(row.original.endAt, locale, { hour: "2-digit", minute: "2-digit" })}
           </span>
         </div>
       ),
-      header: "Buổi học",
+      header: t("Buổi học"),
     },
     {
       accessorKey: "location",
       cell: ({ row }) =>
-        row.original.location || row.original.meetingUrl || "Chưa có địa điểm",
-      header: "Địa điểm / liên kết",
+        row.original.location || row.original.meetingUrl || t("Chưa có địa điểm"),
+      header: t("Địa điểm / liên kết"),
       meta: { responsive: ["md"] },
     },
     {
@@ -837,41 +873,40 @@ export default function CohortsPage() {
       cell: ({ getValue }) => {
         const value = getValue<ClassSession["status"]>();
         const presentation = sessionStatusPresentation[value];
-        return <Tag color={presentation.color}>{presentation.label}</Tag>;
+        return <Tag color={presentation.color}>{t(presentation.label)}</Tag>;
       },
-      header: "Trạng thái",
+      header: t("Trạng thái"),
       meta: { width: 140 },
     },
     ...(canMutate
       ? [
-          {
-            cell: ({ row }) =>
-              row.original.status === "CANCELLED" ? null : (
-                <Space size="small">
-                  <Button
-                    aria-label="Chỉnh sửa buổi học"
-                    icon={<EditOutlined />}
-                    onClick={() => showEditSession(row.original)}
-                    size="small"
-                    type="text"
-                  />
-                  <Popconfirm
-                    cancelText="Không"
-                    okText="Hủy buổi"
-                    onConfirm={() => void cancelSession(row.original)}
-                    title="Hủy buổi học này?"
-                  >
-                    <Button danger size="small" type="text">
-                      Hủy buổi
-                    </Button>
-                  </Popconfirm>
-                </Space>
-              ),
-            header: "",
-            id: "actions",
-            meta: { width: 150 },
-          } satisfies ColumnDef<StockFeatures, ClassSession>,
-        ]
+        {
+          cell: ({ row }) =>
+            row.original.status === "CANCELLED" ? null : (
+              <Space size="small">
+                <Button
+                  aria-label={t("Chỉnh sửa buổi học")}
+                  icon={<EditOutlined />}
+                  onClick={() => showEditSession(row.original)}
+                  size="small"
+                  type="text"
+                />
+                <Popconfirm
+                  cancelText={t("Không")}
+                  okText={t("Hủy buổi")}
+                  onConfirm={() => cancelSession(row.original)}
+                  okButtonProps={{ loading: pendingActions.has(actionKey("cancel", row.original._id)) }}
+                  title={t("Hủy buổi học này?")}
+                >
+                  <Button danger loading={pendingActions.has(actionKey("cancel", row.original._id))} size="small" type="text">{t("Hủy buổi")}</Button>
+                </Popconfirm>
+              </Space>
+            ),
+          header: "",
+          id: "actions",
+          meta: { width: 150 },
+        } satisfies ColumnDef<StockFeatures, ClassSession>,
+      ]
       : []),
   ];
 
@@ -879,7 +914,7 @@ export default function CohortsPage() {
     return (
       <Alert
         showIcon
-        title="Chỉ quản trị viên và giảng viên được quản lý lớp học."
+        title={t("Chỉ quản trị viên và giảng viên được quản lý lớp học.")}
         type="warning"
       />
     );
@@ -888,7 +923,7 @@ export default function CohortsPage() {
     return (
       <Alert
         showIcon
-        title="Phiên làm việc thiếu phạm vi thành viên hợp lệ."
+        title={t("Phiên làm việc thiếu phạm vi thành viên hợp lệ.")}
         type="error"
       />
     );
@@ -898,123 +933,123 @@ export default function CohortsPage() {
     <div className="page-shell">
       <div className="page-heading page-toolbar">
         <div className="page-heading-copy">
-          <h1>Lớp học</h1>
-          <p>
-            Vận hành từng lớp đang chạy, lịch các buổi học và điểm danh học
-            viên.
-          </p>
+          <h1>{t("Lớp học")}</h1>
+          <p>{t("Vận hành từng lớp đang chạy, lịch các buổi học và điểm danh học viên.")}</p>
         </div>
         <Button
           disabled={!canMutate}
           icon={<PlusOutlined />}
           onClick={showCreateCohort}
           type="primary"
-        >
-          Tạo lớp học
-        </Button>
+        >{t("Tạo lớp học")}</Button>
       </div>
 
       {readOnly && (
         <Alert
-          description="Bạn vẫn xem được lớp và lịch; thao tác tạo, sửa, hủy và lưu trữ đang tạm khóa."
+          description={t("Bạn vẫn xem được lớp và lịch; thao tác tạo, sửa, hủy và lưu trữ đang tạm khóa.")}
           showIcon
-          title="Workspace chỉ đọc"
+          title={t("Workspace chỉ đọc")}
           type="info"
         />
       )}
 
       {organizationStructureEnabled && orgUnitsQuery.error && (
         <Alert
-          description="Bạn vẫn có thể quản lý lớp không gắn chi nhánh."
+          description={t("Bạn vẫn có thể quản lý lớp không gắn chi nhánh.")}
           showIcon
-          title={errorMessage(
+          title={formatError(
             orgUnitsQuery.error,
-            "Không tải được danh sách chi nhánh",
+            t("Không tải được danh sách chi nhánh"),
           )}
           type="warning"
         />
       )}
 
       <Card className="surface-card">
-        <Space wrap style={{ marginBottom: 18 }}>
+        <div className="list-filter-bar" role="search" aria-label={t("Bộ lọc lớp học")}>
           <Input.Search
             allowClear
-            aria-label="Tìm lớp học"
-            onSearch={setSearch}
-            placeholder="Tìm theo tên hoặc mã lớp"
+            aria-label={t("Tìm lớp học")}
+            maxLength={100}
+            enterButton={t("Tìm kiếm")}
+            onChange={(event) => { setSearchInput(event.target.value); if (!event.target.value) setSearch(""); }}
+            onSearch={(value) => { const next = value.trim(); setSearchInput(next); setSearch(next); }}
+            placeholder={t("Tìm theo tên hoặc mã lớp")}
             style={{ width: 280 }}
+            value={searchInput}
           />
           {organizationStructureEnabled && (
             <Select
               allowClear
-              aria-label="Lọc theo chi nhánh"
+              aria-label={t("Lọc theo chi nhánh")}
               loading={orgUnitsQuery.isFetching}
               onChange={setOrgUnitId}
               options={orgUnits.map((unit) => ({
                 label: `${"— ".repeat(unit.depth)}${unit.name}`,
                 value: unit._id,
               }))}
-              placeholder="Tất cả chi nhánh"
+              placeholder={t("Tất cả chi nhánh")}
               style={{ width: 210 }}
               value={orgUnitId}
             />
           )}
           <Select
             allowClear
-            aria-label="Lọc trạng thái lớp"
-            onChange={setStatus}
+            aria-label={t("Lọc trạng thái lớp")}
+            onChange={(value: Cohort["status"] | "") => setStatus(value || undefined)}
             options={[
-              ...cohortStatuses,
-              { label: "Đã lưu trữ", value: "ARCHIVED" as const },
+              { label: t("Chưa lưu trữ"), value: "" },
+              ...cohortStatuses.map(option => ({ ...option, label: t(option.label) })),
+              { label: t("Đã lưu trữ"), value: "ARCHIVED" as const },
             ]}
-            placeholder="Tất cả trạng thái"
+            placeholder={t("Chưa lưu trữ")}
             style={{ width: 190 }}
-            value={status}
+            value={status ?? ""}
           />
-        </Space>
-        {cohortsQuery.error && !cohortsQuery.data ? (
+          <Button disabled={!searchInput && !search && !orgUnitId && !status} onClick={() => { setSearchInput(""); setSearch(""); setOrgUnitId(undefined); setStatus(undefined); }}>
+            {t("Xóa bộ lọc")}
+          </Button>
+        </div>
+        {(cohortsQuery.error && !cohortsQuery.data) || pendingActions.has(actionKey("retry-cohorts")) ? (
           <Alert
             action={
-              <Button onClick={() => void cohortsQuery.refetch()} size="small">
-                Thử lại
-              </Button>
+              <Button loading={cohortsQuery.isFetching || pendingActions.has(actionKey("retry-cohorts"))} onClick={() => void runAction(actionKey("retry-cohorts"), async () => { await cohortsQuery.refetch({ cancelRefetch: false }); })} size="small">{t("Thử lại")}</Button>
             }
             showIcon
-            title={errorMessage(cohortsQuery.error, "Không tải được lớp học")}
+            title={formatError(cohortsQuery.error, t("Không tải được lớp học"))}
             type="error"
           />
         ) : (
           <DataTable
-            ariaLabel="Danh sách lớp học"
+            ariaLabel={t("Danh sách lớp học")}
             columns={cohortColumns}
             data={cohorts}
             emptyText={
-              <Empty description="Chưa có lớp học">
+              search || orgUnitId || status ? t("Không có lớp học phù hợp") : <Empty description={t("Chưa có lớp học")}>
                 <Button
                   disabled={!canMutate}
                   onClick={showCreateCohort}
                   type="primary"
-                >
-                  Tạo lớp đầu tiên
-                </Button>
+                >{t("Tạo lớp đầu tiên")}</Button>
               </Empty>
             }
             loading={cohortsQuery.isPending}
             rowKey="_id"
+            paginationResetKey={JSON.stringify(filters)}
             scrollX={920}
           />
         )}
       </Card>
 
       <Modal
-        cancelText="Hủy"
-        confirmLoading={saveCohortMutation.isPending}
+        cancelText={t("Hủy")}
+        confirmLoading={pendingActions.has(actionKey("save-cohort")) || saveCohortMutation.isPending}
         onCancel={() => setCohortOpen(false)}
         onOk={() => void saveCohort()}
         okButtonProps={{ disabled: !canMutate }}
-        okText={editingCohort ? "Lưu thay đổi" : "Tạo lớp học"}
+        okText={editingCohort ? t("Lưu thay đổi") : t("Tạo lớp học")}
         open={cohortOpen}
-        title={editingCohort ? "Chỉnh sửa lớp học" : "Tạo lớp học"}
+        title={editingCohort ? t("Chỉnh sửa lớp học") : t("Tạo lớp học")}
         width={720}
       >
         <Form
@@ -1024,9 +1059,9 @@ export default function CohortsPage() {
           style={{ marginTop: 22 }}
         >
           <Form.Item
-            label="Khóa học"
+            label={t("Khóa học")}
             name="courseId"
-            rules={[{ message: "Chọn khóa học", required: true }]}
+            rules={[{ message: t("Chọn khóa học"), required: true }]}
           >
             <Select
               disabled={Boolean(editingCohort)}
@@ -1035,18 +1070,18 @@ export default function CohortsPage() {
                 label: course.title,
                 value: course._id,
               }))}
-              placeholder="Chọn khóa học nền"
+              placeholder={t("Chọn khóa học nền")}
               showSearch
             />
           </Form.Item>
-          <Space align="start" size="middle" style={{ width: "100%" }}>
+          <div className={polish.formGrid}>
             <Form.Item
-              label="Mã lớp"
+              label={t("Mã lớp")}
               name="code"
               rules={[
-                { message: "Nhập mã lớp", min: 2, required: true },
+                { message: t("Nhập mã lớp"), min: 2, required: true },
                 {
-                  message: "Chỉ dùng chữ, số, dấu chấm, gạch ngang hoặc gạch dưới",
+                  message: t("Chỉ dùng chữ, số, dấu chấm, gạch ngang hoặc gạch dưới"),
                   pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
                 },
               ]}
@@ -1054,99 +1089,107 @@ export default function CohortsPage() {
               <Input placeholder="IELTS-2026-09" />
             </Form.Item>
             <Form.Item
-              label="Sức chứa"
+              label={t("Sức chứa")}
               name="capacity"
-              rules={[{ message: "Từ 1 đến 10.000", required: true }]}
+              rules={[{ message: t("Từ 1 đến 10.000"), required: true }]}
             >
               <InputNumber max={10_000} min={1} />
             </Form.Item>
-          </Space>
+          </div>
           <Form.Item
-            label="Tên lớp"
+            label={t("Tên lớp")}
             name="name"
-            rules={[{ message: "Nhập tên lớp", min: 2, required: true }]}
+            rules={[{ message: t("Nhập tên lớp"), min: 2, required: true }]}
           >
-            <Input placeholder="IELTS buổi tối K09" />
+            <Input placeholder={t("IELTS buổi tối K09")} />
           </Form.Item>
           {organizationStructureEnabled && (
             <Form.Item
               extra={
                 isScopedAdmin
-                  ? "Chọn một đơn vị trong phạm vi bạn quản lý."
-                  : "Để trống nếu lớp dùng chung cho toàn trung tâm."
+                  ? t("Chọn một đơn vị trong phạm vi bạn quản lý.")
+                  : t("Để trống nếu lớp dùng chung cho toàn trung tâm.")
               }
-              label="Chi nhánh / đơn vị vận hành"
+              label={t("Chi nhánh / đơn vị vận hành")}
               name="orgUnitId"
               rules={
                 isScopedAdmin
                   ? [
-                      {
-                        message: "Chọn chi nhánh hoặc đơn vị vận hành lớp",
-                        required: true,
-                      },
-                    ]
+                    {
+                      message: t("Chọn chi nhánh hoặc đơn vị vận hành lớp"),
+                      required: true,
+                    },
+                  ]
                   : undefined
               }
             >
               <Select
                 allowClear
-                aria-label="Chọn chi nhánh cho lớp"
+                aria-label={t("Chọn chi nhánh cho lớp")}
                 loading={orgUnitsQuery.isFetching}
                 onChange={(value: unknown) => {
                   const nextOrgUnitId =
                     typeof value === "string"
                       ? value || undefined
                       : value &&
-                          typeof value === "object" &&
-                          "currentTarget" in value
+                        typeof value === "object" &&
+                        "currentTarget" in value
                         ? String(
-                            (value as { currentTarget: { value?: string } })
-                              .currentTarget.value ?? "",
-                          ) || undefined
+                          (value as { currentTarget: { value?: string } })
+                            .currentTarget.value ?? "",
+                        ) || undefined
                         : undefined;
                   setCohortOrgUnitId(nextOrgUnitId);
+                  setInstructorSearch("");
+                  setSelectedInstructorOptions([]);
                   cohortForm.setFieldsValue({ instructorIds: [] });
                 }}
                 options={orgUnits.map((unit) => ({
                   label: `${"— ".repeat(unit.depth)}${unit.name}`,
                   value: unit._id,
                 }))}
-                placeholder="Toàn trung tâm"
+                placeholder={t("Toàn trung tâm")}
                 showSearch
               />
             </Form.Item>
           )}
-          <Space align="start" size="middle" style={{ width: "100%" }}>
-            <Form.Item label="Ngày bắt đầu" name="startDate">
+          <section className={polish.formSection}>
+          <h3>{t("Lịch học và giảng viên")}</h3>
+          <div className={polish.formGrid}>
+            <Form.Item label={t("Ngày bắt đầu")} name="startDate">
               <DatePicker format="DD/MM/YYYY" />
             </Form.Item>
-            <Form.Item label="Ngày kết thúc" name="endDate">
+            <Form.Item label={t("Ngày kết thúc")} name="endDate">
               <DatePicker format="DD/MM/YYYY" />
             </Form.Item>
-          </Space>
-          <Form.Item label="Múi giờ" name="timezone">
-            <Select options={timezoneOptions} showSearch />
+          </div>
+          <Form.Item label={t("Múi giờ")} name="timezone">
+            <Select options={timezoneOptions.map(option => ({ ...option, label: t(option.label) }))} showSearch />
           </Form.Item>
-          <Form.Item label="Trạng thái" name="status">
-            <Select options={cohortStatuses} />
+          <Form.Item label={t("Trạng thái")} name="status">
+            <Select options={cohortStatuses.map(option => ({ ...option, label: t(option.label) }))} />
           </Form.Item>
           {user?.role === "TENANT_ADMIN" && (
-            <Form.Item label="Giảng viên phụ trách" name="instructorIds">
+            <Form.Item label={t("Giảng viên phụ trách")} name="instructorIds">
               <Select
-                aria-label="Chọn giảng viên phụ trách"
+                aria-label={t("Chọn giảng viên phụ trách")}
                 disabled={isScopedAdmin && !cohortOrgUnitId}
                 loading={instructorsQuery.isFetching}
                 mode="multiple"
+                filterOption={false}
+                onSearch={setInstructorSearch}
+                onChange={(values: string[]) => setSelectedInstructorOptions(instructorOptions.filter(option => values.includes(option.value)))}
                 notFoundContent={
                   isScopedAdmin && !cohortOrgUnitId
-                    ? "Chọn chi nhánh trước"
+                    ? t("Chọn chi nhánh trước")
                     : undefined
                 }
-                options={instructors.map((instructor) => ({
-                  label: `${instructor.fullName} · ${instructor.email}`,
-                  value: instructor.userId,
-                }))}
-                placeholder="Có thể phân công nhiều giảng viên"
+                options={instructorOptions}
+                popupRender={(menu) => <>{menu}<div style={{ padding: "8px 12px", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+                  <Typography.Text type="secondary">{t("Đã tải {count} trên {total} kết quả", { count: instructors.length, total: instructorsQuery.data?.pages.at(-1)?.total ?? 0 })}</Typography.Text>
+                  {instructorsQuery.hasNextPage && <Button size="small" loading={instructorsQuery.isFetchingNextPage} onMouseDown={(event) => event.preventDefault()} onClick={() => void instructorsQuery.fetchNextPage()}>{t("Tải thêm kết quả")}</Button>}
+                </div></>}
+                placeholder={t("Có thể phân công nhiều giảng viên")}
                 showSearch
               />
             </Form.Item>
@@ -1154,13 +1197,14 @@ export default function CohortsPage() {
           {user?.role === "TENANT_ADMIN" && instructorsQuery.error && (
             <Alert
               showIcon
-              title={errorMessage(
+              title={formatError(
                 instructorsQuery.error,
-                "Không tải được giảng viên phù hợp với chi nhánh",
+                t("Không tải được giảng viên phù hợp với chi nhánh"),
               )}
               type="warning"
             />
           )}
+          </section>
         </Form>
       </Modal>
 
@@ -1168,78 +1212,75 @@ export default function CohortsPage() {
         footer={null}
         onCancel={() => setRosterOpen(false)}
         open={rosterOpen}
-        title={`Học viên · ${selectedCohort?.name ?? ""}`}
+        title={t("Học viên · {p0}", { p0: selectedCohort?.name ?? "" })}
         width={720}
       >
         <div style={{ marginTop: 20 }}>
           {user?.role === "INSTRUCTOR" && (
             <Alert
-              description="Giảng viên có thể xem danh sách lớp; việc thêm hoặc rút học viên do quản trị viên thực hiện."
+              description={t("Giảng viên có thể xem danh sách lớp; việc thêm hoặc rút học viên do quản trị viên thực hiện.")}
               showIcon
-              title="Danh sách chỉ đọc"
+              title={t("Danh sách chỉ đọc")}
               type="info"
             />
           )}
           {readOnly && user?.role === "TENANT_ADMIN" && (
             <Alert
-              description="Bạn vẫn xem được danh sách nhưng không thể thêm hoặc rút học viên."
+              description={t("Bạn vẫn xem được danh sách nhưng không thể thêm hoặc rút học viên.")}
               showIcon
-              title="Workspace chỉ đọc"
+              title={t("Workspace chỉ đọc")}
               type="info"
             />
           )}
           {selectedCohort?.status === "ARCHIVED" && (
             <Alert
-              description="Lớp đã lưu trữ nên danh sách học viên chỉ được xem."
+              description={t("Lớp đã lưu trữ nên danh sách học viên chỉ được xem.")}
               showIcon
-              title="Lớp đã lưu trữ"
+              title={t("Lớp đã lưu trữ")}
               type="info"
             />
           )}
 
           {canMutateRoster && (
             <div style={{ marginTop: 18 }}>
-              <Typography.Paragraph type="secondary">
-                Nguồn chọn là học viên đang được ghi danh hợp lệ trong khóa học
-                nền của lớp.
-              </Typography.Paragraph>
-              {courseLearnersQuery.error && (
+              <Typography.Paragraph type="secondary">{t("Nguồn chọn là học viên đang được ghi danh hợp lệ trong khóa học nền của lớp.")}</Typography.Paragraph>
+              {(courseLearnersQuery.error || pendingActions.has(actionKey("retry-directory", selectedCourseId))) && (
                 <Alert
                   action={
                     <Button
-                      onClick={() => void courseLearnersQuery.refetch()}
+                      loading={courseLearnersQuery.isFetching || pendingActions.has(actionKey("retry-directory", selectedCourseId))}
+                      onClick={() => void runAction(actionKey("retry-directory", selectedCourseId), async () => { await courseLearnersQuery.refetch({ cancelRefetch: false }); })}
                       size="small"
-                    >
-                      Thử lại
-                    </Button>
+                    >{t("Thử lại")}</Button>
                   }
                   showIcon
-                  title={errorMessage(
+                  title={formatError(
                     courseLearnersQuery.error,
-                    "Không tải được học viên khả dụng",
+                    t("Không tải được học viên khả dụng"),
                   )}
                   type="warning"
                 />
               )}
               <Space.Compact block>
                 <Select<string[]>
-                  aria-label="Chọn học viên thêm vào lớp"
+                  aria-label={t("Chọn học viên thêm vào lớp")}
                   disabled={
                     addLearnersMutation.isPending || remainingCapacity === 0
                   }
                   filterOption={false}
                   loading={courseLearnersQuery.isFetching}
                   mode="multiple"
-                  onChange={setSelectedLearnerIds}
+                  onChange={(values: string[]) => { setSelectedLearnerIds(values); setSelectedLearnerOptions(learnerOptions.filter(option => values.includes(option.value))); }}
                   onSearch={setLearnerSearch}
-                  options={learnerCandidates.map((item) => ({
-                    label: `${item.userId.fullName} · ${item.userId.email}`,
-                    value: item.userId._id,
-                  }))}
+                  options={learnerOptions}
+                  popupRender={(menu) => <>{menu}<div style={{ padding: "8px 12px", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+                    <Typography.Text type="secondary">{t("Đã tải {count} trên {total} kết quả", { count: loadedLearners.length, total: courseLearnersQuery.data?.pages.at(-1)?.total ?? 0 })}</Typography.Text>
+                    {courseLearnersQuery.hasNextPage && <Button size="small" loading={courseLearnersQuery.isFetchingNextPage} onMouseDown={(event) => event.preventDefault()} onClick={() => void courseLearnersQuery.fetchNextPage()}>{t("Tải thêm kết quả")}</Button>}
+                  </div></>}
                   placeholder={
                     remainingCapacity === 0
-                      ? "Lớp đã đủ sức chứa"
-                      : "Tìm và chọn nhiều học viên"
+                      ? t("Lớp đã đủ sức chứa")
+                      : t("Tìm và chọn nhiều học viên")
                   }
                   showSearch
                   style={{ width: "100%" }}
@@ -1250,42 +1291,29 @@ export default function CohortsPage() {
                     selectedLearnerIds.length === 0 ||
                     selectedLearnerIds.length > remainingCapacity
                   }
-                  loading={addLearnersMutation.isPending}
+                  loading={pendingActions.has(actionKey("add-learners", selectedCohort?._id)) || addLearnersMutation.isPending}
                   onClick={() => void addLearners()}
                   type="primary"
-                >
-                  Thêm vào lớp
-                </Button>
+                >{t("Thêm vào lớp")}</Button>
               </Space.Compact>
               {selectedLearnerIds.length > remainingCapacity && (
-                <Typography.Text type="danger">
-                  Chỉ còn {remainingCapacity} chỗ trong lớp.
-                </Typography.Text>
-              )}
-              {(courseLearnersQuery.data?.total ?? 0) > 100 && (
-                <Typography.Text type="secondary">
-                  Hiển thị tối đa 100 kết quả; nhập tên hoặc email để tìm chính
-                  xác hơn.
-                </Typography.Text>
+                <Typography.Text type="danger">{t("Chỉ còn")} {remainingCapacity} {t("chỗ trong lớp.")}</Typography.Text>
               )}
             </div>
           )}
 
           <div style={{ marginTop: 24 }}>
-            <strong>
-              Danh sách lớp ({roster.length}/{selectedCohort?.capacity ?? 0})
+            <strong>{t("Danh sách lớp (")}{roster.length}/{selectedCohort?.capacity ?? 0})
             </strong>
-            {rosterQuery.error && !rosterQuery.data ? (
+            {(rosterQuery.error && !rosterQuery.data) || pendingActions.has(actionKey("retry-roster", selectedCohort?._id)) ? (
               <Alert
                 action={
-                  <Button onClick={() => void rosterQuery.refetch()} size="small">
-                    Thử lại
-                  </Button>
+                  <Button loading={rosterQuery.isFetching || pendingActions.has(actionKey("retry-roster", selectedCohort?._id))} onClick={() => void runAction(actionKey("retry-roster", selectedCohort?._id), async () => { await rosterQuery.refetch({ cancelRefetch: false }); })} size="small">{t("Thử lại")}</Button>
                 }
                 showIcon
-                title={errorMessage(
+                title={formatError(
                   rosterQuery.error,
-                  "Không tải được danh sách học viên",
+                  t("Không tải được danh sách học viên"),
                 )}
                 type="error"
               />
@@ -1320,28 +1348,27 @@ export default function CohortsPage() {
                   </span>
                   {canMutateRoster ? (
                     <Popconfirm
-                      cancelText="Không"
-                      okText="Rút"
-                      onConfirm={() => void removeLearner(enrollment)}
-                      title="Rút học viên khỏi lớp này?"
+                      cancelText={t("Không")}
+                      okText={t("Rút")}
+                      onConfirm={() => removeLearner(enrollment)}
+                      okButtonProps={{ loading: pendingActions.has(actionKey("remove", enrollment._id)) }}
+                      title={t("Rút học viên khỏi lớp này?")}
                     >
                       <Button
                         danger
-                        disabled={removeLearnerMutation.isPending}
+                        loading={pendingActions.has(actionKey("remove", enrollment._id))}
                         size="small"
                         type="text"
-                      >
-                        Rút
-                      </Button>
+                      >{t("Rút")}</Button>
                     </Popconfirm>
                   ) : (
-                    <Tag color="green">Đang học</Tag>
+                    <Tag color="green">{t("Đang học")}</Tag>
                   )}
                 </div>
               ))
             ) : (
               <Empty
-                description="Lớp chưa có học viên"
+                description={t("Lớp chưa có học viên")}
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               />
             )}
@@ -1353,7 +1380,7 @@ export default function CohortsPage() {
         footer={null}
         onCancel={() => setScheduleOpen(false)}
         open={scheduleOpen}
-        title={`Lịch học · ${selectedCohort?.name ?? ""}`}
+        title={t("Lịch học · {p0}", { p0: selectedCohort?.name ?? "" })}
         width={920}
       >
         <div style={{ marginTop: 20 }}>
@@ -1369,21 +1396,17 @@ export default function CohortsPage() {
               icon={<PlusOutlined />}
               onClick={showCreateSession}
               type="primary"
-            >
-              Thêm buổi học
-            </Button>
+            >{t("Thêm buổi học")}</Button>
           </div>
-          {sessionsQuery.error && !sessionsQuery.data ? (
+          {(sessionsQuery.error && !sessionsQuery.data) || pendingActions.has(actionKey("retry-sessions", selectedCohort?._id)) ? (
             <Alert
               action={
-                <Button onClick={() => void sessionsQuery.refetch()}>
-                  Thử lại
-                </Button>
+                <Button loading={sessionsQuery.isFetching || pendingActions.has(actionKey("retry-sessions", selectedCohort?._id))} onClick={() => void runAction(actionKey("retry-sessions", selectedCohort?._id), async () => { await sessionsQuery.refetch({ cancelRefetch: false }); })}>{t("Thử lại")}</Button>
               }
               showIcon
-              title={errorMessage(
+              title={formatError(
                 sessionsQuery.error,
-                "Không tải được lịch học",
+                t("Không tải được lịch học"),
               )}
               type="error"
             />
@@ -1393,10 +1416,10 @@ export default function CohortsPage() {
             </div>
           ) : (
             <DataTable
-              ariaLabel="Lịch các buổi học"
+              ariaLabel={t("Lịch các buổi học")}
               columns={sessionColumns}
               data={sessions}
-              emptyText="Chưa có buổi học"
+              emptyText={t("Chưa có buổi học")}
               rowKey="_id"
               scrollX={680}
             />
@@ -1405,14 +1428,14 @@ export default function CohortsPage() {
       </Modal>
 
       <Modal
-        cancelText="Hủy"
-        confirmLoading={saveSessionMutation.isPending}
+        cancelText={t("Hủy")}
+        confirmLoading={pendingActions.has(actionKey("save-session")) || saveSessionMutation.isPending}
         onCancel={() => setSessionOpen(false)}
         onOk={() => void saveSession()}
         okButtonProps={{ disabled: !canMutate }}
-        okText={editingSession ? "Lưu thay đổi" : "Thêm buổi học"}
+        okText={editingSession ? t("Lưu thay đổi") : t("Thêm buổi học")}
         open={sessionOpen}
-        title={editingSession ? "Chỉnh sửa buổi học" : "Thêm buổi học"}
+        title={editingSession ? t("Chỉnh sửa buổi học") : t("Thêm buổi học")}
       >
         <Form
           form={sessionForm}
@@ -1421,40 +1444,40 @@ export default function CohortsPage() {
           style={{ marginTop: 22 }}
         >
           <Form.Item
-            label="Bắt đầu"
+            label={t("Bắt đầu")}
             name="startAt"
-            rules={[{ message: "Chọn thời điểm bắt đầu", required: true }]}
+            rules={[{ message: t("Chọn thời điểm bắt đầu"), required: true }]}
           >
             <DatePicker format="DD/MM/YYYY HH:mm" showTime />
           </Form.Item>
           <Form.Item
             dependencies={["startAt"]}
-            label="Kết thúc"
+            label={t("Kết thúc")}
             name="endAt"
             rules={[
-              { message: "Chọn thời điểm kết thúc", required: true },
+              { message: t("Chọn thời điểm kết thúc"), required: true },
               ({ getFieldValue }) => ({
                 validator: (_, value: Dayjs | undefined) =>
                   !value || value.isAfter(getFieldValue("startAt") as Dayjs)
                     ? Promise.resolve()
                     : Promise.reject(
-                        new Error("Kết thúc phải sau thời điểm bắt đầu"),
-                      ),
+                      new Error(t("Kết thúc phải sau thời điểm bắt đầu")),
+                    ),
               }),
             ]}
           >
             <DatePicker format="DD/MM/YYYY HH:mm" showTime />
           </Form.Item>
-          <Form.Item label="Trạng thái" name="status">
-            <Select options={sessionStatuses} />
+          <Form.Item label={t("Trạng thái")} name="status">
+            <Select options={sessionStatuses.map(option => ({ ...option, label: t(option.label) }))} />
           </Form.Item>
-          <Form.Item label="Địa điểm" name="location">
-            <Input maxLength={300} placeholder="Phòng 201" />
+          <Form.Item label={t("Địa điểm")} name="location">
+            <Input maxLength={300} placeholder={t("Phòng 201")} />
           </Form.Item>
           <Form.Item
-            label="Liên kết học trực tuyến"
+            label={t("Liên kết học trực tuyến")}
             name="meetingUrl"
-            rules={[{ message: "Nhập URL http(s) hợp lệ", type: "url" }]}
+            rules={[{ message: t("Nhập URL http(s) hợp lệ"), type: "url" }]}
           >
             <Input maxLength={2_048} placeholder="https://meet.example.com/..." />
           </Form.Item>

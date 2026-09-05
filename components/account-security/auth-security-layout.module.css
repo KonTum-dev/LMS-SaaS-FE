@@ -1,0 +1,41 @@
+@media (max-width: 767px) {
+  .page:global(.auth-page) {
+    display: block;
+    min-width: 0;
+  }
+
+  .page > :global(.auth-hero) {
+    display: none;
+  }
+
+  .page > :global(.auth-panel) {
+    min-height: 100svh;
+    align-items: flex-start;
+    padding: 24px 20px 36px;
+  }
+
+  .page :global(.auth-card) {
+    max-width: 480px;
+    min-width: 0;
+  }
+
+  .page :global(.auth-card h2) {
+    margin: 24px 0 8px;
+    font-size: 25px;
+    line-height: 1.3;
+  }
+
+  .page :global(.auth-card .subtitle) {
+    margin-bottom: 22px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .page :global(.auth-security-note) {
+    margin-top: 20px;
+  }
+
+  .page :global(.auth-card .ant-input) {
+    font-size: 16px;
+  }
+}

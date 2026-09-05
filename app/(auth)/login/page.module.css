@@ -1,25 +1,177 @@
-.googleSection {
-  display: grid;
-  gap: 14px;
-  margin-bottom: 20px;
+.page {
+  --login-ink: #102b4d;
+  --login-muted: #65768c;
+  --login-blue: #0068df;
+  --login-pattern-opacity: 1;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100svh;
+  flex-direction: column;
+  color: var(--login-ink);
+  background:
+    radial-gradient(ellipse at 6% 10%, #c3daff 0, transparent 52%),
+    radial-gradient(ellipse at 95% 90%, #bdebe5 0, transparent 48%),
+    radial-gradient(ellipse at 95% 8%, #e1dafa 0, transparent 40%),
+    #edf3fc;
 }
+
+.page::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  opacity: var(--login-pattern-opacity);
+  background: url("/marketing/illustrations/login-learning-pattern.svg") center / cover no-repeat;
+  animation: backgroundReveal 1s ease-out both;
+}
+
+.header {
+  display: flex;
+  min-height: 80px;
+  align-items: center;
+  padding: 16px 32px;
+  padding-right: 124px;
+}
+
+.homeLink { display: inline-flex; border-radius: 8px; }
+
+.content {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 24px 80px;
+}
+
+.card {
+  width: 100%;
+  max-width: 466px;
+  min-width: 0;
+  padding: 32px;
+  border: 1px solid rgb(255 255 255 / 90%);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgb(31 69 122 / 4%), 0 24px 80px rgb(31 69 122 / 12%);
+}
+
+.intro { margin-bottom: 24px; text-align: center; }
+.intro h1 {
+  margin: 0 0 8px;
+  color: var(--login-ink);
+  font-size: 28px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: -.8px;
+}
+.intro p { margin: 0; color: var(--login-muted); font-size: 14px; line-height: 1.6; }
+
+.googleSection { display: grid; gap: 8px; }
+.googleSection:has([role="alert"]) :global([aria-busy]:empty) { min-height: 0; }
+.googleHint, .googleProgress {
+  margin: 0;
+  color: var(--login-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+}
+.googleProgress { color: var(--login-blue); }
 
 .divider {
-  align-items: center;
-  color: var(--muted);
   display: grid;
-  font-size: 11px;
-  font-weight: 600;
-  gap: 12px;
   grid-template-columns: 1fr auto 1fr;
-  letter-spacing: .04em;
-  margin: 2px 0;
-  text-transform: uppercase;
+  align-items: center;
+  gap: 16px;
+  margin: 22px 0;
+  color: var(--login-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.divider::before, .divider::after { height: 1px; content: ""; background: #e3e9f1; }
+
+.card .form :global(.ant-form-item) { margin-bottom: 20px; }
+.card .form :global(.ant-form-item-label) { padding-bottom: 8px; }
+.card .form :global(.ant-form-item .ant-form-item-label > label) {
+  height: 20px;
+  color: var(--login-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.card .form :global(.ant-input-affix-wrapper) {
+  min-height: 48px;
+  padding: 10px 12px;
+  border-color: #ccd6e3;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.card .form :global(.ant-input) { color: var(--login-ink); font-size: 14px; line-height: 1.5; }
+.card .form :global(.ant-input-affix-wrapper .ant-input-prefix) { margin-inline-end: 10px; color: var(--login-muted); font-size: 17px; }
+.card .form :global(.ant-input-affix-wrapper:focus-within) { border-color: var(--login-blue); box-shadow: 0 0 0 3px rgb(0 104 223 / 10%); }
+.card .form :global(.ant-input-affix-wrapper-status-error) { border-color: #e5484d; }
+.card .form :global(.ant-form-item-explain) { font-size: 12px; line-height: 1.6; }
+.passwordField { position: relative; }
+.passwordField :global(.ant-form-item-label) { padding-inline-end: 142px; }
+.forgotLink {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-height: 20px;
+  color: var(--login-blue);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.card .form .submitButton {
+  height: 48px;
+  border-radius: 8px;
+  border-color: transparent;
+  background: var(--login-blue);
+  box-shadow: none;
+  font-size: 14px;
+  font-weight: 700;
+}
+.card .form .submitButton:not(:disabled):hover { background: #005bc4; }
+.card .form .submitButton:disabled { background: #edf2f8; border-color: #dce4ee; }
+.accountSwitch {
+  margin: 24px 0 0;
+  color: var(--login-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+.accountSwitch a { color: var(--login-blue); font-weight: 600; }
+.forgotLink:hover, .accountSwitch a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.page a:focus-visible { outline: 2px solid var(--login-blue); outline-offset: 4px; border-radius: 3px; }
+.error { margin-bottom: 20px; }
+.error :global(.ant-alert-title) { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.error :global(.ant-alert-actions) { align-self: flex-start; }
+
+@media (max-width: 560px) {
+  .page { --login-pattern-opacity: .65; }
+  .page::before { background-size: auto 900px; }
+  .header { min-height: 68px; padding: 12px 20px; padding-right: 112px; }
+  .content { align-items: flex-start; padding: 24px 16px 40px; }
+  .card { padding: 28px 24px; border-radius: 16px; }
+  .intro h1 { font-size: 25px; letter-spacing: -.65px; }
+  .intro p { font-size: 13px; }
+  .card .form :global(.ant-input) { font-size: 16px; }
+  .accountSwitch { font-size: 12px; }
 }
 
-.divider::before,
-.divider::after {
-  background: #e4eaf1;
-  content: "";
-  height: 1px;
+@keyframes backgroundReveal {
+  from { opacity: 0; }
+  to { opacity: var(--login-pattern-opacity); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page::before { animation: none; }
+}
+
+@media (max-width: 360px) {
+  .content { padding: 20px 12px 32px; }
+  .card { padding: 24px 20px; }
+  .intro h1 { font-size: 23px; }
 }

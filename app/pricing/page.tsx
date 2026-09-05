@@ -1,26 +1,26 @@
+import { getServerI18n } from "@/lib/i18n/server";
+import { marketingMessages } from "@/lib/i18n/marketing-messages";
 import type { Metadata } from "next";
-import { FaqSection, MarketingShell, PageHero, PricingSection } from "@/components/marketing/site";
+import {
+  FaqSection,
+  MarketingShell,
+  PricingSection,
+} from "@/components/marketing/site";
 
-export const metadata: Metadata = {
-  title: "Gói dịch vụ",
-  description: "Dùng thử DX LMS 14 ngày và chọn cấu hình Center hoặc Enterprise theo nhu cầu thực tế.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getServerI18n(marketingMessages);
+  return {
+    title: t("Gói dịch vụ"),
+    description: t(
+      "Dùng thử DX LMS 30 ngày và chọn gói Center, Business hoặc Enterprise theo số học viên đang hoạt động.",
+    ),
+  };
+}
 
-export default function PricingPage() {
+export default async function PricingPage() {
   return (
     <MarketingShell>
-      <PageHero
-        eyebrow="Bắt đầu không rào cản"
-        line="Dùng thử không rào cản."
-        strong="Mở rộng theo nhu cầu thực tế."
-        lead="Dùng thử 14 ngày không cần thẻ. Khi sẵn sàng, DX LMS cùng bạn xác định mô-đun, hạn mức và chu kỳ thanh toán phù hợp."
-        visual="pricing"
-        primaryHref="/register"
-        primaryLabel="Dùng thử 14 ngày"
-        secondaryHref="/contact-us"
-        secondaryLabel="Trao đổi nhu cầu"
-      />
-      <PricingSection />
+      <PricingSection pageHeading />
       <FaqSection />
     </MarketingShell>
   );

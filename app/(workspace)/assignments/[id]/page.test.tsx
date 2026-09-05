@@ -188,6 +188,39 @@ function renderPage() {
 }
 
 describe("learner assignment detail", () => {
+  it("recovers a failed assignment load with one guarded retry", async () => {
+    let resolve!: (value: Assignment) => void;
+    const pending = new Promise<Assignment>((done) => { resolve = done; });
+    mocks.apiFetch.mockRejectedValueOnce(new Error("Temporary outage")).mockReturnValue(pending);
+    renderPage();
+    const retry = await screen.findByRole("button", { name: "Thử lại" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Thử lại" })).toBeNull());
+    expect(document.querySelector('[role="status"], .ant-skeleton')).toBeTruthy();
+    fireEvent.click(retry);
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
+    resolve(assignment());
+    expect(await screen.findByRole("heading", { name: "Bài tập Một" })).toBeTruthy();
+    expect(mocks.saveMySubmission).not.toHaveBeenCalled();
+  });
+
+  it("retries loading a submission without saving or submitting it", async () => {
+    let resolve!: (value: LearnerSubmission | null) => void;
+    const pending = new Promise<LearnerSubmission | null>((done) => { resolve = done; });
+    mocks.getMySubmission.mockRejectedValueOnce(new Error("Temporary outage")).mockReturnValue(pending);
+    renderPage();
+    const retry = await screen.findByRole("button", { name: "Thử lại" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Thử lại" })).toBeNull());
+    expect(document.querySelector('[role="status"], .ant-skeleton')).toBeTruthy();
+    fireEvent.click(retry);
+    expect(mocks.getMySubmission).toHaveBeenCalledTimes(2);
+    resolve(null);
+    expect(await screen.findByRole("button", { name: "Lưu bản nháp" })).toBeTruthy();
+    expect(mocks.saveMySubmission).not.toHaveBeenCalled();
+    expect(mocks.submitMySubmission).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     notifyManager.setScheduler((callback) => queueMicrotask(callback));
     mocks.assignment = assignment();

@@ -1,5 +1,11 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
 import { Tag } from "antd";
-import dayjs from "dayjs";
+import { createTranslator, formatDate, formatNumber } from "@/lib/i18n/translate";
+import type { Locale } from "@/lib/i18n/locale";
 import type {
   AssessmentAttemptStatus,
   AssessmentAvailability,
@@ -32,50 +38,57 @@ export const resultVisibilityLabels: Record<AssessmentResultVisibility, string> 
 };
 
 export function AssessmentStatusTag({ status }: { status: AssessmentStatus }) {
+  const { t } = useI18n(learningMessages);
   return (
     <Tag color={status === "PUBLISHED" ? "green" : status === "DRAFT" ? "gold" : "default"}>
-      {assessmentStatusLabels[status]}
+      {t(assessmentStatusLabels[status])}
     </Tag>
   );
 }
 
 export function AttemptStatusTag({ status }: { status: AssessmentAttemptStatus }) {
+  const { t } = useI18n(learningMessages);
   return (
     <Tag color={status === "IN_PROGRESS" ? "blue" : status === "SUBMITTED" ? "green" : "orange"}>
-      {assessmentAttemptStatusLabels[status]}
+      {t(assessmentAttemptStatusLabels[status])}
     </Tag>
   );
 }
 
 export function AvailabilityTag({ availability }: { availability: AssessmentAvailability }) {
+  const { t } = useI18n(learningMessages);
   return (
     <Tag color={availability === "OPEN" ? "green" : availability === "UPCOMING" ? "blue" : "default"}>
-      {assessmentAvailabilityLabels[availability]}
+      {t(assessmentAvailabilityLabels[availability])}
     </Tag>
   );
 }
 
-export function formatAssessmentDate(value: string | null): string {
-  return value ? dayjs(value).format("DD/MM/YYYY HH:mm") : "Không giới hạn";
+export function formatAssessmentDate(value: string | null, locale: Locale = "vi"): string {
+  if (value && locale === "vi") return `${formatDate(value, locale, { day: "2-digit", month: "2-digit", year: "numeric" })} ${formatDate(value, locale, { hour: "2-digit", minute: "2-digit" })}`;
+  return value ? formatDate(value, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : createTranslator(locale, learningMessages)("Không giới hạn");
 }
 
-export function formatAssessmentDuration(seconds: number | null): string {
-  if (seconds === null) return "Không giới hạn";
+export function formatAssessmentDuration(seconds: number | null, locale: Locale = "vi"): string {
+  const t = createTranslator(locale, learningMessages);
+  if (seconds === null) return t("Không giới hạn");
   const minutes = Math.round(seconds / 60);
-  return `${minutes.toLocaleString("vi-VN")} phút`;
+  return t("{p0} phút", { p0: formatNumber(minutes, locale) });
 }
 
 export function resultPendingMessage(
   visibility: AssessmentResultVisibility,
   closesAt: string | null,
+  locale: Locale = "vi",
 ): string {
+  const t = createTranslator(locale, learningMessages);
   if (visibility === "AFTER_CLOSE") {
     return closesAt
-      ? `Kết quả sẽ được công bố sau ${formatAssessmentDate(closesAt)}.`
-      : "Kết quả sẽ được công bố sau khi bài kiểm tra đóng.";
+      ? t("Kết quả sẽ được công bố sau {p0}.", { p0: formatAssessmentDate(closesAt, locale) })
+      : t("Kết quả sẽ được công bố sau khi bài kiểm tra đóng.");
   }
   if (visibility === "AFTER_ATTEMPTS_EXHAUSTED") {
-    return "Kết quả sẽ được công bố khi bạn hoàn tất toàn bộ số lượt làm được cấp và không còn lượt đang mở.";
+    return t("Kết quả sẽ được công bố khi bạn hoàn tất toàn bộ số lượt làm được cấp và không còn lượt đang mở.");
   }
-  return "Kết quả đang được xử lý. Vui lòng tải lại sau ít phút.";
+  return t("Kết quả đang được xử lý. Vui lòng tải lại sau ít phút.");
 }

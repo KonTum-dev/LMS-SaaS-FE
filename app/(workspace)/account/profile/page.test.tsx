@@ -10,6 +10,7 @@ import {
 import { App } from "antd";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountProfilePage from "./page";
+import { FeedbackLanguageSwitcher, FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -125,6 +126,21 @@ function renderPage() {
 }
 
 describe("AccountProfilePage", () => {
+  it("keeps user-entered names intact while localizing a safe structured error", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+    const diagnostic = "ProfileValidationError: /srv/private/profile.ts";
+    mocks.update.mockRejectedValue({ message: diagnostic, status: 400, code: "PROFILE_NAME_INVALID" });
+    render(<FeedbackLocaleProvider><FeedbackLanguageSwitcher /><App><AccountProfilePage /></App></FeedbackLocaleProvider>);
+    fireEvent.change(screen.getByLabelText("Tên hiển thị"), { target: { value: "Học viên {name}" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu hồ sơ" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Họ tên cần ít nhất 2 ký tự");
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(screen.getByRole("alert").textContent).toContain("Your full name must have at least 2 characters");
+    expect((screen.getByLabelText("Display name") as HTMLInputElement).value).toBe("Học viên {name}");
+    expect(screen.queryByText(diagnostic)).toBeNull();
+    expect(mocks.updateUserProfile).not.toHaveBeenCalled();
+  });
+
   it("giữ email chỉ đọc và cập nhật tên vào session hiện tại", async () => {
     renderPage();
     const email = await screen.findByLabelText("Email đăng nhập");

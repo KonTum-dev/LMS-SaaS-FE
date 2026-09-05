@@ -20,6 +20,21 @@ describe("accountSecurityApi contract", () => {
     });
   });
 
+  it.each(["vi", "en"] as const)(
+    "sends optional recovery email locale %s in the request body without bearer",
+    async (locale) => {
+      await accountSecurityApi.forgotPassword({
+        email: "learner@example.com",
+        locale,
+      });
+
+      expect(mocks.apiFetch).toHaveBeenCalledWith("/auth/password/forgot", {
+        body: JSON.stringify({ email: "learner@example.com", locale }),
+        method: "POST",
+      });
+    },
+  );
+
   it("gửi reset token đúng body và không đưa token vào URL/header", async () => {
     await accountSecurityApi.resetPassword({
       newPassword: "NewPassword123",

@@ -1,14 +1,20 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { formatDate as formatUiDate } from "@/lib/i18n/translate";
+import { learningPolishMessages as learningMessages } from "@/lib/i18n/learning-polish-messages";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import {
   ArrowLeftOutlined,
   LinkOutlined,
   SaveOutlined,
   SendOutlined,
 } from "@ant-design/icons";
-import { Alert, App, Button, Card, Input, Space, Spin, Tag } from "antd";
+import { Alert, Button, Card, Input, Space, Spin, Tag } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import dayjs from "dayjs";
+
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SecureAttachmentList } from "@/components/media/secure-attachment-list";
@@ -53,59 +59,56 @@ function isRevisionConflict(error: unknown) {
   );
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
-}
-
 const MAX_TEXT_BYTES = 50 * 1024;
 const MAX_HTTPS_LENGTH = 2048;
 
-function submissionValidationMessage(
-  mode: Assignment["submissionMode"],
-  content: string,
-  attachmentIds: readonly string[],
-  mediaEnabled: boolean,
-) {
-  if (mode === "FILES") {
-    if (!mediaEnabled)
-      return "Module Tài liệu riêng tư đang tắt; không thể lưu hoặc nộp bài nhận tệp.";
-    if (attachmentIds.length < 1)
-      return "Đính kèm ít nhất một tệp đã kiểm tra an toàn.";
-    if (attachmentIds.length > MAX_SUBMISSION_ATTACHMENTS) {
-      return `Chỉ được đính kèm tối đa ${MAX_SUBMISSION_ATTACHMENTS} tệp.`;
-    }
-    return new Set(attachmentIds).size === attachmentIds.length
-      ? null
-      : "Danh sách tệp không được trùng lặp.";
-  }
-  const trimmed = content.trim();
-  if (!trimmed) return "Nhập nội dung bài làm trước khi lưu hoặc nộp.";
-  if (mode === "TEXT") {
-    return new TextEncoder().encode(trimmed).byteLength <= MAX_TEXT_BYTES
-      ? null
-      : "Nội dung văn bản không được vượt quá 50 KiB UTF-8.";
-  }
-  if (trimmed.length > MAX_HTTPS_LENGTH) {
-    return "Liên kết HTTPS không được vượt quá 2.048 ký tự.";
-  }
-  try {
-    const url = new URL(trimmed);
-    return url.protocol === "https:" &&
-      Boolean(url.hostname) &&
-      !url.username &&
-      !url.password &&
-      url.toString().length <= MAX_HTTPS_LENGTH
-      ? null
-      : "Nhập liên kết HTTPS có tên miền và không chứa tên đăng nhập hoặc mật khẩu.";
-  } catch {
-    return "Nhập liên kết HTTPS có tên miền và không chứa tên đăng nhập hoặc mật khẩu.";
-  }
-}
-
 export default function LearnerAssignmentPage() {
+  const { t, locale } = useI18n(learningMessages);
+  function submissionValidationMessage(
+    mode: Assignment["submissionMode"],
+    content: string,
+    attachmentIds: readonly string[],
+    mediaEnabled: boolean,
+  ) {
+    if (mode === "FILES") {
+      if (!mediaEnabled)
+        return t("Module Tài liệu riêng tư đang tắt; không thể lưu hoặc nộp bài nhận tệp.");
+      if (attachmentIds.length < 1)
+        return t("Đính kèm ít nhất một tệp đã kiểm tra an toàn.");
+      if (attachmentIds.length > MAX_SUBMISSION_ATTACHMENTS) {
+        return t("Chỉ được đính kèm tối đa {p0} tệp.", { p0: MAX_SUBMISSION_ATTACHMENTS });
+      }
+      return new Set(attachmentIds).size === attachmentIds.length
+        ? null
+        : t("Danh sách tệp không được trùng lặp.");
+    }
+    const trimmed = content.trim();
+    if (!trimmed) return t("Nhập nội dung bài làm trước khi lưu hoặc nộp.");
+    if (mode === "TEXT") {
+      return new TextEncoder().encode(trimmed).byteLength <= MAX_TEXT_BYTES
+        ? null
+        : t("Nội dung văn bản không được vượt quá 50 KiB UTF-8.");
+    }
+    if (trimmed.length > MAX_HTTPS_LENGTH) {
+      return t("Liên kết HTTPS không được vượt quá 2.048 ký tự.");
+    }
+    try {
+      const url = new URL(trimmed);
+      return url.protocol === "https:" &&
+        Boolean(url.hostname) &&
+        !url.username &&
+        !url.password &&
+        url.toString().length <= MAX_HTTPS_LENGTH
+        ? null
+        : t("Nhập liên kết HTTPS có tên miền và không chứa tên đăng nhập hoặc mật khẩu.");
+    } catch {
+      return t("Nhập liên kết HTTPS có tên miền và không chứa tên đăng nhập hoặc mật khẩu.");
+    }
+  }
+
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { message } = App.useApp();
+  const { message, formatError } = useFeedback();
   const { effectiveAccess, organization, token, user } = useAuth();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<{
@@ -203,13 +206,13 @@ export default function LearnerAssignmentPage() {
   const saveInput = (): SaveSubmissionInput =>
     assignment?.submissionMode === "FILES"
       ? {
-          attachmentIds: [...draftRef.current.attachmentIds],
-          expectedRevision: draftRef.current.revision,
-        }
+        attachmentIds: [...draftRef.current.attachmentIds],
+        expectedRevision: draftRef.current.revision,
+      }
       : {
-          content: draftRef.current.content,
-          expectedRevision: draftRef.current.revision,
-        };
+        content: draftRef.current.content,
+        expectedRevision: draftRef.current.revision,
+      };
   const saveDraft = useMutation({
     mutationFn: (input: SaveSubmissionInput) =>
       submissionApi.saveMySubmission({ token }, id, input),
@@ -246,12 +249,12 @@ export default function LearnerAssignmentPage() {
   const conflict = isRevisionConflict(mutationError);
   const validationMessage = assignment
     ? submissionValidationMessage(
-        assignment.submissionMode,
-        content,
-        attachmentIds,
-        mediaEnabled,
-      )
-    : "Không tải được cấu hình bài tập.";
+      assignment.submissionMode,
+      content,
+      attachmentIds,
+      mediaEnabled,
+    )
+    : t("Không tải được cấu hình bài tập.");
   const contentValid = validationMessage === null;
   const visibleValidationMessage =
     assignment?.submissionMode === "FILES"
@@ -280,20 +283,20 @@ export default function LearnerAssignmentPage() {
   const metadata = useMemo(() => {
     if (!assignment) return [];
     return [
-      `${assignment.maxPoints} điểm`,
+      t("{p0} điểm", { p0: assignment.maxPoints }),
       assignment.submissionMode === "TEXT"
-        ? "Nộp văn bản"
+        ? t("Nộp văn bản")
         : assignment.submissionMode === "HTTPS_LINK"
-          ? "Nộp liên kết HTTPS"
-          : "Nộp tệp riêng tư",
+          ? t("Nộp liên kết HTTPS")
+          : t("Nộp tệp riêng tư"),
       assignment.dueAt
-        ? `Hạn ${dayjs(assignment.dueAt).format("DD/MM/YYYY HH:mm")}`
-        : "Không giới hạn thời gian",
+        ? t("Hạn {p0}", { p0: formatUiDate(assignment.dueAt, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) })
+        : t("Không giới hạn thời gian"),
     ];
-  }, [assignment]);
+  }, [assignment, locale, t]);
   const replaceDraftAttachments = async (nextAttachmentIds: string[]) => {
     if (!mediaEnabled || readOnly || assignment?.submissionMode !== "FILES") {
-      throw new Error("Workspace hiện không cho phép cập nhật tệp bản nháp.");
+      throw new Error(t("Workspace hiện không cho phép cập nhật tệp bản nháp."));
     }
     if (
       nextAttachmentIds.length < 1 ||
@@ -301,7 +304,7 @@ export default function LearnerAssignmentPage() {
       new Set(nextAttachmentIds).size !== nextAttachmentIds.length
     ) {
       throw new Error(
-        `Bản nháp nhận tệp phải có từ 1 đến ${MAX_SUBMISSION_ATTACHMENTS} tệp không trùng lặp.`,
+        t("Bản nháp nhận tệp phải có từ 1 đến {p0} tệp không trùng lặp.", { p0: MAX_SUBMISSION_ATTACHMENTS }),
       );
     }
     const snapshot = draftRef.current;
@@ -315,7 +318,7 @@ export default function LearnerAssignmentPage() {
     if (current.includes(asset._id)) return;
     if (current.length >= MAX_SUBMISSION_ATTACHMENTS) {
       throw new Error(
-        `Bài làm chỉ được đính kèm tối đa ${MAX_SUBMISSION_ATTACHMENTS} tệp.`,
+        t("Bài làm chỉ được đính kèm tối đa {p0} tệp.", { p0: MAX_SUBMISSION_ATTACHMENTS }),
       );
     }
     await replaceDraftAttachments([...current, asset._id]);
@@ -326,7 +329,7 @@ export default function LearnerAssignmentPage() {
       <main className="page-shell">
         <Alert
           showIcon
-          title="Module Bài tập không khả dụng trong workspace này."
+          title={t("Module Bài tập không khả dụng trong workspace này.")}
           type="warning"
         />
       </main>
@@ -337,7 +340,7 @@ export default function LearnerAssignmentPage() {
       <main className="page-shell">
         <Alert
           showIcon
-          title="Trang bài làm chỉ khả dụng trong workspace của tổ chức."
+          title={t("Trang bài làm chỉ khả dụng trong workspace của tổ chức.")}
           type="info"
         />
       </main>
@@ -347,8 +350,9 @@ export default function LearnerAssignmentPage() {
     return (
       <main className="page-shell">
         <Alert
+          action={<Button disabled={assignmentQuery.isFetching} loading={assignmentQuery.isFetching} onClick={() => { if (!assignmentQuery.isFetching) void assignmentQuery.refetch(); }} size="small">{t("Thử lại")}</Button>}
           showIcon
-          title={errorMessage(assignmentQuery.error, "Không tải được bài tập")}
+          title={formatError(assignmentQuery.error, t("Không tải được bài tập"))}
           type="error"
         />
       </main>
@@ -357,7 +361,7 @@ export default function LearnerAssignmentPage() {
   if (assignmentQuery.isPending) {
     return (
       <main
-        aria-label="Đang tải bài tập"
+        aria-label={t("Đang tải bài tập")}
         className="page-shell page-loading"
         role="status"
       >
@@ -368,7 +372,7 @@ export default function LearnerAssignmentPage() {
   if (!assignment) {
     return (
       <main className="page-shell">
-        <Alert showIcon title="Không tìm thấy bài tập" type="warning" />
+        <Alert showIcon title={t("Không tìm thấy bài tập")} type="warning" />
       </main>
     );
   }
@@ -378,39 +382,38 @@ export default function LearnerAssignmentPage() {
       aria-labelledby="learner-assignment-title"
       className="page-shell assignment-detail-page"
     >
-      <nav aria-label="Điều hướng bài tập">
+      <nav aria-label={t("Điều hướng bài tập")}>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => router.push("/assignments")}
           type="text"
-        >
-          Quay lại bài tập
-        </Button>
+        >{t("Quay lại bài tập")}</Button>
       </nav>
       <header className="page-heading">
         <div className="page-heading-copy">
           <Space size={[8, 8]} wrap>
-            <Tag color={status.color}>{status.label}</Tag>
+            <Tag color={status.color}>{t(status.label)}</Tag>
             {metadata.map((item) => (
               <Tag key={item}>{item}</Tag>
             ))}
           </Space>
           <h1 id="learner-assignment-title">{assignment.title}</h1>
-          <p>{assignment.description || "Bài tập chưa có mô tả."}</p>
+          {assignment.description && <p>{assignment.description}</p>}
         </div>
       </header>
 
       {!isLearner ? (
-        <Alert showIcon title="Khu vực nộp bài dành cho học viên" type="info" />
+        <Alert showIcon title={t("Khu vực nộp bài dành cho học viên")} type="info" />
       ) : submissionQuery.error ? (
         <Alert
+          action={<Button disabled={submissionQuery.isFetching} loading={submissionQuery.isFetching} onClick={() => { if (!submissionQuery.isFetching) void submissionQuery.refetch(); }} size="small">{t("Thử lại")}</Button>}
           showIcon
-          title={errorMessage(submissionQuery.error, "Không tải được bài làm")}
+          title={formatError(submissionQuery.error, t("Không tải được bài làm"))}
           type="error"
         />
       ) : submissionQuery.isPending ? (
         <div
-          aria-label="Đang tải bài làm"
+          aria-label={t("Đang tải bài làm")}
           className="page-loading"
           role="status"
         >
@@ -420,9 +423,9 @@ export default function LearnerAssignmentPage() {
         <>
           {readOnly && (
             <Alert
-              description="Bạn vẫn xem được bài làm và kết quả; lưu nháp và nộp bài đang tạm khóa."
+              description={t("Bạn vẫn xem được bài làm và kết quả; lưu nháp và nộp bài đang tạm khóa.")}
               showIcon
-              title="Workspace chỉ đọc"
+              title={t("Workspace chỉ đọc")}
               type="info"
             />
           )}
@@ -430,29 +433,27 @@ export default function LearnerAssignmentPage() {
             <Alert
               description={
                 submission?.returnFeedback ||
-                "Giảng viên yêu cầu bạn cập nhật bài làm."
+                t("Giảng viên yêu cầu bạn cập nhật bài làm.")
               }
               showIcon
-              title="Phản hồi yêu cầu chỉnh sửa"
+              title={t("Phản hồi yêu cầu chỉnh sửa")}
               type="warning"
             />
           )}
           {conflict ? (
             <Alert
               action={
-                <Button onClick={() => void reloadLearnerData()} size="small">
-                  Đồng bộ revision mới nhất
-                </Button>
+                <Button onClick={() => void reloadLearnerData()} size="small">{t("Đồng bộ revision mới nhất")}</Button>
               }
-              description="Nội dung bạn đang nhập sẽ được giữ nguyên; hệ thống chỉ đồng bộ revision mới nhất từ máy chủ."
+              description={t("Nội dung đang nhập được giữ nguyên khi tải bản mới nhất.")}
               showIcon
-              title="Bản nháp đã thay đổi ở một phiên khác"
+              title={t("Bản nháp đã thay đổi ở một phiên khác")}
               type="warning"
             />
           ) : mutationError ? (
             <Alert
               showIcon
-              title={errorMessage(mutationError, "Không thể lưu bài làm")}
+              title={formatError(mutationError, t("Không thể lưu bài làm"))}
               type="error"
             />
           ) : null}
@@ -462,8 +463,8 @@ export default function LearnerAssignmentPage() {
               className="surface-card"
               title={
                 state === "RETURNED"
-                  ? "Chỉnh sửa và nộp lại"
-                  : "Bài làm của bạn"
+                  ? t("Chỉnh sửa và nộp lại")
+                  : t("Bài làm của bạn")
               }
             >
               {assignment.submissionMode === "TEXT" ? (
@@ -474,10 +475,10 @@ export default function LearnerAssignmentPage() {
                       : undefined
                   }
                   aria-invalid={Boolean(visibleValidationMessage)}
-                  aria-label="Nội dung bài làm"
+                  aria-label={t("Nội dung bài làm")}
                   disabled={readOnly || busy}
                   onChange={(event) => updateContent(event.target.value)}
-                  placeholder="Nhập nội dung bài làm"
+                  placeholder={t("Nhập nội dung bài làm")}
                   rows={10}
                   value={content}
                 />
@@ -489,7 +490,7 @@ export default function LearnerAssignmentPage() {
                       : undefined
                   }
                   aria-invalid={Boolean(visibleValidationMessage)}
-                  aria-label="Liên kết bài làm HTTPS"
+                  aria-label={t("Liên kết bài làm HTTPS")}
                   disabled={readOnly || busy}
                   onChange={(event) => updateContent(event.target.value)}
                   placeholder="https://example.com/bai-lam"
@@ -498,7 +499,7 @@ export default function LearnerAssignmentPage() {
                   value={content}
                 />
               ) : (
-                <Space direction="vertical" size={14} style={{ width: "100%" }}>
+                <Space orientation="vertical" size={14} style={{ width: "100%" }}>
                   <SecureAttachmentList
                     assetIds={attachmentIds}
                     canMutate={mediaEnabled && !readOnly && !busy}
@@ -517,7 +518,7 @@ export default function LearnerAssignmentPage() {
                       disabled={
                         readOnly || submit.isPending
                       }
-                      label="Thêm tệp bài làm"
+                      label={t("Thêm tệp bài làm")}
                       maxBytes={DEFAULT_SUBMISSION_MEDIA_MAX_BYTES}
                       maxCount={MAX_SUBMISSION_ATTACHMENTS}
                       onAvailable={attachAvailableAsset}
@@ -528,9 +529,9 @@ export default function LearnerAssignmentPage() {
                   )}
                   {!mediaEnabled && (
                     <Alert
-                      description="Bản nháp và snapshot ID vẫn hiển thị để đối soát, nhưng tải lên, thay đổi và tải xuống đều bị khóa."
+                      description={t("Tệp đã nộp vẫn hiển thị. Các thao tác với tệp đang tạm khóa.")}
                       showIcon
-                      title="Tệp riêng tư hiện không khả dụng"
+                      title={t("Tệp riêng tư hiện không khả dụng")}
                       type="warning"
                     />
                   )}
@@ -551,9 +552,7 @@ export default function LearnerAssignmentPage() {
                   icon={<SaveOutlined />}
                   loading={saveDraft.isPending}
                   onClick={() => saveDraft.mutate(saveInput())}
-                >
-                  Lưu bản nháp
-                </Button>
+                >{t("Lưu bản nháp")}</Button>
                 <Button
                   disabled={readOnly || busy || !contentValid}
                   icon={<SendOutlined />}
@@ -561,16 +560,16 @@ export default function LearnerAssignmentPage() {
                   onClick={() => submit.mutate()}
                   type="primary"
                 >
-                  {state === "RETURNED" ? "Nộp lại" : "Nộp bài"}
+                  {state === "RETURNED" ? t("Nộp lại") : t("Nộp bài")}
                 </Button>
               </Space>
             </Card>
           ) : (
-            <Card className="surface-card" title="Bài làm đã gửi">
+            <Card className="surface-card" title={t("Bài làm đã gửi")}>
               <p>
                 {state === "SUBMITTED"
-                  ? "Bài làm đang chờ giảng viên chấm điểm."
-                  : "Bài làm đã được chấm điểm."}
+                  ? t("Bài làm đang chờ giảng viên chấm điểm.")
+                  : t("Bài làm đã được chấm điểm.")}
               </p>
               {submission?.submittedContent && (
                 <pre className="assignment-submitted-content">
@@ -587,10 +586,8 @@ export default function LearnerAssignmentPage() {
                 />
               )}
               {submission?.submittedAt && (
-                <p>
-                  Đã nộp lúc{" "}
-                  {dayjs(submission.submittedAt).format("DD/MM/YYYY HH:mm")} ·
-                  Lần {submission.attemptCount}
+                <p>{t("Đã nộp lúc")}{" "}
+                  {formatUiDate(submission.submittedAt, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })} {t("· Lần")} {submission.attemptCount}
                 </p>
               )}
             </Card>
@@ -599,7 +596,7 @@ export default function LearnerAssignmentPage() {
           {editable &&
             submission?.submissionMode === "FILES" &&
             submission.submittedAttachmentIds.length > 0 && (
-              <Card className="surface-card" title="Snapshot lần nộp trước">
+              <Card className="surface-card" title={t("Bài nộp trước")}>
                 <SecureAttachmentList
                   assetIds={submission.submittedAttachmentIds}
                   mediaEnabled={mediaEnabled}
@@ -613,10 +610,10 @@ export default function LearnerAssignmentPage() {
           {state === "GRADED" &&
             submission?.score !== null &&
             submission?.gradedAt && (
-              <Card className="surface-card" title="Kết quả">
+              <Card className="surface-card" title={t("Kết quả")}>
                 <p>
                   <strong>
-                    {submission.score}/{submission.maxPoints} điểm ·{" "}
+                    {submission.score}/{submission.maxPoints} {t("điểm ·")}{" "}
                     {Math.round(
                       (submission.score / submission.maxPoints) * 10_000,
                     ) / 100}
@@ -625,11 +622,10 @@ export default function LearnerAssignmentPage() {
                 </p>
                 <p>
                   {submission.gradingFeedback ||
-                    "Chưa có nhận xét từ giảng viên."}
+                    t("Chưa có nhận xét từ giảng viên.")}
                 </p>
-                <small>
-                  Chấm lúc{" "}
-                  {dayjs(submission.gradedAt).format("DD/MM/YYYY HH:mm")}
+                <small>{t("Chấm lúc")}{" "}
+                  {formatUiDate(submission.gradedAt, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </small>
               </Card>
             )}

@@ -3,6 +3,14 @@
 import { App as AntdApp, ConfigProvider } from "antd";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import viVN from "antd/locale/vi_VN";
+import enUS from "antd/locale/en_US";
+import {
+  FeedbackLocaleProvider,
+  useFeedbackLocale,
+} from "@/components/feedback/feedback-locale";
+import { FeedbackProvider } from "@/components/feedback/feedback-provider";
+import type { Locale } from "@/lib/i18n/locale";
+import { FeedbackAuthorityBoundary } from "@/components/feedback/feedback-authority-boundary";
 import {
   createContext,
   useCallback,
@@ -460,7 +468,7 @@ function AuthProvider({
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function AppProviders({ children }: { children: React.ReactNode }) {
+export function AppProviders({ children, initialLocale = "vi" }: { children: React.ReactNode; initialLocale?: Locale }) {
   const [queryState, setQueryState] = useState(() => ({
     client: createLmsQueryClient(),
     generation: 0,
@@ -473,22 +481,42 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthProvider
-      queryClient={queryState.client}
-      rotateQueryClient={rotateQueryClient}
-    >
-      <QueryClientProvider
-        client={queryState.client}
-        key={queryState.generation}
+    <FeedbackLocaleProvider initialLocale={initialLocale}>
+      <AuthProvider
+        queryClient={queryState.client}
+        rotateQueryClient={rotateQueryClient}
       >
-        <ThemedAntd>{children}</ThemedAntd>
-      </QueryClientProvider>
-    </AuthProvider>
+        <ThemedAntd queryGeneration={queryState.generation}>
+          <QueryClientProvider
+            client={queryState.client}
+            key={queryState.generation}
+          >
+            {children}
+          </QueryClientProvider>
+        </ThemedAntd>
+      </AuthProvider>
+    </FeedbackLocaleProvider>
   );
 }
 
-function ThemedAntd({ children }: { children: React.ReactNode }) {
-  const { organization } = useAuth();
+function ThemedAntd({
+  children,
+  queryGeneration,
+}: {
+  children: React.ReactNode;
+  queryGeneration: number;
+}) {
+  const { locale } = useFeedbackLocale();
+  const { organization, user } = useAuth();
+  const authorityEpoch = user
+    ? JSON.stringify([
+        queryGeneration,
+        user.sub,
+        user.tenantId ?? null,
+        user.membershipId ?? null,
+        user.role,
+      ])
+    : null;
   const primary = tenantPrimaryColor(organization);
   const selectedBackground = useMemo(
     () => colorWithAlpha(primary, 0.09),
@@ -605,8 +633,16 @@ function ThemedAntd({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <ConfigProvider locale={viVN} theme={theme}>
-      <AntdApp>{children}</AntdApp>
+    <ConfigProvider locale={locale === "en" ? enUS : viVN} theme={theme}>
+      <AntdApp
+        message={{ top: 80, duration: 6, pauseOnHover: true, stack: false }}
+      >
+        <FeedbackAuthorityBoundary authorityEpoch={authorityEpoch}>
+          <FeedbackProvider authorityEpoch={authorityEpoch}>
+            {children}
+          </FeedbackProvider>
+        </FeedbackAuthorityBoundary>
+      </AntdApp>
     </ConfigProvider>
   );
 }

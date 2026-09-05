@@ -1,3 +1,7 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { marketingMessages } from "@/lib/i18n/marketing-messages";
 import Link from "next/link";
 import styles from "@/app/marketing.module.css";
 import { MarketingIcon } from "./marketing-icon";
@@ -85,6 +89,7 @@ const plans = [
 ] satisfies readonly Plan[];
 
 export function PricingSection() {
+  const { t } = useI18n(marketingMessages);
   return (
     <section
       className={`${styles.section} ${styles.pricingSection}`}
@@ -94,12 +99,14 @@ export function PricingSection() {
     >
       <div className={`${styles.container} ${styles.mascotContainer}`}>
         <div className={styles.pricingIntro} data-reveal>
-          <span className={styles.sectionLabel}>Phù hợp theo quy mô</span>
-          <h2 id="pricing-title">Một nền tảng, bốn cách vận hành.</h2>
+          <span className={styles.sectionLabel}>
+            {t("Phù hợp theo quy mô")}
+          </span>
+          <h2 id="pricing-title">{t("Một nền tảng, bốn cách vận hành.")}</h2>
           <p>
-            Không ép lớp nhỏ dùng quy trình của doanh nghiệp. Không để trung
-            tâm lớn phải ghép nhiều công cụ rời rạc. Mỗi workspace mới
-            được hệ thống kích hoạt dùng thử tự động ngay sau khi khởi tạo.
+            {t(
+              "Không ép lớp nhỏ dùng quy trình của doanh nghiệp. Không để trung tâm lớn phải ghép nhiều công cụ rời rạc. Mỗi workspace mới được hệ thống kích hoạt dùng thử tự động ngay sau khi khởi tạo.",
+            )}
           </p>
         </div>
         <SectionMascot variant="pricing" />
@@ -111,25 +118,30 @@ export function PricingSection() {
               data-reveal
               key={plan.name}
             >
-              <span className={styles.planLabel}>{plan.label}</span>
-              <h3 id={plan.headingId}>{plan.name}</h3>
-              <p className={styles.planDescription}>{plan.description}</p>
+              <span className={styles.planLabel}>{t(plan.label)}</span>
+              <h3 id={plan.headingId}>{t(plan.name)}</h3>
+              <p className={styles.planDescription}>{t(plan.description)}</p>
               <div className={styles.planPrice}>
-                <p><strong>{plan.scale}</strong></p>
-                <small>{plan.scaleNote}</small>
+                <p>
+                  <strong>{t(plan.scale)}</strong>
+                </p>
+                <small>{t(plan.scaleNote)}</small>
               </div>
               <ul>
                 {plan.features.map((feature) => (
-                  <li key={feature}><MarketingIcon name="check" />{feature}</li>
+                  <li key={feature}>
+                    <MarketingIcon name="check" />
+                    {t(feature)}
+                  </li>
                 ))}
               </ul>
               {plan.href === "/register" ? (
                 <Link className={styles.primaryButton} href={plan.href}>
-                  {plan.cta} <MarketingIcon name="arrowRight" />
+                  {t(plan.cta)} <MarketingIcon name="arrowRight" />
                 </Link>
               ) : (
                 <a className={styles.secondaryButton} href={plan.href}>
-                  {plan.cta} <MarketingIcon name="arrowRight" />
+                  {t(plan.cta)} <MarketingIcon name="arrowRight" />
                 </a>
               )}
             </article>

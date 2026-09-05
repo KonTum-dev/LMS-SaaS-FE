@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/api";
 import {
   googleAuthApi,
   googleAuthErrorMessage,
+  googleLoginRecoveryAction,
   parseGoogleAuthChallenge,
   parseGoogleLinkStatus,
 } from "./google-auth-api";
@@ -187,10 +188,10 @@ describe("Google auth API", () => {
         new ApiError(raw, 409, "GOOGLE_LINK_REQUIRED"),
         "LOGIN",
       ),
-    ).toMatch(/đăng nhập bằng mật khẩu/i);
+    ).toMatch(/đăng nhập bằng email và mật khẩu/i);
     expect(
       googleAuthErrorMessage(
-        new ApiError(raw, 404, "GOOGLE_ACCOUNT_NOT_REGISTERED"),
+        new ApiError(raw, 404, "GOOGLE_SIGNUP_REQUIRED"),
         "LOGIN",
       ),
     ).toMatch(/chưa có trên DX LMS/i);
@@ -203,5 +204,34 @@ describe("Google auth API", () => {
     expect(
       googleAuthErrorMessage(new ApiError(raw, 500), "LOGIN"),
     ).not.toContain(raw);
+    expect(
+      googleAuthErrorMessage(
+        new ApiError(raw, 404, "GOOGLE_ACCOUNT_UNAVAILABLE"),
+        "LOGIN",
+      ),
+    ).toMatch(/không khả dụng/i);
+  });
+
+  it("maps backend login codes to actionable recovery without guessing", () => {
+    expect(
+      googleLoginRecoveryAction(
+        new ApiError("raw", 409, "GOOGLE_LINK_REQUIRED"),
+      ),
+    ).toBe("EMAIL_LOGIN");
+    expect(
+      googleLoginRecoveryAction(
+        new ApiError("raw", 404, "GOOGLE_SIGNUP_REQUIRED"),
+      ),
+    ).toBe("CREATE_WORKSPACE");
+    expect(
+      googleLoginRecoveryAction(
+        new ApiError("raw", 404, "GOOGLE_ACCOUNT_NOT_REGISTERED"),
+      ),
+    ).toBe("CREATE_WORKSPACE");
+    expect(
+      googleLoginRecoveryAction(
+        new ApiError("raw", 404, "GOOGLE_ACCOUNT_UNAVAILABLE"),
+      ),
+    ).toBeNull();
   });
 });

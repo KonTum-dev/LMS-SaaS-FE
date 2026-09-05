@@ -125,6 +125,20 @@ describe("cohortApi", () => {
     );
   });
 
+  it("phân trang và tìm giảng viên trên máy chủ thay vì chỉ lọc trang đầu", async () => {
+    await cohortApi.listEligibleInstructors(context, {
+      limit: 20,
+      orgUnitId: "branch-1",
+      page: 2,
+      search: "  minh@example.test  ",
+    });
+
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      "/cohorts/eligible-instructors?limit=20&orgUnitId=branch-1&page=2&search=minh%40example.test",
+      { cache: "no-store", token: "tenant-token" },
+    );
+  });
+
   it("tạo, sửa và lưu trữ lớp đúng contract", async () => {
     const createInput = {
       capacity: 24,

@@ -1,0 +1,14 @@
+.picker { min-width: 0; width: 100%; }
+.picker:focus-visible { outline: 2px solid var(--brand, #176bff); outline-offset: 4px; border-radius: 8px; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 10px; }
+.count { color: var(--muted, #64748b); font-size: 12px; line-height: 1.5; }
+.actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.actions :global(.ant-btn) { min-height: 32px; font-size: 12px; }
+.picker .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.grid :global(.ant-checkbox-wrapper) { display: flex; align-items: flex-start; margin: 0; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line, #e5eaf0); border-radius: 8px; background: var(--app-surface, #fff); font-size: 14px; line-height: 22px; }
+.grid :global(.ant-checkbox) { flex: none; margin-top: 3px; }
+.grid :global(.ant-checkbox-label) { min-width: 0; overflow-wrap: anywhere; padding-inline-end: 0; }
+.grid :global(.ant-checkbox-wrapper-checked) { border-color: #cddfff; background: #f6f9ff; }
+.grid :global(.ant-checkbox-wrapper:not(.ant-checkbox-wrapper-disabled):hover) { border-color: #82afff; }
+.grid :global(.ant-checkbox-wrapper:has(input:focus-visible)) { outline: 2px solid #176bff; outline-offset: 2px; }
+@media (max-width: 520px) { .picker .grid { grid-template-columns: minmax(0, 1fr); } }

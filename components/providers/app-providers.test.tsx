@@ -16,6 +16,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, useState } from "react";
 import { AppProviders, useAuth } from "./app-providers";
+import { useFeedback } from "@/components/feedback/feedback-provider";
 
 const user = {
   sub: "teacher-1",
@@ -88,6 +89,7 @@ let broadcastChannels: MockBroadcastChannel[] = [];
 let latePrivateMutation = deferred<{ secret: string }>();
 let lateAuthResponse = deferred<typeof lateSessionPayload>();
 let lateAuthOutcome = vi.fn();
+const oldAuthorityAction = vi.fn();
 
 class MockBroadcastChannel {
   readonly postMessage = vi.fn();
@@ -125,6 +127,7 @@ class MockBroadcastChannel {
 
 function Probe() {
   const auth = useAuth();
+  const { modal } = useFeedback();
   const queryClient = useQueryClient();
   const [cacheSize, setCacheSize] = useState(
     () => queryClient.getQueryCache().getAll().length,
@@ -164,6 +167,18 @@ function Probe() {
       <span>workspace-one:{auth.workspaces[0]?.name ?? "none"}</span>
       <span>cache:{cacheSize}</span>
       <span>error:{error || "none"}</span>
+      <button
+        onClick={() =>
+          modal.confirm({
+            title: "Confirm an action for the previous authority",
+            okText: "Execute the old action",
+            onOk: oldAuthorityAction,
+          })
+        }
+        type="button"
+      >
+        Open authority confirmation
+      </button>
       <button
         onClick={() =>
           queryClient.setQueryData(["private", "tenant-1"], { secret: true })
@@ -302,6 +317,7 @@ beforeEach(() => {
   latePrivateMutation = deferred<{ secret: string }>();
   lateAuthResponse = deferred<typeof lateSessionPayload>();
   lateAuthOutcome = vi.fn();
+  oldAuthorityAction.mockClear();
   const store = new Map<string, string>();
   const storage: Storage = {
     clear: () => store.clear(),
@@ -341,6 +357,65 @@ afterEach(() => {
 });
 
 describe("AppProviders auth lifecycle", () => {
+  it.each(["logout", "workspace switch"])(
+    "removes a previous authority's actual confirmation on %s",
+    async (transition) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              effectiveAccess,
+              user,
+              organization,
+              workspaces,
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              accessToken: "token-2",
+              effectiveAccess,
+              organization: { ...organization, _id: "tenant-2" },
+              user: {
+                ...user,
+                tenantId: "tenant-2",
+                membershipId: "membership-2",
+              },
+              workspaces,
+            }),
+            { status: 200 },
+          ),
+        );
+      renderRestoredSession(fetchMock as typeof fetch);
+      await screen.findByText("organization:tenant-1");
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open authority confirmation" }),
+      );
+      const oldButton = await screen.findByRole("button", {
+        name: "Execute the old action",
+      });
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: transition === "logout" ? "Đăng xuất" : "Chuyển workspace",
+        }),
+      );
+      await screen.findByText(
+        transition === "logout" ? "signed-out" : "organization:tenant-2",
+      );
+      await waitFor(() =>
+        expect(
+          screen.queryByText("Confirm an action for the previous authority"),
+        ).toBeNull(),
+      );
+      expect(oldButton.isConnected).toBe(false);
+      fireEvent.click(oldButton);
+      expect(oldAuthorityAction).not.toHaveBeenCalled();
+    },
+  );
+
   it("thay access state cũ trong localStorage bằng dữ liệu mới từ auth/me", async () => {
     renderRestoredSession();
 

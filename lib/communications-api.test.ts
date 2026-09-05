@@ -77,7 +77,10 @@ describe("communicationsApi contract", () => {
         "/communications/announcements?audience=COHORT&status=PUBLISHED",
         { cache: "no-store", signal, token: "tenant-token" },
       ],
-      ["/communications/announcements", { cache: "no-store", token: "tenant-token" }],
+      [
+        "/communications/announcements",
+        { cache: "no-store", token: "tenant-token" },
+      ],
     ]);
   });
 
@@ -95,31 +98,74 @@ describe("communicationsApi contract", () => {
     await communicationsApi.archive(context, "notice/one");
 
     expect(mocks.apiFetch.mock.calls).toEqual([
-      ["/communications/announcements", {
-        body: JSON.stringify(createInput),
-        method: "POST",
-        token: "tenant-token",
-      }],
-      ["/communications/announcements/notice%2Fone", {
-        body: JSON.stringify({
-          audience: "TENANT",
-          body: "Nội dung đã sửa",
-          cohortId: null,
-          orgUnitId: null,
-          recipientRoles: ["INSTRUCTOR"],
-          title: "Tiêu đề đã sửa",
-        }),
-        method: "PATCH",
-        token: "tenant-token",
-      }],
-      ["/communications/announcements/notice%2Fone/publish", {
-        method: "POST",
-        token: "tenant-token",
-      }],
-      ["/communications/announcements/notice%2Fone/archive", {
-        method: "POST",
-        token: "tenant-token",
-      }],
+      [
+        "/communications/announcements",
+        {
+          body: JSON.stringify(createInput),
+          method: "POST",
+          token: "tenant-token",
+        },
+      ],
+      [
+        "/communications/announcements/notice%2Fone",
+        {
+          body: JSON.stringify({
+            audience: "TENANT",
+            body: "Nội dung đã sửa",
+            cohortId: null,
+            orgUnitId: null,
+            recipientRoles: ["INSTRUCTOR"],
+            title: "Tiêu đề đã sửa",
+          }),
+          method: "PATCH",
+          token: "tenant-token",
+        },
+      ],
+      [
+        "/communications/announcements/notice%2Fone/publish",
+        {
+          method: "POST",
+          token: "tenant-token",
+        },
+      ],
+      [
+        "/communications/announcements/notice%2Fone/archive",
+        {
+          method: "POST",
+          token: "tenant-token",
+        },
+      ],
     ]);
+  });
+
+  it("directory encodes pagination and server filters without changing the legacy cache", async () => {
+    const query = {
+      page: 6,
+      limit: 20,
+      search: " [class].* ",
+      status: "PUBLISHED" as const,
+      audience: "COHORT" as const,
+    };
+    const signal = new AbortController().signal;
+    await communicationsApi.directory(context, query, { signal });
+    expect(mocks.apiFetch).toHaveBeenCalledWith(
+      "/communications/announcements/directory?audience=COHORT&limit=20&page=6&search=%5Bclass%5D.*&status=PUBLISHED",
+      { cache: "no-store", token: "tenant-token", signal },
+    );
+    const key = communicationsQueryKeys.directory(scope, query);
+    expect(key.slice(0, 7)).toEqual(communicationsQueryKeys.root(scope));
+    expect(key).not.toEqual(communicationsQueryKeys.list(scope, query));
+    expect(key).not.toEqual(
+      communicationsQueryKeys.directory(scope, { ...query, page: 7 }),
+    );
+    expect(key).not.toEqual(
+      communicationsQueryKeys.directory(scope, { ...query, search: "other" }),
+    );
+    expect(key).not.toEqual(
+      communicationsQueryKeys.directory(
+        { ...scope, membershipId: "membership-2" },
+        query,
+      ),
+    );
   });
 });

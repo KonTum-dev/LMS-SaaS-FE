@@ -49,6 +49,7 @@ describe("YouTube API", () => {
         accessToken: "must-drop",
         channel: { id: "UC_safe_channel", title: "Kênh đào tạo" },
         connectedAt: "2030-08-16T00:00:00.000Z",
+        linkedEmail: "owner@example.test",
         refreshToken: "must-drop",
         status: "CONNECTED",
         uploadEnabled: true,
@@ -56,9 +57,22 @@ describe("YouTube API", () => {
     ).toEqual({
       channel: { id: "UC_safe_channel", title: "Kênh đào tạo" },
       connectedAt: "2030-08-16T00:00:00.000Z",
+      linkedEmail: "owner@example.test",
       state: "CONNECTED",
       uploadEnabled: true,
     });
+  });
+
+  it("từ chối linkedEmail không hợp lệ trong trạng thái YouTube", () => {
+    expect(() =>
+      parseYouTubeStatus({
+        channel: null,
+        connectedAt: null,
+        linkedEmail: "not-an-email",
+        status: "DISCONNECTED",
+        uploadEnabled: false,
+      }),
+    ).toThrow(ApiError);
   });
 
   it.each([

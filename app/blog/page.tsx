@@ -1,29 +1,40 @@
+import { getServerI18n } from "@/lib/i18n/server";
+import { marketingMessages } from "@/lib/i18n/marketing-messages";
 import type { Metadata } from "next";
 import styles from "@/app/marketing-v2.module.css";
 import { BlogExplorer } from "@/components/marketing/site-interactions";
-import { MarketingShell, PageHero, SectionHeading } from "@/components/marketing/site";
+import {
+  MarketingShell,
+  PageIntro,
+} from "@/components/marketing/site";
 import { marketingBlogPosts } from "@/lib/marketing-content";
 
-export const metadata: Metadata = {
-  title: "Bài viết",
-  description: "Kiến thức nguyên bản về LMS, thiết kế học tập, quản trị trung tâm và công nghệ giáo dục.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getServerI18n(marketingMessages);
+  return {
+    title: t("Bài viết"),
+    description: t(
+      "Kiến thức nguyên bản về LMS, thiết kế học tập, quản trị trung tâm và công nghệ giáo dục.",
+    ),
+  };
+}
 
-export default function BlogPage() {
+export default async function BlogPage() {
+  const { t } = await getServerI18n(marketingMessages);
   return (
     <MarketingShell>
-      <PageHero
-        eyebrow="Góc nhìn từ DX LMS"
-        line="Cánh cửa tới kiến thức"
-        strong="và đổi mới giáo dục"
-        lead="Các bài viết thực hành về cách thiết kế nội dung, theo dõi dữ liệu và xây một hệ thống học tập dễ vận hành."
-        visual="blog"
-        primaryHref="#danh-sach-bai-viet"
-        primaryLabel="Khám phá bài viết"
+      <PageIntro
+        title={t("Góc học tập & vận hành")}
+        lead={t(
+          "Các bài viết thực hành về cách thiết kế nội dung, theo dõi dữ liệu và xây một hệ thống học tập dễ vận hành.",
+        )}
       />
-      <section className={styles.section} id="danh-sach-bai-viet" aria-labelledby="blog-grid-title">
+      <section
+        className={styles.contentSection}
+        id="danh-sach-bai-viet"
+        aria-label={t("Bài viết")}
+      >
         <div className={styles.container}>
-          <SectionHeading eyebrow="Kiến thức mới" title="Khám phá những góc nhìn đang được quan tâm" copy="Lọc theo chủ đề hoặc tìm nhanh bằng tiêu đề và mô tả." id="blog-grid-title" />
           <BlogExplorer posts={marketingBlogPosts} />
         </div>
       </section>

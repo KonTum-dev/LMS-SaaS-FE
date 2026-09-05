@@ -1,6 +1,7 @@
 import type { CurrentUser, Organization } from "@/lib/types";
 import type { AdminOrdersQuery, AdminSubscriptionsQuery } from "@/lib/types";
 import type { AdminNotificationEventsQuery } from "@/lib/notification-operations-api";
+import type { AdminAccountsQuery } from "@/lib/admin-accounts-api";
 
 export interface ViewerScope {
   membershipId: string;
@@ -333,6 +334,15 @@ export const lmsQueryKeys = {
     [...lmsQueryKeys.billingOrders(scope), id] as const,
   adminBilling: (scope: ViewerScope) =>
     [...scoped(scope), "admin-billing"] as const,
+  adminAccountsRoot: (scope: ViewerScope) =>
+    [...scoped(scope), "admin-accounts"] as const,
+  adminAccounts: (scope: ViewerScope, query: AdminAccountsQuery) =>
+    [...lmsQueryKeys.adminAccountsRoot(scope), "list", normalizeQueryFilters({
+      limit: query.limit, page: query.page, search: query.search,
+      status: query.status, platformRole: query.platformRole,
+    })] as const,
+  adminAccount: (scope: ViewerScope, id: string) =>
+    [...lmsQueryKeys.adminAccountsRoot(scope), "detail", id] as const,
   adminBillingPlans: (scope: ViewerScope) =>
     [...lmsQueryKeys.adminBilling(scope), "plans"] as const,
   adminSubscriptions: (scope: ViewerScope, query?: AdminSubscriptionsQuery) =>

@@ -1,10 +1,17 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { authMessages } from "@/lib/i18n/auth-messages";
+import { describeFeedbackError } from "@/lib/feedback-errors";
+
+
 import { LockOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input } from "antd";
+import { Alert, Button, Card, Input } from "antd";
+import { Form } from "@/components/form/localized-form";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
+import { GoogleSignInMethodCard } from "@/components/account-security/google-sign-in-method-card";
 import { useAuth } from "@/components/providers/app-providers";
 import { accountSecurityApi } from "@/lib/account-security-api";
 import { ApiError } from "@/lib/api";
@@ -17,9 +24,10 @@ interface ChangePasswordValues {
 }
 
 export default function AccountSecurityPage() {
+  const { t, locale } = useI18n(authMessages);
   const { logout, token } = useAuth();
   const router = useRouter();
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState<{ cause: unknown } | null>(null);
   const [pending, setPending] = useState(false);
   const tanstackForm = useAntdTanStackForm<ChangePasswordValues>(
     { currentPassword: "", newPassword: "", newPasswordConfirmation: "" },
@@ -43,7 +51,7 @@ export default function AccountSecurityPage() {
           router.replace("/login");
           return;
         }
-        setError(caught instanceof Error ? caught : new Error("Không thể đổi mật khẩu"));
+        setError({ cause: caught });
       } finally {
         setPending(false);
       }
@@ -57,53 +65,56 @@ export default function AccountSecurityPage() {
   return (
     <div className="page-shell account-security-page">
       <div className="page-heading">
-        <div><h1>Bảo mật tài khoản</h1><p>Đổi mật khẩu đăng nhập cho tài khoản hiện tại.</p></div>
+        <div><h1>{t("Bảo mật tài khoản")}</h1><p>{t("Quản lý phương thức đăng nhập và mật khẩu cho tài khoản hiện tại.")}</p></div>
       </div>
-      <Card className="surface-card" title={<span><SafetyCertificateOutlined /> Đổi mật khẩu</span>}>
-        {error && (
-          <Alert
-            showIcon
-            style={{ marginBottom: 20 }}
-            title={error.message}
-            type="error"
-          />
-        )}
-        <Form<ChangePasswordValues> layout="vertical" onFinish={(values) => void submit(values)} requiredMark={false} size="large">
-          <Form.Item label="Mật khẩu hiện tại" name="currentPassword" rules={[{ message: "Nhập mật khẩu hiện tại", required: true }]}>
-            <Input.Password autoComplete="current-password" prefix={<LockOutlined />} placeholder="Mật khẩu hiện tại" />
-          </Form.Item>
-          <Form.Item
-            label="Mật khẩu mới"
-            name="newPassword"
-            rules={[
-              { message: "Nhập mật khẩu mới", required: true },
-              { validator: async (_rule, value: string) => {
-                const error = passwordValidationError(value ?? "");
-                if (error) throw new Error(error);
-              } },
-            ]}
-          >
-            <Input.Password autoComplete="new-password" prefix={<LockOutlined />} placeholder="Mật khẩu mới" />
-          </Form.Item>
-          <Form.Item
-            dependencies={["newPassword"]}
-            label="Xác nhận mật khẩu mới"
-            name="newPasswordConfirmation"
-            rules={[
-              { message: "Nhập lại mật khẩu mới", required: true },
-              ({ getFieldValue }) => ({
-                validator: async (_rule, value: string) => {
-                  const error = passwordConfirmationError(getFieldValue("newPassword") ?? "", value ?? "");
-                  if (error) throw new Error(error);
-                },
-              }),
-            ]}
-          >
-            <Input.Password autoComplete="new-password" prefix={<LockOutlined />} placeholder="Nhập lại mật khẩu mới" />
-          </Form.Item>
-          <Button htmlType="submit" loading={pending} type="primary">Đổi mật khẩu</Button>
-        </Form>
-      </Card>
+      <div style={{ display: "grid", gap: 20, maxWidth: 720 }}>
+        <GoogleSignInMethodCard />
+        <Card className="surface-card" title={<span><SafetyCertificateOutlined />  {t("Đổi mật khẩu")}</span>}>
+          {error && (
+            <Alert
+              showIcon
+              style={{ marginBottom: 20 }}
+              title={describeFeedbackError(error.cause, locale, t("Không thể đổi mật khẩu")).message}
+              type="error"
+            />
+          )}
+          <Form<ChangePasswordValues> layout="vertical" onFinish={(values) => void submit(values)} requiredMark={false} size="large">
+            <Form.Item label={t("Mật khẩu hiện tại")} name="currentPassword" rules={[{ message: t("Nhập mật khẩu hiện tại"), required: true }]}>
+              <Input.Password autoComplete="current-password" prefix={<LockOutlined />} placeholder={t("Mật khẩu hiện tại")} />
+            </Form.Item>
+            <Form.Item
+              label={t("Mật khẩu mới")}
+              name="newPassword"
+              rules={[
+                { message: t("Nhập mật khẩu mới"), required: true },
+                { validator: async (_rule, value: string) => {
+                  const error = passwordValidationError(value ?? "");
+                  if (error) throw new Error(t(error));
+                } },
+              ]}
+            >
+              <Input.Password autoComplete="new-password" prefix={<LockOutlined />} placeholder={t("Mật khẩu mới")} />
+            </Form.Item>
+            <Form.Item
+              dependencies={["newPassword"]}
+              label={t("Xác nhận mật khẩu mới")}
+              name="newPasswordConfirmation"
+              rules={[
+                { message: t("Nhập lại mật khẩu mới"), required: true },
+                ({ getFieldValue }) => ({
+                  validator: async (_rule, value: string) => {
+                    const error = passwordConfirmationError(getFieldValue("newPassword") ?? "", value ?? "");
+                    if (error) throw new Error(t(error));
+                  },
+                }),
+              ]}
+            >
+              <Input.Password autoComplete="new-password" prefix={<LockOutlined />} placeholder={t("Nhập lại mật khẩu mới")} />
+            </Form.Item>
+            <Button htmlType="submit" loading={pending} type="primary">{t("Đổi mật khẩu")}</Button>
+          </Form>
+        </Card>
+      </div>
     </div>
   );
 }

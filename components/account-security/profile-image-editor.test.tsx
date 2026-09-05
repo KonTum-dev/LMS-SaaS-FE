@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -10,6 +11,10 @@ import {
 import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProfileImageEditor } from "./profile-image-editor";
+import {
+  FeedbackLanguageSwitcher,
+  FeedbackLocaleProvider,
+} from "@/components/feedback/feedback-locale";
 
 vi.mock("@ant-design/icons", () => ({
   DeleteOutlined: () => null,
@@ -69,6 +74,95 @@ afterEach(() => {
 });
 
 describe("ProfileImageEditor", () => {
+  it("keeps one removal in flight, shows loading and unlocks after failure", async () => {
+    const removal = deferred<void>();
+    onRemove.mockReturnValueOnce(removal.promise).mockResolvedValue(undefined);
+    renderEditor("https://images.example.test/avatar.png");
+    const remove = screen.getByRole("button", { name: "Gỡ ảnh" });
+    act(() => {
+      fireEvent.click(remove);
+      fireEvent.click(remove);
+    });
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(remove.classList.contains("ant-btn-loading")).toBe(true);
+    const input = screen.getByLabelText("Thay ảnh") as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["png"], "ignored.png", { type: "image/png" })],
+      },
+    });
+    expect(onUpload).not.toHaveBeenCalled();
+    await act(async () => {
+      removal.reject(new Error("storage private details"));
+      await removal.promise.catch(() => undefined);
+    });
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Không thể gỡ ảnh hiện tại.",
+    );
+    expect(remove.classList.contains("ant-btn-loading")).toBe(false);
+    expect(input.disabled).toBe(false);
+    fireEvent.click(remove);
+    await waitFor(() => expect(onRemove).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows upload busy state and prevents a second file selection before rerender", async () => {
+    const upload = deferred<void>();
+    onUpload.mockReturnValue(upload.promise);
+    renderEditor();
+    const input = screen.getByLabelText("Chọn ảnh") as HTMLInputElement;
+    const file = new File(["png"], "avatar.png", { type: "image/png" });
+    act(() => {
+      fireEvent.change(input, { target: { files: [file] } });
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+    expect(onUpload).toHaveBeenCalledTimes(1);
+    expect(input.disabled).toBe(true);
+    expect(input.closest("label")?.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByText("Đang kết nối")).toBeTruthy();
+    await act(async () => {
+      upload.resolve();
+      await upload.promise;
+    });
+    expect(input.disabled).toBe(false);
+    expect(input.closest("label")?.getAttribute("aria-busy")).toBe("false");
+  });
+  it("localizes retained upload errors without exposing backend diagnostics", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+    const diagnostic =
+      "StorageFailure: private-key=not-a-real-secret /srv/private/upload.ts:42";
+    onUpload.mockRejectedValue(new Error(diagnostic));
+    render(
+      <FeedbackLocaleProvider>
+        <FeedbackLanguageSwitcher />
+        <ProfileImageEditor
+          alt="Mai"
+          fallback="M"
+          help="JPEG"
+          label="Avatar"
+          onRemove={onRemove}
+          onUpload={onUpload}
+        />
+      </FeedbackLocaleProvider>,
+    );
+    fireEvent.change(screen.getByLabelText("Chọn ảnh"), {
+      target: {
+        files: [new File(["png"], "avatar.png", { type: "image/png" })],
+      },
+    });
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Không thể tải ảnh lên.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Could not upload the image.",
+    );
+    expect(screen.queryByText(diagnostic)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Discard selected image" }),
+    ).toBeTruthy();
+  });
+
   it("chặn định dạng không hỗ trợ trước khi gọi API", async () => {
     renderEditor();
     fireEvent.change(screen.getByLabelText("Chọn ảnh"), {
@@ -169,8 +263,9 @@ describe("ProfileImageEditor", () => {
     });
 
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "Ảnh không hợp lệ sau khi giải mã",
+      "Không thể tải ảnh lên.",
     );
+    expect(screen.queryByText("Ảnh không hợp lệ sau khi giải mã")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Bỏ ảnh đã chọn" }));
     expect(revokeObjectUrl).toHaveBeenCalledWith("blob:avatar-preview");
   });

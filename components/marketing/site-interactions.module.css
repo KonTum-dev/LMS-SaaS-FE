@@ -96,11 +96,11 @@
 .pricingContextItem strong { color: var(--m-ink); font-size: 13px; }
 .pricingContextItem small { margin-top: 5px; color: var(--m-muted); font-size: 11px; line-height: 1.55; }
 
-.blogSearch { display: grid; width: min(350px, 100%); grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
-.blogSearch :global(.ant-input-affix-wrapper) { min-height: 46px; border-color: var(--m-line); border-radius: 999px; padding-inline: 16px; box-shadow: none; }
+.blogSearch { display: grid; min-width: 0; width: 100%; gap: 10px; }
+.blogSearch :global(.ant-input-affix-wrapper) { min-height: 44px; border-color: var(--m-line); border-radius: 10px; padding-inline: 14px; box-shadow: none; }
 .blogSearch :global(.ant-input-affix-wrapper:hover),
 .blogSearch :global(.ant-input-affix-wrapper-focused) { border-color: var(--m-primary); box-shadow: 0 0 0 3px rgba(0, 104, 217, .08); }
-.resultCount { color: var(--m-muted); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.resultCount { color: var(--m-muted); font-size: 13px; line-height: 1.6; }
 
 .contactCard { padding: 32px; border: 1px solid var(--m-line); border-radius: 26px; background: #fff; box-shadow: var(--m-shadow); }
 .contactAlert { margin-bottom: 26px; border-radius: 15px; }

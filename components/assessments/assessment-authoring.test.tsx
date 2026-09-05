@@ -8,6 +8,7 @@ import type { AssessmentAuthoring, AssessmentDraft } from "@/lib/assessment-api"
 import { ApiError } from "@/lib/api";
 import type { ViewerScope } from "@/lib/query-keys";
 import { AssessmentAuthoringView } from "./assessment-authoring";
+import { FeedbackLanguageSwitcher, FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 
 const mocks = vi.hoisted(() => ({
   archive: vi.fn(),
@@ -125,6 +126,38 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AssessmentAuthoringView", () => {
+  it("retries a failed authoring load once without triggering a save", async () => {
+    const pending = deferred<AssessmentAuthoring>();
+    mocks.getAuthoring.mockRejectedValueOnce(new Error("Temporary outage")).mockReturnValue(pending.promise);
+    renderAuthoring();
+    const retry = await screen.findByRole("button", { name: "Thử lại" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Thử lại" })).toBeNull());
+    expect(document.querySelector('[role="status"], .ant-skeleton')).toBeTruthy();
+    fireEvent.click(retry);
+    expect(mocks.getAuthoring).toHaveBeenCalledTimes(2);
+    pending.resolve(authoring());
+    expect(await screen.findByLabelText("Tên bài kiểm tra")).toBeTruthy();
+    expect(mocks.updateDraft).not.toHaveBeenCalled();
+  });
+
+  it("switches English/Vietnamese authoring labels without changing authored content or unsaved input", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<FeedbackLocaleProvider initialLocale="en"><FeedbackLanguageSwitcher /><QueryClientProvider client={client}><AssessmentAuthoringView assessmentId="assessment-1" readOnly={false} scope={scope} token="tenant-token" /></QueryClientProvider></FeedbackLocaleProvider>);
+    const title = await screen.findByLabelText("Assessment title") as HTMLInputElement;
+    expect(title.value).toBe("Kiểm tra Nhập môn");
+    expect((screen.getByLabelText("Question content") as HTMLTextAreaElement).value).toBe("Thủ đô Việt Nam là gì?");
+    fireEvent.change(title, { target: { value: "Bản nháp chưa lưu {count}" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tiếng Việt" }));
+    expect((screen.getByLabelText("Tên bài kiểm tra") as HTMLInputElement).value).toBe("Bản nháp chưa lưu {count}");
+    expect(screen.getAllByRole("button", { name: "Lưu bản nháp" }).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect((screen.getByLabelText("Assessment title") as HTMLInputElement).value).toBe("Bản nháp chưa lưu {count}");
+    expect(mocks.updateDraft).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+    client.clear();
+  });
   it("React StrictMode vẫn áp dụng canonical response sau khi lưu", async () => {
     mocks.updateDraft.mockImplementation(async (_context, _assessmentId, input) => authoring({
       draft: input,
@@ -136,9 +169,14 @@ describe("AssessmentAuthoringView", () => {
     fireEvent.change(title, { target: { value: "Bản lưu trong Strict Mode" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Lưu bản nháp" })[0]);
 
-    expect(await screen.findByText("Revision 4")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Chưa lưu trên thiết bị này")).toBeNull());
     expect(screen.queryByText("Chưa lưu trên thiết bị này")).toBeNull();
     expect(mocks.updateDraft).toHaveBeenCalledTimes(1);
+    fireEvent.change(title, { target: { value: "Bản sửa tiếp theo" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Lưu bản nháp" })[0]);
+    await waitFor(() => expect(mocks.updateDraft).toHaveBeenLastCalledWith(
+      expect.anything(), expect.anything(), expect.objectContaining({ expectedRevision: 4 }),
+    ));
   });
 
   it("double click lưu chỉ phát một full-draft CAS mutation", async () => {
@@ -157,7 +195,8 @@ describe("AssessmentAuthoringView", () => {
       draft: { ...draft, title: "Không lưu trùng" },
       revision: 4,
     }));
-    expect(await screen.findByText("Revision 4")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Chưa lưu trên thiết bị này")).toBeNull());
+    expect((screen.getByLabelText("Tên bài kiểm tra") as HTMLInputElement).value).toBe("Không lưu trùng");
   });
 
   it("READ_ONLY vẫn tải authoring nhưng khóa toàn bộ mutation", async () => {

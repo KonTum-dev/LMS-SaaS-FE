@@ -1,5 +1,11 @@
 "use client";
 
+import { useFeedback } from "@/components/feedback/feedback-provider";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { formatDate as formatUiDate } from "@/lib/i18n/translate";
+import { learningPolishMessages as learningMessages } from "@/lib/i18n/learning-polish-messages";
+import polish from "@/components/layout/learning-polish.module.css";
+
 import {
   ArrowLeftOutlined,
   CalendarOutlined,
@@ -17,7 +23,7 @@ import {
   Typography,
 } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import dayjs from "dayjs";
+
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/app-providers";
 import { apiFetch } from "@/lib/api";
@@ -31,6 +37,8 @@ function percent(value: number | null) {
 }
 
 export default function CourseDetailPage() {
+  const { t, locale } = useI18n(learningMessages);
+  const { formatError } = useFeedback();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { effectiveAccess, organization, token, user } = useAuth();
@@ -81,15 +89,14 @@ export default function CourseDetailPage() {
       : ["lms", "signed-out", "reports", "courses", id],
   });
   const assignments = assignmentsQuery.data ?? [];
-  const error =
-    courseQuery.error instanceof Error ? courseQuery.error.message : "";
+  const error = courseQuery.isError ? formatError(courseQuery.error, "") : "";
   const loading = courseQuery.isPending;
   const statusLabel =
     course?.status === "PUBLISHED"
-      ? "Đang mở"
+      ? t("Đang mở")
       : course?.status === "DRAFT"
-        ? "Bản nháp"
-        : "Đã lưu trữ";
+        ? t("Bản nháp")
+        : t("Đã lưu trữ");
   const statusColor =
     course?.status === "PUBLISHED"
       ? "green"
@@ -99,28 +106,26 @@ export default function CourseDetailPage() {
 
   return (
     <main
-      aria-label={course ? undefined : "Chi tiết khóa học"}
+      aria-label={course ? undefined : t("Chi tiết khóa học")}
       aria-labelledby={course ? "course-detail-title" : undefined}
       className="page-shell course-detail-page"
     >
       <nav
-        aria-label="Điều hướng khóa học"
+        aria-label={t("Điều hướng khóa học")}
         className="course-detail-breadcrumb"
       >
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => router.push("/courses")}
           type="text"
-        >
-          Quay lại khóa học
-        </Button>
+        >{t("Quay lại khóa học")}</Button>
       </nav>
       {error ? (
         <Alert showIcon title={error} type="error" />
       ) : loading ? (
         <Skeleton active paragraph={{ rows: 8 }} />
       ) : !course ? (
-        <Empty description="Không tìm thấy khóa học" />
+        <Empty description={t("Không tìm thấy khóa học")} />
       ) : (
         <>
           <header className="page-heading course-detail-heading">
@@ -129,29 +134,16 @@ export default function CourseDetailPage() {
                 <Tag color={statusColor}>{statusLabel}</Tag>
               </Space>
               <h1 id="course-detail-title">{course.title}</h1>
-              <p className="course-detail-description">
-                {course.description || "Khóa học chưa có mô tả."}
-              </p>
+              {course.description && <p className="course-detail-description">
+                {course.description}
+              </p>}
               <Space className="course-detail-meta" size={[20, 10]} wrap>
                 {typeof course.instructorId === "object" && (
                   <span className="course-detail-meta-item">
                     <UserOutlined aria-hidden="true" />
                     <span>
-                      <span className="course-detail-meta-label">
-                        Giảng viên
-                      </span>{" "}
+                      <span className="course-detail-meta-label">{t("Giảng viên")}</span>{" "}
                       <strong>{course.instructorId.fullName}</strong>
-                    </span>
-                  </span>
-                )}
-                {course.createdAt && (
-                  <span className="course-detail-meta-item">
-                    <CalendarOutlined aria-hidden="true" />
-                    <span>
-                      <span className="course-detail-meta-label">Khởi tạo</span>{" "}
-                      <time dateTime={course.createdAt}>
-                        {dayjs(course.createdAt).format("DD/MM/YYYY")}
-                      </time>
                     </span>
                   </span>
                 )}
@@ -162,9 +154,7 @@ export default function CourseDetailPage() {
                 icon={<ReadOutlined />}
                 onClick={() => router.push(`/courses/${id}/curriculum`)}
                 type="primary"
-              >
-                Mở giáo trình
-              </Button>
+              >{t("Mở giáo trình")}</Button>
             )}
           </header>
 
@@ -173,15 +163,13 @@ export default function CourseDetailPage() {
             course.status === "PUBLISHED" && (
               <Card
                 className="surface-card course-report-card"
-                title="Báo cáo tiến độ"
+                title={t("Báo cáo tiến độ")}
               >
                 {reportQuery.error ? (
                   <Alert
                     showIcon
                     title={
-                      reportQuery.error instanceof Error
-                        ? reportQuery.error.message
-                        : "Không tải được báo cáo tiến độ"
+                      formatError(reportQuery.error, "Không tải được báo cáo tiến độ")
                     }
                     type="warning"
                   />
@@ -191,58 +179,58 @@ export default function CourseDetailPage() {
                   <>
                     <dl className="course-report-metrics">
                       <div>
-                        <dt>Học viên đang học</dt>
+                        <dt>{t("Học viên đang học")}</dt>
                         <dd>{reportQuery.data.activeLearners}</dd>
                       </div>
                       <div>
-                        <dt>Bài tập đã công bố</dt>
-                        <dd>{reportQuery.data.publishedAssignments}</dd>
-                      </div>
-                      <div>
-                        <dt>Bài nộp kỳ vọng</dt>
-                        <dd>{reportQuery.data.expectedSubmissions}</dd>
-                      </div>
-                      <div>
-                        <dt>Chưa bắt đầu</dt>
-                        <dd>{reportQuery.data.counts.notStarted}</dd>
-                      </div>
-                      <div>
-                        <dt>Bản nháp</dt>
-                        <dd>{reportQuery.data.counts.draft}</dd>
-                      </div>
-                      <div>
-                        <dt>Đã nộp</dt>
+                        <dt>{t("Đã nộp")}</dt>
                         <dd>{reportQuery.data.counts.submitted}</dd>
                       </div>
                       <div>
-                        <dt>Đã trả lại</dt>
-                        <dd>{reportQuery.data.counts.returned}</dd>
-                      </div>
-                      <div>
-                        <dt>Đã chấm</dt>
-                        <dd>{reportQuery.data.counts.graded}</dd>
-                      </div>
-                      <div>
-                        <dt>Nộp muộn</dt>
-                        <dd>{reportQuery.data.lateSubmissions}</dd>
-                      </div>
-                      <div>
-                        <dt>Hoàn thành</dt>
+                        <dt>{t("Hoàn thành")}</dt>
                         <dd>{percent(reportQuery.data.completionPercent)}</dd>
                       </div>
                       <div>
-                        <dt>Điểm trung bình</dt>
-                        <dd>
-                          {percent(reportQuery.data.gradedAveragePercent)}
-                        </dd>
+                        <dt>{t("Điểm trung bình")}</dt>
+                        <dd>{percent(reportQuery.data.gradedAveragePercent)}</dd>
                       </div>
                     </dl>
-                    <small>
-                      Báo cáo theo danh sách học viên đang hoạt động · cập nhật{" "}
-                      {dayjs(reportQuery.data.generatedAt).format(
-                        "DD/MM/YYYY HH:mm",
-                      )}
+                    <details className={polish.optional}>
+                    <summary>{t("Xem thêm số liệu")}</summary>
+                    <dl className="course-report-metrics">
+                      <div>
+                        <dt>{t("Bài tập đã công bố")}</dt>
+                        <dd>{reportQuery.data.publishedAssignments}</dd>
+                      </div>
+                      <div>
+                        <dt>{t("Bài nộp kỳ vọng")}</dt>
+                        <dd>{reportQuery.data.expectedSubmissions}</dd>
+                      </div>
+                      <div>
+                        <dt>{t("Chưa bắt đầu")}</dt>
+                        <dd>{reportQuery.data.counts.notStarted}</dd>
+                      </div>
+                      <div>
+                        <dt>{t("Bản nháp")}</dt>
+                        <dd>{reportQuery.data.counts.draft}</dd>
+                      </div>
+                      <div>
+                        <dt>{t("Đã trả lại")}</dt>
+                        <dd>{reportQuery.data.counts.returned}</dd>
+                      </div>
+                      <div>
+                        <dt>{t("Đã chấm")}</dt>
+                        <dd>{reportQuery.data.counts.graded}</dd>
+                      </div>
+                      <div>
+                        <dt>{t("Nộp muộn")}</dt>
+                        <dd>{reportQuery.data.lateSubmissions}</dd>
+                      </div>
+                    </dl>
+                    <small>{t("Báo cáo theo danh sách học viên đang hoạt động · cập nhật")}{" "}
+                      {formatUiDate(reportQuery.data.generatedAt, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                     </small>
+                    </details>
                   </>
                 ) : null}
               </Card>
@@ -253,18 +241,15 @@ export default function CourseDetailPage() {
               className="surface-card course-assignments-card"
               extra={
                 <Tag className="course-assignment-count">
-                  {assignments.length} bài
-                </Tag>
+                  {assignments.length} {t("bài")}</Tag>
               }
-              title={<span className="course-assignments-title">Bài tập</span>}
+              title={<span className="course-assignments-title">{t("Bài tập")}</span>}
             >
               {assignmentsQuery.error ? (
                 <Alert
                   showIcon
                   title={
-                    assignmentsQuery.error instanceof Error
-                      ? assignmentsQuery.error.message
-                      : "Không tải được bài tập"
+                    formatError(assignmentsQuery.error, "Không tải được bài tập")
                   }
                   type="warning"
                 />
@@ -291,22 +276,21 @@ export default function CourseDetailPage() {
                             className="course-assignment-description"
                             type="secondary"
                           >
-                            {item.description || "Không có mô tả"}
+                            {item.description || t("Không có mô tả")}
                           </Typography.Paragraph>
                           {item.dueAt && (
                             <span className="course-assignment-due">
                               <CalendarOutlined aria-hidden="true" />
-                              <span>
-                                Hạn nộp{" "}
+                              <span>{t("Hạn nộp")}{" "}
                                 <time dateTime={item.dueAt}>
-                                  {dayjs(item.dueAt).format("DD/MM/YYYY HH:mm")}
+                                  {formatUiDate(item.dueAt, locale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                                 </time>
                               </span>
                             </span>
                           )}
                         </article>
                         <Tag color={item.published ? "green" : "gold"}>
-                          {item.published ? "Đã giao" : "Bản nháp"}
+                          {item.published ? t("Đã giao") : t("Bản nháp")}
                         </Tag>
                       </li>
                     );
@@ -314,7 +298,7 @@ export default function CourseDetailPage() {
                 </ul>
               ) : (
                 <Empty
-                  description="Chưa có bài tập"
+                  description={t("Chưa có bài tập")}
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
               )}

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -163,6 +164,13 @@ const connectedDrive = {
   syncInProgress: false,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -241,6 +249,52 @@ afterEach(() => {
 });
 
 describe("AccountIntegrationsPage", () => {
+  it("shows pending, prevents duplicate Drive link requests, then allows retry", async () => {
+    const request = deferred<never>();
+    mocks.googleDriveConnect.mockImplementationOnce(() => request.promise);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Liên kết Google Drive$/ }));
+    const input = screen.getByLabelText("Mật khẩu hiện tại") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "CurrentPassword123" } });
+    const form = input.closest("form")!;
+    act(() => { fireEvent.submit(form); fireEvent.submit(form); });
+    await waitFor(() => expect(mocks.googleDriveConnect).toHaveBeenCalledTimes(1));
+    const confirm = screen.getByRole("button", { name: "Xác nhận và liên kết" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    await waitFor(() => expect(confirm.className).toContain("ant-btn-loading"));
+    expect(confirm.getAttribute("aria-busy")).toBe("true");
+    expect((screen.getByRole("button", { name: "Hủy" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(form);
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.googleDriveConnect).toHaveBeenCalledTimes(1);
+    await act(async () => { request.reject(new ApiError("invalid", 403, "CURRENT_PASSWORD_INVALID")); });
+    expect(await screen.findByText("Mật khẩu hiện tại không đúng.")).toBeTruthy();
+    expect(confirm.disabled).toBe(false);
+    expect(confirm.className).not.toContain("ant-btn-loading");
+    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), { target: { value: "RetryPassword123" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.googleDriveConnect).toHaveBeenCalledTimes(2));
+  });
+
+  it("locks backup and disconnect until the request settles and unlocks after failure", async () => {
+    mocks.getDriveStatus.mockResolvedValue(connectedDrive);
+    const request = deferred<never>();
+    mocks.syncDrive.mockImplementationOnce(() => request.promise);
+    renderPage();
+    const sync = await screen.findByRole("button", { name: /Đồng bộ ngay$/ }) as HTMLButtonElement;
+    act(() => { fireEvent.click(sync); fireEvent.click(sync); });
+    await waitFor(() => expect(mocks.syncDrive).toHaveBeenCalledTimes(1));
+    expect(sync.disabled).toBe(true);
+    expect(sync.className).toContain("ant-btn-loading");
+    expect((screen.getByRole("button", { name: /Hủy liên kết$/ }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { request.reject(new Error("network")); });
+    await waitFor(() => expect(sync.disabled).toBe(false));
+    fireEvent.click(sync);
+    await waitFor(() => expect(mocks.syncDrive).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Đã đồng bộ bản sao lưu lên Google Drive.")).toBeTruthy();
+    expect(sync.className).not.toContain("ant-btn-loading");
+  });
+
   it.each([
     ["INSTRUCTOR" as const, "SCOPED" as const, true, true],
     ["TENANT_ADMIN" as const, "GLOBAL" as const, true, true],
@@ -259,13 +313,13 @@ describe("AccountIntegrationsPage", () => {
     },
   );
 
-  it("không gọi API hoặc hiện action Google cho SUPER_ADMIN", async () => {
+  it("không gọi API hoặc hiện action kết nối dữ liệu cho SUPER_ADMIN", async () => {
     mocks.role = "SUPER_ADMIN";
     renderPage();
 
     expect(
       await screen.findByText(
-        "Tích hợp Google không áp dụng cho quản trị nền tảng",
+        "Kết nối dành cho tài khoản tổ chức",
       ),
     ).toBeTruthy();
     expect(mocks.getLinkStatus).not.toHaveBeenCalled();
@@ -278,84 +332,32 @@ describe("AccountIntegrationsPage", () => {
     ).toBeNull();
   });
 
-  it("tách Google login khỏi sao lưu Drive và hiển thị đúng workspace", async () => {
+  it("chỉ giữ kết nối dữ liệu, không trộn phương thức đăng nhập", async () => {
     renderPage();
 
     expect(
-      await screen.findByRole("heading", { name: "Ứng dụng kết nối" }),
+      await screen.findByRole("heading", { name: "Kết nối dữ liệu" }),
     ).toBeTruthy();
-    expect(screen.getByText("Đăng nhập bằng Google")).toBeTruthy();
-    expect(screen.getByText("Sao lưu Google Drive")).toBeTruthy();
-    expect(screen.getByText(/bản sao lưu một chiều/i)).toBeTruthy();
-    expect(screen.getByText("Workspace hiện tại: Bright Academy")).toBeTruthy();
-    expect(
-      screen.getByText(
-        /Các workspace hoặc tài khoản LMS khác.*có thể phải kết nối lại/i,
-      ),
-    ).toBeTruthy();
-    expect(screen.getByText(/Các tệp sao lưu đã tạo vẫn được giữ nguyên/i))
-      .toBeTruthy();
-  });
-
-  it("xác nhận và xóa mật khẩu trước khi render GIS để liên kết", async () => {
-    const { queryClient } = renderPage();
-    await screen.findByRole("button", { name: /Liên kết Google$/ });
-
-    fireEvent.click(screen.getByRole("button", { name: /Liên kết Google$/ }));
-    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
-      target: { value: "CurrentPassword123" },
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Xác nhận và tiếp tục" }),
-    );
-
-    await waitFor(() =>
-      expect(mocks.createLinkChallenge).toHaveBeenCalledWith(
-        { token: "session-token" },
-        "CurrentPassword123",
-      ),
-    );
-    expect(screen.queryByDisplayValue("CurrentPassword123")).toBeNull();
-    const googleButton = await screen.findByRole("button", {
-      name: "Chọn tài khoản Google để liên kết",
-    });
-    fireEvent.click(googleButton);
-
-    await waitFor(() =>
-      expect(mocks.googleLink).toHaveBeenCalledWith(
-        { token: "session-token" },
-        {
-          challengeToken: "link-challenge-token",
-          credential: "google-id-credential",
-        },
-      ),
-    );
-    const cache = JSON.stringify({
-      mutations: queryClient
-        .getMutationCache()
-        .getAll()
-        .map((mutation) => mutation.state.variables),
-      queries: queryClient
-        .getQueryCache()
-        .getAll()
-        .map((query) => ({ key: query.queryKey, data: query.state.data })),
-    });
-    expect(cache).not.toContain("CurrentPassword123");
-    expect(cache).not.toContain("google-id-credential");
+    expect(screen.queryByText("Đăng nhập bằng Google")).toBeNull();
+    expect(screen.getByText("Google Drive")).toBeTruthy();
+    expect(screen.getByText("Sao lưu dữ liệu của tổ chức lên Google Drive.")).toBeTruthy();
+    expect(screen.getByText("Kết nối này không thay đổi cách đăng nhập Google.")).toBeTruthy();
+    expect(screen.queryByText(/Các workspace hoặc tài khoản LMS khác.*có thể phải liên kết lại/i)).toBeNull();
+    expect(mocks.getLinkStatus).not.toHaveBeenCalled();
   });
 
   it("xác nhận mật khẩu rồi mới điều hướng same-tab tới URL Drive đã kiểm tra", async () => {
     renderPage();
-    await screen.findByRole("button", { name: /Kết nối Google Drive$/ });
+    await screen.findByRole("button", { name: /Liên kết Google Drive$/ });
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Kết nối Google Drive$/ }),
+      screen.getByRole("button", { name: /Liên kết Google Drive$/ }),
     );
     fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
       target: { value: "CurrentPassword123" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Xác nhận và kết nối" }),
+      screen.getByRole("button", { name: "Xác nhận và liên kết" }),
     );
 
     await waitFor(() =>
@@ -366,32 +368,6 @@ describe("AccountIntegrationsPage", () => {
     );
     expect(mocks.navigateToDrive).toHaveBeenCalledWith(
       "https://accounts.google.com/o/oauth2/v2/auth?client_id=public-client",
-    );
-    expect(screen.queryByDisplayValue("CurrentPassword123")).toBeNull();
-  });
-
-  it("xác nhận mật khẩu trước khi hủy liên kết Google", async () => {
-    mocks.getLinkStatus.mockResolvedValue({
-      email: "owner@example.test",
-      linked: true,
-      linkedAt: "2030-08-16T00:00:00.000Z",
-    });
-    renderPage();
-    await screen.findByRole("button", { name: /Hủy liên kết$/ });
-
-    fireEvent.click(screen.getByRole("button", { name: /Hủy liên kết$/ }));
-    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
-      target: { value: "CurrentPassword123" },
-    });
-    fireEvent.click(
-      screen.getAllByRole("button", { name: /Hủy liên kết$/ }).at(-1)!,
-    );
-
-    await waitFor(() =>
-      expect(mocks.googleUnlink).toHaveBeenCalledWith(
-        { token: "session-token" },
-        "CurrentPassword123",
-      ),
     );
     expect(screen.queryByDisplayValue("CurrentPassword123")).toBeNull();
   });
@@ -408,26 +384,26 @@ describe("AccountIntegrationsPage", () => {
     );
     expect(fileLink.getAttribute("rel")).toBe("noopener noreferrer");
 
-    fireEvent.click(screen.getByRole("button", { name: /Sao lưu ngay$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Đồng bộ ngay$/ }));
     await waitFor(() =>
       expect(mocks.syncDrive).toHaveBeenCalledWith({ token: "session-token" }),
     );
-    expect(await screen.findByText("Đã hoàn tất sao lưu lên Google Drive.")).toBeTruthy();
+    expect(await screen.findByText("Đã đồng bộ bản sao lưu lên Google Drive.")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Ngắt kết nối$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Hủy liên kết$/ }));
     expect(
       screen.getAllByText(
-        /Các workspace hoặc tài khoản LMS khác.*có thể phải kết nối lại/i,
+        /Các workspace hoặc tài khoản LMS khác.*có thể phải liên kết lại/i,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(
       screen.getAllByText(/Các tệp sao lưu đã tạo vẫn được giữ nguyên/i),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
       target: { value: "CurrentPassword123" },
     });
     fireEvent.click(
-      screen.getAllByRole("button", { name: /Ngắt kết nối$/ }).at(-1)!,
+      screen.getAllByRole("button", { name: /Hủy liên kết$/ }).at(-1)!,
     );
     await waitFor(() =>
       expect(mocks.disconnectDrive).toHaveBeenCalledWith(
@@ -438,7 +414,7 @@ describe("AccountIntegrationsPage", () => {
   });
 
   it("hiện lỗi mật khẩu thân thiện và xóa giá trị khỏi form", async () => {
-    mocks.createLinkChallenge.mockRejectedValue(
+    mocks.googleDriveConnect.mockRejectedValue(
       new ApiError(
         "raw password/provider details",
         403,
@@ -446,14 +422,14 @@ describe("AccountIntegrationsPage", () => {
       ),
     );
     renderPage();
-    await screen.findByRole("button", { name: /Liên kết Google$/ });
+    await screen.findByRole("button", { name: /Liên kết Google Drive$/ });
 
-    fireEvent.click(screen.getByRole("button", { name: /Liên kết Google$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Liên kết Google Drive$/ }));
     fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
       target: { value: "WrongPassword123" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Xác nhận và tiếp tục" }),
+      screen.getByRole("button", { name: "Xác nhận và liên kết" }),
     );
 
     expect(await screen.findByText("Mật khẩu hiện tại không đúng.")).toBeTruthy();
@@ -469,10 +445,10 @@ describe("AccountIntegrationsPage", () => {
     renderPage();
 
     const syncButton = await screen.findByRole("button", {
-      name: /Sao lưu ngay$/,
+      name: /Đồng bộ ngay$/,
     });
     const disconnectButton = screen.getByRole("button", {
-      name: /Ngắt kết nối$/,
+      name: /Hủy liên kết$/,
     });
     expect((syncButton as HTMLButtonElement).disabled).toBe(true);
     expect((disconnectButton as HTMLButtonElement).disabled).toBe(true);
@@ -481,9 +457,10 @@ describe("AccountIntegrationsPage", () => {
 
   it("xử lý kết quả callback Drive rồi làm sạch query string", async () => {
     mocks.searchParam = "connected";
+    mocks.getDriveStatus.mockResolvedValue(connectedDrive);
     renderPage();
 
-    expect(await screen.findByText("Đã kết nối Google Drive.")).toBeTruthy();
+    expect(await screen.findByText("Đã liên kết Google Drive để đồng bộ dữ liệu.")).toBeTruthy();
     expect(mocks.replace).toHaveBeenCalledWith("/account/integrations", {
       scroll: false,
     });

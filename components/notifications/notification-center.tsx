@@ -1,5 +1,10 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { authMessages } from "@/lib/i18n/auth-messages";
+import { describeFeedbackError } from "@/lib/feedback-errors";
+
+
 import { BellOutlined, CheckOutlined, ReloadOutlined, RightOutlined } from "@ant-design/icons";
 import {
   useInfiniteQuery,
@@ -27,23 +32,10 @@ import type {
 } from "@/lib/types";
 
 const PAGE_SIZE = 20;
-const notificationTime = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
 
 export interface NotificationCenterProps {
   scope: NotificationViewerScope;
   token: string;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Không thể tải thông báo";
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Thời gian không xác định" : notificationTime.format(date);
 }
 
 function normalizeUnreadCount(value: unknown): number {
@@ -78,6 +70,7 @@ function NotificationItem({
   onMarkRead: (item: NotificationInboxItem) => void;
   onNavigate: (item: NotificationInboxItem, path: string) => void;
 }) {
+  const { t, formatDate } = useI18n(authMessages);
   const actionPath = item.action ? safeNotificationActionPath(item.action.path) : null;
 
   return (
@@ -86,8 +79,8 @@ function NotificationItem({
       <div className="notification-item-content">
         <div className="notification-item-heading">
           <h3>{item.title}</h3>
-          <span className="visually-hidden">{item.readAt ? "Đã đọc" : "Chưa đọc"}</span>
-          <time dateTime={item.occurredAt}>{formatTime(item.occurredAt)}</time>
+          <span className="visually-hidden">{item.readAt ? t("Đã đọc") : t("Chưa đọc")}</span>
+          <time dateTime={item.occurredAt}>{Number.isNaN(new Date(item.occurredAt).getTime()) ? t("Thời gian không xác định") : formatDate(item.occurredAt, { dateStyle: "medium", timeStyle: "short" })}</time>
         </div>
         <p>{item.body}</p>
         <div className="notification-item-actions">
@@ -99,12 +92,12 @@ function NotificationItem({
               size="small"
               type="link"
             >
-              {item.action?.label || "Mở chi tiết"}
+              {item.action?.label ? t(item.action.label) : t("Mở chi tiết")}
             </Button>
           ) : null}
           {!item.readAt ? (
             <Button
-              aria-label={`Đánh dấu “${item.title}” đã đọc`}
+              aria-label={t("Đánh dấu “{title}” đã đọc", { title: item.title })}
               disabled={markingRead}
               icon={<CheckOutlined aria-hidden="true" />}
               loading={markingRead}
@@ -112,8 +105,7 @@ function NotificationItem({
               size="small"
               type="text"
             >
-              Đã đọc
-            </Button>
+              {t("Đã đọc")}</Button>
           ) : null}
         </div>
       </div>
@@ -122,6 +114,7 @@ function NotificationItem({
 }
 
 export function NotificationCenter({ scope, token }: NotificationCenterProps) {
+  const { t, locale, formatNumber } = useI18n(authMessages);
   const router = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -222,8 +215,8 @@ export function NotificationCenter({ scope, token }: NotificationCenterProps) {
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={unreadCount
-          ? `Mở trung tâm thông báo, ${unreadCount} chưa đọc`
-          : "Mở trung tâm thông báo"}
+          ? t("Mở trung tâm thông báo, {count} chưa đọc", { count: formatNumber(unreadCount) })
+          : t("Mở trung tâm thông báo")}
         className="notification-trigger"
         onClick={openCenter}
         type="button"
@@ -233,7 +226,7 @@ export function NotificationCenter({ scope, token }: NotificationCenterProps) {
         </Badge>
       </button>
       <span aria-live="polite" className="visually-hidden">
-        {unreadCount ? `${unreadCount} thông báo chưa đọc` : "Không có thông báo chưa đọc"}
+        {unreadCount ? t("{count} thông báo chưa đọc", { count: formatNumber(unreadCount) }) : t("Không có thông báo chưa đọc")}
       </span>
 
       <Drawer
@@ -247,40 +240,37 @@ export function NotificationCenter({ scope, token }: NotificationCenterProps) {
             size="small"
             type="text"
           >
-            Đánh dấu tất cả đã đọc
-          </Button>
+            {t("Đánh dấu tất cả đã đọc")}</Button>
         )}
         id="workspace-notification-drawer"
         onClose={() => setOpen(false)}
         open={open}
         placement="right"
         size={420}
-        title="Thông báo"
+        title={t("Thông báo")}
       >
-        <div aria-label="Lọc thông báo" className="notification-filters" role="group">
+        <div aria-label={t("Lọc thông báo")} className="notification-filters" role="group">
           <button
             aria-pressed={!unreadOnly}
             onClick={() => setUnreadOnly(false)}
             type="button"
           >
-            Tất cả
-          </button>
+            {t("Tất cả")}</button>
           <button
             aria-pressed={unreadOnly}
             onClick={() => setUnreadOnly(true)}
             type="button"
           >
-            Chưa đọc
-          </button>
+            {t("Chưa đọc")}</button>
         </div>
 
         {mutationError ? (
           <Alert
             closable
-            description={errorMessage(mutationError)}
+            description={describeFeedbackError(mutationError, locale, t("Chưa cập nhật được trạng thái")).message}
             onClose={() => { markRead.reset(); markAllRead.reset(); }}
             showIcon
-            title="Chưa cập nhật được trạng thái"
+            title={t("Chưa cập nhật được trạng thái")}
             type="error"
           />
         ) : null}
@@ -288,7 +278,7 @@ export function NotificationCenter({ scope, token }: NotificationCenterProps) {
         {listQuery.isLoading ? (
           <div aria-live="polite" className="notification-loading">
             <Spin />
-            <span>Đang tải thông báo...</span>
+            <span>{t("Đang tải thông báo...")}</span>
           </div>
         ) : listQuery.isError ? (
           <Alert
@@ -298,12 +288,11 @@ export function NotificationCenter({ scope, token }: NotificationCenterProps) {
                 onClick={() => void listQuery.refetch()}
                 size="small"
               >
-                Thử lại
-              </Button>
+                {t("Thử lại")}</Button>
             )}
-            description={errorMessage(listQuery.error)}
+            description={describeFeedbackError(listQuery.error, locale, t("Không thể tải thông báo")).message}
             showIcon
-            title="Không thể tải thông báo"
+            title={t("Không thể tải thông báo")}
             type="error"
           />
         ) : items.length ? (
@@ -323,13 +312,12 @@ export function NotificationCenter({ scope, token }: NotificationCenterProps) {
                 loading={listQuery.isFetchingNextPage}
                 onClick={() => void listQuery.fetchNextPage()}
               >
-                Tải thêm
-              </Button>
+                {t("Tải thêm")}</Button>
             ) : null}
           </div>
         ) : (
           <Empty
-            description={unreadOnly ? "Bạn đã đọc hết thông báo" : "Chưa có thông báo"}
+            description={unreadOnly ? t("Bạn đã đọc hết thông báo") : t("Chưa có thông báo")}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         )}

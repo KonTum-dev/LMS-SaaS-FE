@@ -9,9 +9,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { StrictMode, type ReactNode } from "react";
+import { cloneElement, StrictMode, useState, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
+import { FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 import {
   rememberTenantProvisioningAttempt,
   TENANT_PROVISIONING_ATTEMPT_TTL_MS,
@@ -21,9 +22,11 @@ import TenantsPage from "./page";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  confirm: vi.fn(),
   authGeneration: 1,
   formApi: {
     resetFields: vi.fn(),
+    scrollToField: vi.fn(),
     setFieldsValue: vi.fn(),
     validateFields: vi.fn(),
   },
@@ -88,16 +91,29 @@ vi.mock("@/components/providers/app-providers", () => ({
 vi.mock("@/components/table/data-table", () => ({
   DataTable: ({
     ariaLabel,
+    columns,
     data,
+    emptyText,
+    paginationResetKey,
   }: {
     ariaLabel: string;
+    columns: Array<{
+      id?: string;
+      cell?: (context: { row: { original: Organization } }) => ReactNode;
+    }>;
     data: Organization[];
+    emptyText?: ReactNode;
+    paginationResetKey?: string;
   }) => (
-    <section aria-label={ariaLabel}>
+    <section aria-label={ariaLabel} data-pagination-reset-key={paginationResetKey}>
+      {data.length === 0 ? emptyText : null}
       {data.map((tenant) => (
         <article key={tenant._id}>
           <span>{tenant.name}</span>
           <span>{tenant.enabledModules.length} module</span>
+          {columns
+            .find((column) => column.id === "action")
+            ?.cell?.({ row: { original: tenant } })}
         </article>
       ))}
     </section>
@@ -106,11 +122,14 @@ vi.mock("@/components/table/data-table", () => ({
 vi.mock("@/components/users/tenant-members-manager", () => ({
   TenantMembersManager: () => null,
 }));
-vi.mock("@ant-design/icons", () => ({ PlusOutlined: () => null }));
+vi.mock("@ant-design/icons", () => ({ PlusOutlined: () => null, EllipsisOutlined: () => null, ReloadOutlined: () => null, SearchOutlined: () => null }));
 vi.mock("antd", async () => {
   const { lightweightAntd } = await import("@/test-utils/lightweight-antd");
   const TestApp = ({ children }: { children?: ReactNode }) => <>{children}</>;
-  TestApp.useApp = () => ({ message: mocks.message, modal: { confirm() {} } });
+  TestApp.useApp = () => ({
+    message: mocks.message,
+    modal: { confirm: mocks.confirm },
+  });
 
   const TestForm = ({
     children,
@@ -140,6 +159,22 @@ vi.mock("antd", async () => {
       />
     ),
     Form,
+    Dropdown: ({ children, menu }: {
+      children: ReactElement<{ onClick?: () => void }>;
+      menu: { items: Array<{ key?: string; type?: string; label?: string; disabled?: boolean; onClick?: () => void }> };
+    }) => {
+      const [open, setOpen] = useState(false);
+      return <div>{cloneElement(children, { onClick: () => setOpen(!open) })}{open && <div role="menu">{menu.items.filter((item) => item.type !== "divider").map((item) => <button disabled={item.disabled} key={item.key} onClick={() => { item.onClick?.(); setOpen(false); }} role="menuitem" type="button">{item.label}</button>)}</div>}</div>;
+    },
+    Select: ({ "aria-label": label, onChange, options, value }: {
+      "aria-label"?: string;
+      onChange?: (value: string | undefined) => void;
+      options?: Array<{ label: string; value: string }>;
+      value?: string;
+    }) => <select aria-label={label} value={value ?? ""} onChange={(event) => onChange?.(event.target.value || undefined)}>
+      <option value="" />
+      {options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>,
   };
 });
 
@@ -192,7 +227,7 @@ const failedOperation = {
   status: "FAILED",
 } as const;
 
-function renderPage({ strict = false }: { strict?: boolean } = {}) {
+function renderPage({ strict = false, locale }: { strict?: boolean; locale?: "vi" | "en" } = {}) {
   const client = new QueryClient({
     defaultOptions: {
       mutations: { retry: false },
@@ -201,7 +236,7 @@ function renderPage({ strict = false }: { strict?: boolean } = {}) {
   });
   const page = (
     <QueryClientProvider client={client}>
-      <TenantsPage />
+      {locale ? <FeedbackLocaleProvider initialLocale={locale}><TenantsPage /></FeedbackLocaleProvider> : <TenantsPage />}
     </QueryClientProvider>
   );
   const rendered = render(strict ? <StrictMode>{page}</StrictMode> : page);
@@ -257,12 +292,21 @@ async function openCreateModal() {
   return screen.getByRole("dialog", { name: "Tạo tổ chức mới" });
 }
 
+async function openTenantActions(action: string) {
+  const trigger = await screen.findByRole("button", { name: "Thao tác với tổ chức Bright Academy" });
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("menuitem", { name: action }));
+  return trigger;
+}
+
 describe("TenantsPage", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
     mocks.apiFetch.mockReset();
+    mocks.confirm.mockReset();
     mocks.apiFetch.mockImplementation(() => Promise.resolve([tenant]));
     mocks.formApi.resetFields.mockReset();
+    mocks.formApi.scrollToField.mockReset();
     mocks.formApi.setFieldsValue.mockReset();
     mocks.formApi.validateFields.mockReset();
     mocks.formApi.validateFields.mockImplementation(async () => ({
@@ -284,6 +328,153 @@ describe("TenantsPage", () => {
     mocks.onValuesChange = null;
     mocks.authGeneration = 1;
     mocks.role = "SUPER_ADMIN";
+  });
+
+  it("tải chi tiết tổ chức riêng và lọc danh sách", async () => {
+    mocks.apiFetch.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === `/organizations/${tenant._id}`
+          ? { ...tenant, slug: "server-detail-slug" }
+          : [tenant],
+      ),
+    );
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Xem chi tiết tổ chức Bright Academy",
+      }),
+    );
+    expect(await screen.findByText("server-detail-slug")).toBeTruthy();
+    expect(mocks.apiFetch).toHaveBeenCalledWith(
+      `/organizations/${tenant._id}`,
+      { token: "platform-token" },
+    );
+    fireEvent.change(screen.getByLabelText("Tìm tổ chức"), {
+      target: { value: "không tồn tại" },
+    });
+    expect(
+      screen.queryByRole("button", {
+        name: "Xem chi tiết tổ chức Bright Academy",
+      }),
+    ).toBeNull();
+  });
+
+  it("normalizes Vietnamese search and resets same-count filters without making requests", async () => {
+    mocks.apiFetch.mockResolvedValue([
+      { ...tenant, name: "Trường Đại Học", slug: "dai-hoc" },
+      { ...tenant, _id: "other", name: "Ocean Academy", slug: "ocean" },
+    ]);
+    renderPage();
+    await screen.findByText("Trường Đại Học");
+    fireEvent.change(screen.getByLabelText("Tìm tổ chức"), { target: { value: "  TRUONG   DAI  " } });
+    expect(screen.getByText("Trường Đại Học")).toBeTruthy();
+    expect(screen.queryByText("Ocean Academy")).toBeNull();
+    const table = screen.getByRole("region", { name: "Danh sách tổ chức" });
+    const firstResetKey = table.getAttribute("data-pagination-reset-key");
+    fireEvent.change(screen.getByLabelText("Tìm tổ chức"), { target: { value: "Ocean" } });
+    expect(screen.getByText("Ocean Academy")).toBeTruthy();
+    expect(screen.queryByText("Trường Đại Học")).toBeNull();
+    expect(table.getAttribute("data-pagination-reset-key")).not.toBe(firstResetKey);
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    expect(screen.getByText("Trường Đại Học")).toBeTruthy();
+    expect(screen.getByText("Ocean Academy")).toBeTruthy();
+  });
+
+  it("distinguishes filtered empty results and clears status/search in English", async () => {
+    renderPage({ locale: "en" });
+    await screen.findByText("Bright Academy");
+    fireEvent.change(screen.getByLabelText("Filter organization status"), { target: { value: "SUSPENDED" } });
+    fireEvent.change(screen.getByLabelText("Find an organization"), { target: { value: "not found" } });
+    expect(screen.getByText("No matching organizations")).toBeTruthy();
+    expect(screen.queryByText("No organizations yet")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByText("Bright Academy")).toBeTruthy();
+    expect((screen.getByLabelText("Find an organization") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Filter organization status") as HTMLSelectElement).value).toBe("");
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps filters and retry available when loading fails without claiming empty data", async () => {
+    mocks.apiFetch.mockRejectedValueOnce(new Error("Unavailable")).mockResolvedValueOnce([tenant]);
+    renderPage();
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText("Tìm tổ chức")).toBeTruthy();
+    expect(screen.queryByText("Chưa có tổ chức")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Danh sách tổ chức" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Thử lại" }));
+    expect(await screen.findByText("Bright Academy")).toBeTruthy();
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["ACTIVE", "SUSPENDED"] as const)(
+    "khóa/khôi phục tổ chức trạng thái %s bằng endpoint lifecycle",
+    async (status) => {
+      const current = { ...tenant, status };
+      mocks.apiFetch.mockImplementation((path: string, options?: RequestInit) =>
+        Promise.resolve(
+          options?.method
+            ? {
+                ...current,
+                status: status === "ACTIVE" ? "SUSPENDED" : "ACTIVE",
+              }
+            : [current],
+        ),
+      );
+      renderPage();
+      await openTenantActions(status === "ACTIVE" ? "Khóa" : "Khôi phục");
+      expect(
+        mocks.apiFetch.mock.calls.some(([, options]) => options?.method),
+      ).toBe(false);
+      const confirmation = mocks.confirm.mock.calls.at(-1)![0];
+      await act(async () => {
+        await confirmation.onOk();
+      });
+      expect(mocks.apiFetch).toHaveBeenCalledWith(
+        `/organizations/${tenant._id}${status === "ACTIVE" ? "" : "/restore"}`,
+        {
+          method: status === "ACTIVE" ? "DELETE" : "POST",
+          token: "platform-token",
+        },
+      );
+    },
+  );
+
+  it("giữ Promise xác nhận, hiện loading đúng dòng và không gửi lifecycle hai lần", async () => {
+    let complete!: (value: Organization) => void;
+    mocks.apiFetch.mockImplementation((_path: string, options?: RequestInit) => options?.method
+      ? new Promise<Organization>((resolve) => { complete = resolve; })
+      : Promise.resolve([tenant]));
+    renderPage();
+    const trigger = await openTenantActions("Khóa");
+    const confirmation = mocks.confirm.mock.calls.at(-1)![0];
+    let pending!: Promise<unknown>;
+    act(() => { pending = confirmation.onOk(); expect(confirmation.onOk()).toBe(pending); });
+    await waitFor(() => expect(trigger.classList.contains("ant-btn-loading")).toBe(true));
+    expect(mocks.apiFetch.mock.calls.filter(([, options]) => options?.method)).toHaveLength(1);
+    await act(async () => { complete({ ...tenant, status: "SUSPENDED" }); await pending; });
+    await waitFor(() => expect(trigger.classList.contains("ant-btn-loading")).toBe(false));
+    expect(mocks.message.success).toHaveBeenCalledTimes(1);
+  });
+
+  it("hiển thị lỗi lifecycle và giữ dữ liệu tổ chức", async () => {
+    mocks.apiFetch.mockImplementation((_path: string, options?: RequestInit) =>
+      options?.method
+        ? Promise.reject(new Error("Không thể khóa tổ chức lúc này"))
+        : Promise.resolve([tenant]),
+    );
+    renderPage();
+    await openTenantActions("Khóa");
+    await act(async () => {
+      await expect(mocks.confirm.mock.calls.at(-1)![0].onOk()).rejects.toThrow(
+        "Không thể khóa",
+      );
+    });
+    expect(mocks.message.error).toHaveBeenCalledWith(
+      "Không thể khóa tổ chức lúc này",
+    );
+    expect(screen.getByText("Bright Academy")).toBeTruthy();
+    expect(mocks.message.success).not.toHaveBeenCalled();
   });
 
   afterEach(() => {
@@ -317,18 +508,51 @@ describe("TenantsPage", () => {
     renderPage();
     const dialog = await openCreateModal();
 
+    const disclosure = dialog.querySelector("details")!;
+    expect(disclosure.open).toBe(false);
+    expect(disclosure.querySelector("summary")?.textContent).toBe("Tùy chỉnh tính năng (không bắt buộc)");
+    fireEvent.click(disclosure.querySelector("summary")!);
+    expect(disclosure.open).toBe(true);
     expect(dialog.textContent).toContain("Bài kiểm tra");
     expect(dialog.textContent).toContain("Tài liệu riêng tư");
     expect(dialog.textContent).toContain(
-      "Bài tập và Bài kiểm tra cần cả Ghi danh lẫn Khóa học",
+      "Tính năng phụ thuộc sẽ được tự động chọn.",
     );
     expect(screen.getByLabelText("Tên tổ chức")).toBeTruthy();
     expect(screen.getByLabelText("Email quản trị viên")).toBeTruthy();
     expect(screen.getByLabelText("Mật khẩu ban đầu")).toBeTruthy();
     expect(screen.queryByLabelText("Đường dẫn ảnh logo")).toBeNull();
     expect(dialog.textContent).toContain(
-      "Logo có thể tải lên sau khi tổ chức được tạo",
+      "Bạn có thể thêm logo sau khi tạo tổ chức.",
     );
+    expect(screen.getByRole("heading", { name: "Thông tin tổ chức" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Quản trị viên đầu tiên" })).toBeTruthy();
+    expect(dialog.querySelectorAll(".form-section")).toHaveLength(3);
+    expect(dialog.querySelectorAll(".form-field-grid")).toHaveLength(2);
+    expect(screen.getByLabelText("Email quản trị viên").getAttribute("type")).toBe("email");
+    expect(screen.getByLabelText("Mật khẩu ban đầu").getAttribute("autocomplete")).toBe("new-password");
+  });
+
+  it("đưa focus về trường lỗi đầu tiên khi lưu và không gửi yêu cầu tạo", async () => {
+    mocks.formApi.validateFields.mockRejectedValue({ errorFields: [{ name: ["adminEmail"], errors: ["Email chưa hợp lệ"] }] });
+    renderPage();
+    await openCreateModal();
+    fireEvent.click(screen.getByRole("button", { name: "Tạo tổ chức" }));
+    await waitFor(() => expect(mocks.formApi.scrollToField).toHaveBeenCalledWith(["adminEmail"], { block: "nearest", behavior: "auto", focus: true }));
+    expect(organizationPostCalls()).toHaveLength(0);
+    expect(storedAttempt()).toBeNull();
+  });
+
+  it("opens feature settings before focusing a hidden module validation error", async () => {
+    mocks.formApi.validateFields.mockRejectedValue({ errorFields: [{ name: ["enabledModules"], errors: ["Chọn ít nhất một module"] }] });
+    renderPage();
+    const dialog = await openCreateModal();
+    const disclosure = dialog.querySelector("details")!;
+    expect(disclosure.open).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Tạo tổ chức" }));
+    await waitFor(() => expect(disclosure.open).toBe(true));
+    expect(mocks.formApi.scrollToField).toHaveBeenCalledWith(["enabledModules"], { block: "nearest", behavior: "auto", focus: true });
+    expect(organizationPostCalls()).toHaveLength(0);
   });
 
   it("retry cùng payload dùng cùng key và không đưa secret vào cache, storage hay log", async () => {
@@ -350,7 +574,7 @@ describe("TenantsPage", () => {
     await openCreateModal();
 
     fireEvent.click(screen.getByRole("button", { name: "Tạo tổ chức" }));
-    expect(await screen.findByText("Mất kết nối")).toBeTruthy();
+    expect(await screen.findByText(/Kết nối bị gián đoạn hoặc phản hồi quá lâu/)).toBeTruthy();
     expect(organizationPostCalls()).toHaveLength(1);
 
     const firstKey = idempotencyKey(organizationPostCalls()[0]);
@@ -690,7 +914,7 @@ describe("TenantsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Tạo tổ chức" }));
     expect(
-      await screen.findByText("Máy chủ trả trạng thái tạo tenant không hợp lệ"),
+      await screen.findByText("Chưa xác nhận được kết quả. Hãy tải lại và kiểm tra dữ liệu trước khi thử lại để tránh tạo thay đổi trùng lặp."),
     ).toBeTruthy();
 
     expect(

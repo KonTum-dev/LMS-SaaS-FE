@@ -1,14 +1,20 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsMessages } from "@/lib/i18n/operations-messages";
+import { workspacePolishMessages } from "@/lib/i18n/workspace-polish-messages";
+import { useMemo as useI18nMemo } from "react";
 
-import { PlusOutlined } from "@ant-design/icons";
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
+import { EllipsisOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import {
   Alert,
-  App,
   Button,
   Card,
-  Checkbox,
   ColorPicker,
-  Form,
+  Descriptions,
+  Dropdown,
   Input,
   Modal,
   Select,
@@ -16,7 +22,9 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Form } from "@/components/form/localized-form";
+import { ModulePicker } from "@/components/form/module-picker";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef, StockFeatures } from "@tanstack/react-table";
 import {
   type ReactNode,
@@ -34,6 +42,7 @@ import { TenantMembersManager } from "@/components/users/tenant-members-manager"
 import { ApiError, apiFetch } from "@/lib/api";
 import {
   includeLmsModulePrerequisites,
+  lmsModuleLabels,
   lmsModuleOptions,
 } from "@/lib/entitlements";
 import { getViewerScope, lmsQueryKeys } from "@/lib/query-keys";
@@ -59,8 +68,10 @@ import type {
   TenantProvisioningOperation,
 } from "@/lib/types";
 import { DEFAULT_PRIMARY_COLOR } from "@/lib/workspace";
+import { normalizeListSearch } from "@/lib/list-controls";
 
 const STATUS_RECHECK_MAX_DELAY_SECONDS = 10;
+const tenantMessages = { ...operationsMessages, ...workspacePolishMessages };
 const TERMINAL_PROVISIONING_CODES = new Set([
   "ADMIN_EMAIL_CONFLICT",
   "IDEMPOTENCY_KEY_REUSED",
@@ -77,56 +88,14 @@ type ProvisioningNotice = {
   type: "error" | "info" | "warning";
 };
 
-function provisioningNoticeDescription(notice: ProvisioningNotice): ReactNode {
-  if (!notice.description && !notice.operationId) return undefined;
-  return (
-    <Space direction="vertical" size={0}>
-      {notice.description && <span>{notice.description}</span>}
-      {notice.operationId && (
-        <span>
-          Mã operation:{" "}
-          <Typography.Text code copyable={{ text: notice.operationId }}>
-            {notice.operationId}
-          </Typography.Text>
-        </span>
-      )}
-    </Space>
-  );
-}
-
-function waitForStatus(seconds: number, signal: AbortSignal): Promise<void> {
-  const delay = Math.min(
-    STATUS_RECHECK_MAX_DELAY_SECONDS,
-    Math.max(1, Math.trunc(seconds)),
-  );
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(signal.reason);
-      return;
-    }
-    const onAbort = () => {
-      window.clearTimeout(timer);
-      reject(signal.reason);
-    };
-    const timer = window.setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, delay * 1_000);
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
-
 export default function TenantsPage() {
+  const { t } = useOperationsCopy();
   const { captureAuthGeneration, organization, token, user } = useAuth();
   if (user?.role !== "SUPER_ADMIN") {
     return (
       <Alert
         showIcon
-        title="Bạn không có quyền truy cập khu vực quản trị nền tảng."
+        title={t("Bạn không có quyền truy cập khu vực quản trị nền tảng.")}
         type="warning"
       />
     );
@@ -153,11 +122,23 @@ function PlatformTenantsPage({
   token: string;
   user: CurrentUser;
 }) {
-  const { message } = App.useApp();
+  const {
+    t,
+    locale,
+    provisioningNoticeDescription,
+    waitForStatus,
+    errorMessage,
+    lmsModuleLabels,
+    lmsModuleOptions,
+  } = useOperationsCopy();
+  const { message, modal, reportError } = useFeedback();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<TenantFormValues>();
   const [editing, setEditing] = useState<Organization | null>(null);
   const [managedTenant, setManagedTenant] = useState<Organization | null>(null);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<OrganizationStatus>();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checkingRecovery, setCheckingRecovery] = useState(false);
@@ -171,10 +152,12 @@ function PlatformTenantsPage({
     useState<ProvisioningNotice | null>(null);
   const createAttemptKey = useRef<string | null>(null);
   const submitInFlight = useRef(false);
+  const lifecycleInFlight = useRef<Promise<Organization> | null>(null);
   const requestAbort = useRef<AbortController | null>(null);
   const statusAbort = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const modalKind = useRef<ModalKind>("closed");
+  const modulesDisclosureRef = useRef<HTMLDetailsElement>(null);
   const scope = useMemo(
     () => getViewerScope(user, organization),
     [organization, user],
@@ -191,7 +174,63 @@ function PlatformTenantsPage({
     queryKey: tenantsKey,
     queryFn: () => apiFetch<Organization[]>("/organizations", { token }),
   });
-  const items = tenantsQuery.data ?? [];
+  const tenantDetail = useQuery({
+    enabled: Boolean(token && scope && selectedTenantId),
+    queryFn: () =>
+      apiFetch<Organization>(`/organizations/${selectedTenantId}`, { token }),
+    queryKey: [...tenantsKey, "detail", selectedTenantId],
+  });
+  const normalizedSearch = normalizeListSearch(search);
+  const items = (tenantsQuery.data ?? []).filter(
+    (tenant) =>
+      (!statusFilter || tenant.status === statusFilter) &&
+      normalizeListSearch(`${tenant.name} ${tenant.slug}`).includes(normalizedSearch),
+  );
+  const tenantLifecycle = useMutation({
+    mutationFn: (tenant: Organization) =>
+      apiFetch<Organization>(
+        `/organizations/${tenant._id}${tenant.status === "ACTIVE" ? "" : "/restore"}`,
+        { method: tenant.status === "ACTIVE" ? "DELETE" : "POST", token },
+      ),
+    onError: (error) =>
+      reportError(error, "Không thể cập nhật trạng thái tổ chức"),
+    onSuccess: async (tenant) => {
+      message.success(
+        tenant.status === "ACTIVE" ? "Đã khôi phục tổ chức" : "Đã khóa tổ chức",
+      );
+      setManagedTenant((current) =>
+        current?._id === tenant._id ? tenant : current,
+      );
+      await queryClient.invalidateQueries({ queryKey: tenantsKey });
+    },
+  });
+  const requestTenantLifecycle = (tenant: Organization) => {
+    const suspending = tenant.status === "ACTIVE";
+    modal.confirm({
+      cancelText: t("Hủy"),
+      content: suspending
+        ? t(
+            "Thành viên sẽ không thể truy cập tổ chức này. Không xóa tài khoản, khóa học hay dữ liệu; có thể khôi phục tổ chức sau.",
+          )
+        : t(
+            "Tổ chức sẽ hoạt động trở lại. Trạng thái tài khoản, thành viên và quyền lợi thuê bao vẫn được kiểm tra riêng.",
+          ),
+      okButtonProps: { danger: suspending },
+      okText: suspending ? t("Khóa tổ chức") : t("Khôi phục"),
+      onOk: () => {
+        if (lifecycleInFlight.current) return lifecycleInFlight.current;
+        const pending = tenantLifecycle.mutateAsync(tenant).finally(() => {
+          lifecycleInFlight.current = null;
+        });
+        lifecycleInFlight.current = pending;
+        return pending;
+      },
+      title: t("{value0} tổ chức {value1}?", {
+        value0: suspending ? t("Khóa") : t("Khôi phục"),
+        value1: tenant.name,
+      }),
+    });
+  };
 
   useEffect(() => {
     return () => {
@@ -202,12 +241,13 @@ function PlatformTenantsPage({
   }, []);
 
   const resetCreateForm = useCallback(() => {
+    if (modulesDisclosureRef.current) modulesDisclosureRef.current.open = false;
     form.resetFields();
     form.setFieldsValue({
       enabledModules: lmsModuleOptions.map((item) => item.value),
       primaryColor: DEFAULT_PRIMARY_COLOR,
     });
-  }, [form]);
+  }, [form, lmsModuleOptions]);
 
   const discardAttempt = useCallback(
     (resetForm = false) => {
@@ -225,12 +265,13 @@ function PlatformTenantsPage({
   const expireRecoveryAttempt = useCallback(() => {
     discardAttempt(modalKind.current === "create");
     setProvisioningNotice({
-      description:
+      description: t(
         "Khóa retry cũ đã được xóa. Hãy kiểm tra lại dữ liệu trước khi bắt đầu một thao tác mới.",
-      title: "Thao tác khôi phục đã hết hạn",
+      ),
+      title: t("Thao tác khôi phục đã hết hạn"),
       type: "warning",
     });
-  }, [discardAttempt]);
+  }, [discardAttempt, t]);
 
   const finishProvisioning = useCallback(
     async (
@@ -316,7 +357,7 @@ function PlatformTenantsPage({
         }
         const operation = parseTenantProvisioningOperation(raw);
         if (operation.operationId !== attempt.operationId) {
-          throw new Error("Mã operation trả về không khớp yêu cầu đối soát");
+          throw new Error(t("Mã operation trả về không khớp yêu cầu đối soát"));
         }
         if (operation.status === "SUCCEEDED") {
           await finishProvisioning(operation, expectedGeneration);
@@ -324,9 +365,9 @@ function PlatformTenantsPage({
         }
         if (operation.status === "FAILED") {
           failProvisioning(
-            "Không thể tạo tenant",
+            t("Không thể tạo tenant"),
             operation.failureCode
-              ? `Mã lỗi: ${operation.failureCode}`
+              ? t("Mã lỗi: {value0}", { value0: operation.failureCode })
               : undefined,
             operation.operationId,
           );
@@ -340,9 +381,10 @@ function PlatformTenantsPage({
         recoveryAttemptRef.current = pendingAttempt;
         setRecoveryAttempt(pendingAttempt);
         setProvisioningNotice({
-          description:
+          description: t(
             "Operation vẫn đang chờ. Hãy kiểm tra lại hoặc tiếp tục bằng đúng dữ liệu của lần gửi trước.",
-          title: "Tenant vẫn đang được xử lý",
+          ),
+          title: t("Tenant vẫn đang được xử lý"),
           type: "warning",
         });
       } catch (caught) {
@@ -354,16 +396,22 @@ function PlatformTenantsPage({
         }
         if (caught instanceof ApiError && caught.status === 404) {
           failProvisioning(
-            "Không tìm thấy thao tác tạo tenant",
-            "Khóa khôi phục đã được xóa; bạn có thể bắt đầu một thao tác mới.",
+            t("Không tìm thấy thao tác tạo tenant"),
+            t(
+              "Khóa khôi phục đã được xóa; bạn có thể bắt đầu một thao tác mới.",
+            ),
             attempt.operationId,
           );
           return;
         }
         setProvisioningNotice({
-          description:
+          description: t(
             "Khóa retry vẫn được giữ trong phiên này. Bạn có thể kiểm tra lại sau.",
-          title: errorMessage(caught, "Không thể kiểm tra trạng thái tenant"),
+          ),
+          title: errorMessage(
+            caught,
+            t("Không thể kiểm tra trạng thái tenant"),
+          ),
           type: "error",
         });
       } finally {
@@ -373,7 +421,14 @@ function PlatformTenantsPage({
         }
       }
     },
-    [failProvisioning, finishProvisioning, token],
+    [
+      errorMessage,
+      failProvisioning,
+      finishProvisioning,
+      t,
+      token,
+      waitForStatus,
+    ],
   );
 
   const showCreate = () => {
@@ -387,6 +442,7 @@ function PlatformTenantsPage({
   };
 
   const showEdit = (tenant: Organization) => {
+    if (modulesDisclosureRef.current) modulesDisclosureRef.current.open = false;
     createAttemptKey.current = null;
     setAttemptMode("none");
     setEditing(tenant);
@@ -415,9 +471,10 @@ function PlatformTenantsPage({
     modalKind.current = "create";
     setOpen(true);
     setProvisioningNotice({
-      description:
+      description: t(
         "Điền lại chính xác dữ liệu của lần gửi trước. Lần gửi tiếp theo sẽ dùng khóa retry đã lưu.",
-      title: "Đang tiếp tục thao tác cũ",
+      ),
+      title: t("Đang tiếp tục thao tác cũ"),
       type: "info",
     });
   };
@@ -455,9 +512,10 @@ function PlatformTenantsPage({
     }
     if (!editing && recoveryAttempt && attemptMode === "none") {
       setProvisioningNotice({
-        description:
+        description: t(
           "Hãy chọn tiếp tục bằng đúng dữ liệu cũ hoặc bỏ khóa khôi phục trước khi tạo tenant mới.",
-        title: "Cần xử lý thao tác chưa hoàn tất",
+        ),
+        title: t("Cần xử lý thao tác chưa hoàn tất"),
         type: "warning",
       });
       return;
@@ -536,13 +594,13 @@ function PlatformTenantsPage({
         attempt.operationId &&
         attempt.operationId !== operation.operationId
       ) {
-        throw new Error("Mã operation trả về không khớp khóa retry");
+        throw new Error(t("Mã operation trả về không khớp khóa retry"));
       }
       if (operation.status === "FAILED") {
         failProvisioning(
-          "Không thể tạo tenant",
+          t("Không thể tạo tenant"),
           operation.failureCode
-            ? `Mã lỗi: ${operation.failureCode}`
+            ? t("Mã lỗi: {value0}", { value0: operation.failureCode })
             : undefined,
           operation.operationId,
         );
@@ -557,9 +615,10 @@ function PlatformTenantsPage({
         recoveryAttemptRef.current = pendingAttempt;
         setRecoveryAttempt(pendingAttempt);
         setProvisioningNotice({
-          title: "Tenant chưa hoàn tất",
-          description:
+          title: t("Tenant chưa hoàn tất"),
+          description: t(
             "Máy chủ chưa xác nhận thành công. Khóa retry đã được giữ để đối soát.",
+          ),
           type: "warning",
         });
         return;
@@ -572,7 +631,14 @@ function PlatformTenantsPage({
       ) {
         return;
       }
-      if (isFormValidationError(caught)) return;
+      if (isFormValidationError(caught)) {
+        const first = (caught as { errorFields: Array<{ name?: (string | number)[] }> }).errorFields[0]?.name;
+        if (first?.[0] === "enabledModules" && modulesDisclosureRef.current) {
+          modulesDisclosureRef.current.open = true;
+        }
+        if (first) form.scrollToField(first, { block: "nearest", behavior: "auto", focus: true });
+        return;
+      }
 
       const currentAttempt =
         recoveryAttemptRef.current && createAttemptKey.current
@@ -595,8 +661,8 @@ function PlatformTenantsPage({
         currentAttempt.operationId !== caught.operationId
       ) {
         failProvisioning(
-          "Không thể đối soát tenant",
-          "Mã operation trả về không khớp khóa retry đã lưu.",
+          t("Không thể đối soát tenant"),
+          t("Mã operation trả về không khớp khóa retry đã lưu."),
           currentAttempt.operationId,
         );
         return;
@@ -611,8 +677,8 @@ function PlatformTenantsPage({
         TERMINAL_PROVISIONING_CODES.has(caught.code ?? "")
       ) {
         failProvisioning(
-          "Không thể tạo tenant",
-          caught.message,
+          t("Không thể tạo tenant"),
+          describeOperationsError(caught, locale),
           withOperation?.operationId ?? caught.operationId,
         );
         return;
@@ -644,12 +710,13 @@ function PlatformTenantsPage({
         return;
       }
       setProvisioningNotice({
-        description:
+        description: t(
           "Dữ liệu nhạy cảm chỉ còn trong biểu mẫu đang mở. Không sửa dữ liệu nếu bạn muốn retry cùng thao tác.",
-        title: errorMessage(caught, "Không thể lưu tổ chức"),
+        ),
+        title: errorMessage(caught, t("Không thể lưu tổ chức")),
         type: "error",
       });
-      message.error(errorMessage(caught, "Không thể lưu tổ chức"));
+      reportError(caught, "Không thể lưu tổ chức");
     } finally {
       if (requestAbort.current === controller) requestAbort.current = null;
       if (generation.current === expectedGeneration) setSaving(false);
@@ -659,7 +726,7 @@ function PlatformTenantsPage({
 
   const columns: ColumnDef<StockFeatures, Organization>[] = [
     {
-      header: "Tổ chức",
+      header: t("Tổ chức"),
       accessorKey: "name",
       cell: ({ row }) => (
         <div className="table-primary-cell">
@@ -669,43 +736,23 @@ function PlatformTenantsPage({
       ),
     },
     {
-      header: "Màu thương hiệu",
-      accessorKey: "primaryColor",
-      cell: ({ getValue }) => {
-        const value = getValue<string>();
-        return (
-          <Space className="tenant-brand-color">
-            <span
-              aria-hidden="true"
-              className="tenant-brand-color__swatch"
-              style={{
-                background: value,
-                borderRadius: 6,
-                height: 22,
-                width: 22,
-              }}
-            />
-            {value}
-          </Space>
-        );
-      },
-      meta: { width: 170 },
-    },
-    {
-      header: "Module tenant",
+      header: t("Module của tổ chức"),
       accessorKey: "enabledModules",
       cell: ({ getValue }) =>
-        `${getValue<LmsModule[]>().length}/${lmsModuleOptions.length} được cấp`,
+        t("{value0}/{value1} được cấp", {
+          value0: getValue<LmsModule[]>().length,
+          value1: lmsModuleOptions.length,
+        }),
       meta: { responsive: ["md"] },
     },
     {
-      header: "Trạng thái",
+      header: t("Trạng thái"),
       accessorKey: "status",
       cell: ({ getValue }) => {
         const value = getValue<OrganizationStatus>();
         return (
           <Tag color={value === "ACTIVE" ? "green" : "red"}>
-            {value === "ACTIVE" ? "Hoạt động" : "Đã khóa"}
+            {value === "ACTIVE" ? t("Hoạt động") : t("Đã khóa")}
           </Tag>
         );
       },
@@ -717,24 +764,34 @@ function PlatformTenantsPage({
       cell: ({ row }) => (
         <div className="table-row-actions">
           <Button
-            className="table-row-action"
-            onClick={() => setManagedTenant(row.original)}
-            title={`Quản lý thành viên ${row.original.name}`}
+            aria-label={t("Xem chi tiết tổ chức {value0}", {
+              value0: row.original.name,
+            })}
+            onClick={() => setSelectedTenantId(row.original._id)}
             type="link"
           >
-            Thành viên
+            {t("Chi tiết")}{" "}
           </Button>
-          <Button
-            className="table-row-action"
-            onClick={() => showEdit(row.original)}
-            title={`Chỉnh sửa tổ chức ${row.original.name}`}
-            type="link"
+          <Dropdown
+            trigger={["click"]}
+            menu={{ items: [
+              { key: "members", label: t("Thành viên"), onClick: () => setManagedTenant(row.original) },
+              { key: "edit", label: t("Sửa"), disabled: tenantLifecycle.isPending || saving, onClick: () => showEdit(row.original) },
+              { type: "divider" },
+              { key: "lifecycle", label: row.original.status === "ACTIVE" ? t("Khóa") : t("Khôi phục"), danger: row.original.status === "ACTIVE", disabled: tenantLifecycle.isPending || saving, onClick: () => requestTenantLifecycle(row.original) },
+            ] }}
           >
-            Sửa
-          </Button>
+            <Button
+              aria-label={t("Thao tác với tổ chức {name}", { name: row.original.name })}
+              disabled={tenantLifecycle.isPending || saving}
+              loading={tenantLifecycle.isPending && tenantLifecycle.variables?._id === row.original._id}
+              icon={<EllipsisOutlined />}
+              title={t("Thao tác khác")}
+            />
+          </Dropdown>
         </div>
       ),
-      meta: { width: 180 },
+      meta: { width: 160 },
     },
   ];
 
@@ -747,7 +804,7 @@ function PlatformTenantsPage({
           onClick={() => void reconcileStatus(recoveryAttempt)}
           size="small"
         >
-          Kiểm tra trạng thái
+          {t("Kiểm tra trạng thái")}{" "}
         </Button>
       )}
       <Button
@@ -755,14 +812,14 @@ function PlatformTenantsPage({
         onClick={continueRecovery}
         size="small"
       >
-        Tiếp tục bằng đúng dữ liệu cũ
+        {t("Tiếp tục bằng đúng dữ liệu cũ")}{" "}
       </Button>
       <Button
         disabled={saving || checkingRecovery}
         onClick={() => discardAttempt(modalKind.current === "create")}
         size="small"
       >
-        Bỏ khóa và bắt đầu mới
+        {t("Bỏ khóa và bắt đầu mới")}{" "}
       </Button>
     </Space>
   ) : null;
@@ -771,11 +828,8 @@ function PlatformTenantsPage({
     <div className="page-shell">
       <div className="page-heading page-toolbar">
         <div className="page-heading-copy">
-          <h1>Quản lý tổ chức</h1>
-          <p>
-            Tạo không gian đào tạo, kiểm soát trạng thái và cấu hình dịch vụ cho
-            từng đơn vị.
-          </p>
+          <h1>{t("Quản lý tổ chức")}</h1>
+          <p>{t("Quản lý tổ chức và dịch vụ được cấp.")}</p>
         </div>
         <Button
           className="page-toolbar-action"
@@ -783,16 +837,18 @@ function PlatformTenantsPage({
           onClick={showCreate}
           type="primary"
         >
-          Thêm tổ chức
+          {t("Thêm tổ chức")}{" "}
         </Button>
       </div>
       {!open && recoveryAttempt && (
         <Alert
           action={recoveryActions}
-          description="Chỉ khóa retry và mã operation được lưu trong phiên; dữ liệu tenant và mật khẩu không được lưu."
+          description={t(
+            "Chỉ khóa retry và mã operation được lưu trong phiên; dữ liệu tenant và mật khẩu không được lưu.",
+          )}
           showIcon
           style={{ marginBottom: 18 }}
-          title="Có thao tác tạo tenant chưa được đối soát"
+          title={t("Có thao tác tạo tenant chưa được đối soát")}
           type="warning"
         />
       )}
@@ -801,59 +857,148 @@ function PlatformTenantsPage({
           description={provisioningNoticeDescription(provisioningNotice)}
           showIcon
           style={{ marginBottom: 18 }}
-          title={provisioningNotice.title}
+          title={t(provisioningNotice.title)}
           type={provisioningNotice.type}
         />
       )}
       {tenantsQuery.error ? (
         <Alert
+          action={<Button loading={tenantsQuery.isFetching} onClick={() => void tenantsQuery.refetch({ cancelRefetch: false })}>{t("Thử lại")}</Button>}
           showIcon
           title={
             tenantsQuery.error instanceof Error
-              ? tenantsQuery.error.message
-              : "Không tải được tổ chức"
+              ? describeOperationsError(
+                  tenantsQuery.error,
+                  locale,
+                  t("Không tải được tổ chức"),
+                )
+              : t("Không tải được tổ chức")
           }
           type="error"
         />
-      ) : (
+      ) : null}
         <Card className="surface-card table-surface">
+          <div className="list-filter-bar admin-list-toolbar" role="search" aria-label={t("Danh sách tổ chức")}>
+            <Input
+              allowClear
+              aria-label={t("Tìm tổ chức")}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("Tên hoặc slug tổ chức")}
+              prefix={<SearchOutlined />}
+              value={search}
+            />
+            <Select
+              allowClear
+              aria-label={t("Lọc trạng thái tổ chức")}
+              onChange={setStatusFilter}
+              options={[
+                { label: t("Hoạt động"), value: "ACTIVE" },
+                { label: t("Đã khóa"), value: "SUSPENDED" },
+              ]}
+              placeholder={t("Trạng thái")}
+              value={statusFilter}
+            />
+            {(search || statusFilter) ? <Button onClick={() => {
+              setSearch("");
+              setStatusFilter(undefined);
+            }}>{t("Xóa bộ lọc")}</Button> : null}
+            <Button aria-label={t("Tải lại")} icon={<ReloadOutlined />} loading={tenantsQuery.isFetching} onClick={() => void tenantsQuery.refetch({ cancelRefetch: false })} />
+          </div>
+          {!tenantsQuery.isError && (
           <DataTable
-            ariaLabel="Danh sách tổ chức"
+            ariaLabel={t("Danh sách tổ chức")}
             columns={columns}
             data={items}
-            emptyText="Chưa có tổ chức"
-            loading={tenantsQuery.isLoading}
+            emptyText={t(normalizedSearch || statusFilter ? "Không tìm thấy tổ chức phù hợp" : "Chưa có tổ chức")}
+            loading={tenantsQuery.isFetching}
+            paginationResetKey={JSON.stringify([normalizedSearch, statusFilter ?? ""])}
             pageSize={8}
             rowKey="_id"
-            scrollX={760}
+            scrollX={620}
           />
+          )}
         </Card>
-      )}
+      <Modal
+        footer={null}
+        onCancel={() => setSelectedTenantId(null)}
+        open={Boolean(selectedTenantId)}
+        title={t("Chi tiết tổ chức")}
+        width={680}
+      >
+        {tenantDetail.isPending ? (
+          <p role="status">{t("Đang tải chi tiết tổ chức…")}</p>
+        ) : tenantDetail.error ? (
+          <Alert
+            showIcon
+            title={errorMessage(
+              tenantDetail.error,
+              t("Không tải được chi tiết tổ chức"),
+            )}
+            type="error"
+          />
+        ) : tenantDetail.data ? (
+          <Descriptions bordered column={1}>
+            <Descriptions.Item label={t("Tên tổ chức")}>
+              {tenantDetail.data.name}
+            </Descriptions.Item>
+            <Descriptions.Item label="Slug">
+              {tenantDetail.data.slug}
+            </Descriptions.Item>
+            <Descriptions.Item label="ID">
+              {tenantDetail.data._id}
+            </Descriptions.Item>
+            <Descriptions.Item label={t("Trạng thái")}>
+              {tenantDetail.data.status === "ACTIVE"
+                ? t("Hoạt động")
+                : t("Đã khóa")}
+            </Descriptions.Item>
+            <Descriptions.Item label={t("Màu thương hiệu")}>
+              {tenantDetail.data.primaryColor}
+            </Descriptions.Item>
+            <Descriptions.Item label={t("Module được cấp")}>
+              {tenantDetail.data.enabledModules
+                .map((module) => lmsModuleLabels[module])
+                .join(" · ") || t("Không có module")}
+            </Descriptions.Item>
+            <Descriptions.Item label={t("Tạo lúc")}>
+              {tenantDetail.data.createdAt
+                ? new Date(tenantDetail.data.createdAt).toLocaleString(
+                    locale === "en" ? "en-US" : "vi-VN",
+                  )
+                : "—"}
+            </Descriptions.Item>
+          </Descriptions>
+        ) : null}
+      </Modal>
       <Modal
         cancelButtonProps={{ disabled: saving || checkingRecovery }}
-        cancelText="Hủy"
+        cancelText={t("Hủy")}
+        className="admin-form-modal"
         closable={!saving && !checkingRecovery}
         confirmLoading={saving}
         keyboard={!saving && !checkingRecovery}
-        maskClosable={!saving && !checkingRecovery}
+        mask={{ closable: !saving && !checkingRecovery }}
         okButtonProps={{
           disabled:
             checkingRecovery ||
             (!editing && Boolean(recoveryAttempt) && attemptMode === "none"),
         }}
-        okText={editing ? "Lưu thay đổi" : "Tạo tổ chức"}
+        okText={editing ? t("Lưu thay đổi") : t("Tạo tổ chức")}
         onCancel={cancelModal}
         onOk={() => void save()}
         open={open}
-        title={editing ? "Cập nhật tổ chức" : "Tạo tổ chức mới"}
+        title={editing ? t("Cập nhật tổ chức") : t("Tạo tổ chức mới")}
+        width={720}
       >
         {!editing && recoveryAttempt && attemptMode === "none" && (
           <Alert
             action={recoveryActions}
-            description="Chọn cách xử lý trước khi gửi một yêu cầu tạo tenant khác."
+            description={t(
+              "Chọn cách xử lý trước khi gửi một yêu cầu tạo tenant khác.",
+            )}
             showIcon
             style={{ marginTop: 18 }}
-            title="Có thao tác cũ cần đối soát"
+            title={t("Có thao tác cũ cần đối soát")}
             type="warning"
           />
         )}
@@ -862,22 +1007,24 @@ function PlatformTenantsPage({
             description={provisioningNoticeDescription(provisioningNotice)}
             showIcon
             style={{ marginTop: 18 }}
-            title={provisioningNotice.title}
+            title={t(provisioningNotice.title)}
             type={provisioningNotice.type}
           />
         )}
         {editing ? (
           <div style={{ marginTop: 22 }}>
             <ProfileImageEditor
-              alt={`Logo của ${editing.name}`}
+              alt={t("Logo của {value0}", { value0: editing.name })}
               disabled={saving || checkingRecovery}
               fallback={
                 Array.from(editing.name.trim())[0]?.toLocaleUpperCase("vi") ||
                 "DX"
               }
-              help="JPEG, PNG hoặc WebP, tối đa 5 MiB. Logo được lưu trên máy chủ riêng."
+              help={t(
+                "JPEG, PNG hoặc WebP, tối đa 5 MiB. Logo được lưu trên máy chủ riêng.",
+              )}
               imageUrl={editing.logoUrl}
-              label="Logo tổ chức"
+              label={t("Logo tổ chức")}
               onRemove={async () => {
                 await applyTenantLogo(
                   await organizationLogoApi.removeTenant(token, editing._id),
@@ -898,18 +1045,14 @@ function PlatformTenantsPage({
               shape="square"
             />
           </div>
-        ) : (
-          <Alert
-            showIcon
-            style={{ marginTop: 22 }}
-            title="Logo có thể tải lên sau khi tổ chức được tạo."
-            type="info"
-          />
-        )}
+        ) : null}
         <Form
+          className="admin-entity-form"
           disabled={saving || checkingRecovery}
           form={form}
           layout="vertical"
+          name="tenant-editor"
+          noValidate
           onValuesChange={() => {
             if (
               !editing &&
@@ -919,110 +1062,125 @@ function PlatformTenantsPage({
             ) {
               discardAttempt();
               setProvisioningNotice({
-                description:
+                description: t(
                   "Lần gửi tiếp theo sẽ dùng khóa mới vì dữ liệu đã thay đổi.",
-                title: "Đã bắt đầu thao tác mới",
+                ),
+                title: t("Đã bắt đầu thao tác mới"),
                 type: "info",
               });
             }
           }}
-          requiredMark={false}
-          style={{ marginTop: 22 }}
+          requiredMark
+          style={{ marginTop: editing ? 22 : 4 }}
         >
+          <section className="form-section" aria-labelledby="tenant-details-heading">
+          <h3 className="form-section-title" id="tenant-details-heading">{t("Thông tin tổ chức")}</h3>
+          {!editing && <p className="form-section-note">{t("Bạn có thể thêm logo sau khi tạo tổ chức.")}</p>}
+          <div className="form-field-grid">
           <Form.Item
-            label="Tên tổ chức"
+            label={t("Tên tổ chức")}
             name="name"
             rules={[
               {
                 required: true,
                 min: 2,
-                message: "Tên cần ít nhất 2 ký tự",
+                message: t("Tên cần ít nhất 2 ký tự"),
               },
-              { max: 160, message: "Tên không được vượt quá 160 ký tự" },
+              { max: 160, message: t("Tên không được vượt quá 160 ký tự") },
             ]}
           >
-            <Input maxLength={160} placeholder="Bright Academy" />
+            <Input autoComplete="off" maxLength={160} placeholder="Bright Academy" />
           </Form.Item>
           <Form.Item
-            extra="Dùng chữ thường, số và dấu gạch ngang."
-            label="Mã đường dẫn tổ chức"
+            extra={t("Dùng chữ thường, số và dấu gạch ngang.")}
+            label={t("Mã đường dẫn tổ chức")}
             name="slug"
             rules={[
               {
                 required: true,
                 pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-                message: "Dùng chữ thường, số và dấu gạch ngang",
+                message: t("Dùng chữ thường, số và dấu gạch ngang"),
               },
               {
                 max: 100,
-                message: "Mã đường dẫn không được vượt quá 100 ký tự",
+                message: t("Mã đường dẫn không được vượt quá 100 ký tự"),
               },
             ]}
           >
-            <Input maxLength={100} placeholder="bright-academy" />
+            <Input autoCapitalize="none" autoComplete="off" maxLength={100} placeholder="bright-academy" spellCheck={false} />
           </Form.Item>
           {editing && (
-            <Form.Item label="Trạng thái" name="status">
+            <Form.Item label={t("Trạng thái")} name="status">
               <Select
                 options={[
-                  { label: "Hoạt động", value: "ACTIVE" },
-                  { label: "Khóa truy cập", value: "SUSPENDED" },
+                  { label: t("Hoạt động"), value: "ACTIVE" },
+                  { label: t("Khóa truy cập"), value: "SUSPENDED" },
                 ]}
               />
             </Form.Item>
           )}
           <Form.Item
-            label="Màu thương hiệu"
+            label={t("Màu thương hiệu")}
             name="primaryColor"
             rules={[{ required: true }]}
           >
             <ColorPicker showText />
           </Form.Item>
+          </div>
+          </section>
+          <details className="form-section admin-detail-disclosure" ref={modulesDisclosureRef}>
+          <summary>{t("Tùy chỉnh tính năng (không bắt buộc)")}</summary>
           <Form.Item
-            extra="Ghi danh và Tài liệu riêng tư cần Khóa học; Bài tập và Bài kiểm tra cần cả Ghi danh lẫn Khóa học. Các module bắt buộc sẽ được chọn tự động."
-            label="Module tối đa tenant được phép dùng"
+            extra={t("Tính năng phụ thuộc sẽ được tự động chọn.")}
+            label={t("Tính năng được phép")}
             name="enabledModules"
             normalize={(modules: LmsModule[] | undefined) =>
               includeLmsModulePrerequisites(modules ?? [])
             }
-            rules={[{ required: true, message: "Chọn ít nhất một module" }]}
+            rules={[{ required: true, message: t("Chọn ít nhất một module") }]}
           >
-            <Checkbox.Group options={lmsModuleOptions} />
+            <ModulePicker aria-label={t("Tính năng được phép")} disabled={saving || checkingRecovery} options={lmsModuleOptions} />
           </Form.Item>
+          </details>
           {!editing && (
-            <>
+            <section className="form-section" aria-labelledby="tenant-admin-heading">
+              <h3 className="form-section-title" id="tenant-admin-heading">{t("Quản trị viên đầu tiên")}</h3>
+              <p className="form-section-note">{t("Tạo tài khoản quản lý cho tổ chức này.")}</p>
+              <div className="form-field-grid">
               <Form.Item
-                label="Tên quản trị viên đầu tiên"
+                label={t("Tên quản trị viên đầu tiên")}
                 name="adminFullName"
                 rules={[
                   {
                     required: true,
                     min: 2,
-                    message: "Nhập họ tên quản trị viên",
+                    message: t("Nhập họ tên quản trị viên"),
                   },
                   {
                     max: 160,
-                    message: "Họ tên không được vượt quá 160 ký tự",
+                    message: t("Họ tên không được vượt quá 160 ký tự"),
                   },
                 ]}
               >
-                <Input maxLength={160} />
+                <Input autoComplete="off" maxLength={160} />
               </Form.Item>
               <Form.Item
-                label="Email quản trị viên"
+                label={t("Email quản trị viên")}
                 name="adminEmail"
                 rules={[
                   {
                     required: true,
                     type: "email",
-                    message: "Email chưa hợp lệ",
+                    message: t("Email chưa hợp lệ"),
                   },
                 ]}
               >
-                <Input />
+                <Input autoCapitalize="none" autoComplete="off" inputMode="email" spellCheck={false} type="email" />
               </Form.Item>
+              </div>
               <Form.Item
-                label="Mật khẩu ban đầu"
+                extra={t("Mật khẩu phải có ít nhất 8 ký tự")}
+                label={t("Mật khẩu ban đầu")}
                 name="adminPassword"
                 rules={[
                   {
@@ -1031,21 +1189,93 @@ function PlatformTenantsPage({
                       const issue = passwordValidationError(
                         typeof value === "string" ? value : "",
                       );
-                      if (issue) throw new Error(issue);
+                      if (issue) throw new Error(t(issue));
                     },
                   },
                 ]}
               >
-                <Input.Password />
+                <Input.Password autoComplete="new-password" />
               </Form.Item>
-            </>
+            </section>
           )}
         </Form>
       </Modal>
       <TenantMembersManager
+        key={managedTenant?._id ?? "closed"}
         onClose={() => setManagedTenant(null)}
         tenant={managedTenant}
       />
     </div>
   );
+}
+
+function useOperationsCopy() {
+  const i18n = useI18n(tenantMessages);
+  return useI18nMemo(() => {
+    const { t, locale } = i18n;
+    function provisioningNoticeDescription(
+      notice: ProvisioningNotice,
+    ): ReactNode {
+      if (!notice.description && !notice.operationId) return undefined;
+      return (
+        <Space direction="vertical" size={0}>
+          {notice.description && <span>{t(notice.description)}</span>}
+          {notice.operationId && (
+            <span>
+              {t("Mã operation:")}{" "}
+              <Typography.Text code copyable={{ text: notice.operationId }}>
+                {notice.operationId}
+              </Typography.Text>
+            </span>
+          )}
+        </Space>
+      );
+    }
+
+    function waitForStatus(
+      seconds: number,
+      signal: AbortSignal,
+    ): Promise<void> {
+      const delay = Math.min(
+        STATUS_RECHECK_MAX_DELAY_SECONDS,
+        Math.max(1, Math.trunc(seconds)),
+      );
+      return new Promise((resolve, reject) => {
+        if (signal.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        const onAbort = () => {
+          window.clearTimeout(timer);
+          reject(signal.reason);
+        };
+        const timer = window.setTimeout(() => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, delay * 1_000);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+    }
+
+    function errorMessage(error: unknown, fallback: string): string {
+      return error instanceof Error
+        ? describeOperationsError(error, locale, fallback)
+        : fallback;
+    }
+    const translatedLmsModuleLabels = Object.fromEntries(
+      Object.entries(lmsModuleLabels).map(([key, label]) => [key, t(label)]),
+    ) as typeof lmsModuleLabels;
+    const translatedLmsModuleOptions = lmsModuleOptions.map((option) => ({
+      ...option,
+      label: t(option.label),
+    }));
+    return {
+      ...i18n,
+      lmsModuleLabels: translatedLmsModuleLabels,
+      lmsModuleOptions: translatedLmsModuleOptions,
+      provisioningNoticeDescription,
+      waitForStatus,
+      errorMessage,
+    };
+  }, [i18n]);
 }

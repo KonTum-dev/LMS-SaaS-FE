@@ -2,7 +2,7 @@
 
 import { App as AntdApp } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaymentOrder } from "@/lib/types";
 import BillingStatusPage from "./page";
@@ -99,6 +99,22 @@ describe("BillingStatusPage polling", () => {
     vi.useRealTimers();
   });
 
+  it("lets the user retry a failed status lookup without duplicate requests", async () => {
+    let resolve!: (value: PaymentOrder) => void;
+    const pending = new Promise<PaymentOrder>((done) => { resolve = done; });
+    getOrder.mockRejectedValueOnce(new Error("Temporary outage")).mockReturnValue(pending);
+    renderPage();
+    const retry = await screen.findByRole("button", { name: "Thử lại" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Thử lại" })).toBeNull());
+    expect(document.querySelector('[role="status"], .ant-skeleton')).toBeTruthy();
+    fireEvent.click(retry);
+    expect(getOrder).toHaveBeenCalledTimes(2);
+    resolve(order("EXPIRED"));
+    expect((await screen.findAllByText("Đã hết hạn")).length).toBeGreaterThan(0);
+    expect(refreshSession).not.toHaveBeenCalled();
+  });
+
   it("poll lại PENDING rồi dừng ở PAID và làm mới cache thuê bao/order", async () => {
     getOrder.mockResolvedValueOnce(order("PENDING")).mockResolvedValue(order("PAID"));
     renderPage();
@@ -152,7 +168,7 @@ describe("BillingStatusPage polling", () => {
   it("lỗi 404 ban đầu dừng poll", async () => {
     getOrder.mockRejectedValue(new Error("Không tìm thấy order"));
     renderPage();
-    await screen.findByText("Không tìm thấy order");
+    await screen.findByText("Không tìm thấy đơn thanh toán");
     await vi.advanceTimersByTimeAsync(20000);
     expect(getOrder).toHaveBeenCalledTimes(1);
   });

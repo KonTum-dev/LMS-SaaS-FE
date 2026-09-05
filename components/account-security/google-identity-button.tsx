@@ -1,5 +1,9 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { authMessages } from "@/lib/i18n/auth-messages";
+
+
 import { Button } from "antd";
 import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,6 +25,7 @@ interface GoogleIdentityConfiguration {
 }
 
 interface GoogleIdentityButtonConfiguration {
+  locale: "vi" | "en";
   logo_alignment: "left";
   shape: "rectangular";
   size: "large";
@@ -75,6 +80,7 @@ export function GoogleIdentityButton({
   onCredential,
   onError,
 }: GoogleIdentityButtonProps) {
+  const { t, locale } = useI18n(authMessages);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const challengeRef = useRef<GoogleAuthChallenge | null>(null);
   const requestVersionRef = useRef(0);
@@ -175,6 +181,7 @@ export function GoogleIdentityButton({
           activeSurface.getBoundingClientRect().width,
         );
         activeGoogleIdentity.renderButton(activeSurface, {
+          locale,
           logo_alignment: "left",
           shape: "rectangular",
           size: "large",
@@ -183,6 +190,7 @@ export function GoogleIdentityButton({
           type: "standard",
           width: Math.max(200, Math.min(400, measuredWidth || 320)),
         });
+        setSetupError("");
         setPreparing(false);
 
         const refreshIn = Math.max(
@@ -210,7 +218,7 @@ export function GoogleIdentityButton({
       challengeRef.current = null;
       surface.replaceChildren();
     };
-  }, [disabled, getChallenge, intent, reloadKey, reportSetupError, scriptReady]);
+  }, [disabled, getChallenge, intent, locale, reloadKey, reportSetupError, scriptReady]);
 
   return (
     <div className={styles.root}>
@@ -235,12 +243,12 @@ export function GoogleIdentityButton({
       />
       {!disabled && (preparing || processing) && (
         <p aria-live="polite" className={styles.status} role="status">
-          {processing ? "Đang xác minh với Google…" : "Đang tải Google…"}
+          {processing ? t("Đang xác minh với Google…") : t("Đang tải Google…")}
         </p>
       )}
       {setupError && !processing && (
         <div className={styles.error} role="alert">
-          <span>{setupError}</span>
+          <span>{t(setupError)}</span>
           <Button
             disabled={disabled}
             onClick={() => {
@@ -251,8 +259,7 @@ export function GoogleIdentityButton({
             size="small"
             type="link"
           >
-            Thử lại
-          </Button>
+            {t("Thử lại")}</Button>
         </div>
       )}
     </div>

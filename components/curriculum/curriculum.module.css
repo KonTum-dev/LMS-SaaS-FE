@@ -22,6 +22,12 @@
   padding: 0;
 }
 
+.sectionList > li,
+.lessonList > li { min-width: 0; }
+.sectionList :global(.surface-card .ant-card-head-wrapper) { flex-wrap: wrap; gap: 10px; padding-block: 14px; }
+.sectionList :global(.surface-card .ant-card-head-title) { min-width: 0; white-space: normal !important; overflow-wrap: anywhere; text-overflow: clip; }
+.sectionList :global(.ant-card-extra) { max-width: 100%; }
+
 .lessonList {
   gap: 10px;
   margin-top: 16px;
@@ -118,4 +124,6 @@
     align-items: stretch;
     flex-direction: column;
   }
+  .sectionList :global(.surface-card .ant-card-head-title) { flex: 1 1 100%; }
+  .sectionList :global(.surface-card .ant-card-extra) { margin-inline-start: 0; }
 }

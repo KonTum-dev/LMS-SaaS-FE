@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import {
   afterEach,
@@ -25,6 +28,7 @@ import type {
   UserRole,
 } from "@/lib/types";
 import { WorkspaceShell } from "./workspace-shell";
+import { FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 
 const mocks = vi.hoisted(() => ({
   childRender: vi.fn(),
@@ -168,6 +172,187 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("WorkspaceShell route access boundary", () => {
+  it("shows tenant CRM to scoped admins and allows direct read-only navigation", () => {
+    mocks.pathname = "/crm";
+    mocks.session.user = currentUser("TENANT_ADMIN", "SCOPED");
+    mocks.session.organization = tenant(["USERS"]);
+    mocks.session.effectiveAccess = access(["USERS"], "READ_ONLY");
+    render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    expect(screen.getByText("Nội dung trang có truy vấn")).toBeTruthy();
+    const crm = screen.getByRole("menuitem", { name: /CRM \/ Khách hàng/ });
+    fireEvent.click(crm);
+    expect(mocks.push).toHaveBeenCalledWith("/crm");
+    expect(screen.queryByRole("menuitem", { name: /CRM nền tảng/ })).toBeNull();
+  });
+  it("translates the tenant CRM sidebar label into English", () => {
+    render(<FeedbackLocaleProvider initialLocale="en"><WorkspaceShell><QueryPage /></WorkspaceShell></FeedbackLocaleProvider>);
+    expect(screen.getByRole("menuitem", { name: /CRM \/ Contacts/ })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /CRM \/ Khách hàng/ })).toBeNull();
+  });
+  it.each(["SUPER_ADMIN", "INSTRUCTOR", "LEARNER", "GUARDIAN"] as const)("hides tenant CRM and blocks its child queries for %s", (role) => {
+    mocks.pathname = "/crm";
+    mocks.session.user = currentUser(role);
+    render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    expect(screen.queryByRole("menuitem", { name: /CRM \/ Khách hàng/ })).toBeNull();
+    expect(mocks.childRender).not.toHaveBeenCalled();
+  });
+  it("removes CRM and unmounts its child page when USERS is revoked", () => {
+    mocks.pathname = "/crm";
+    const view = render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    expect(screen.getByRole("menuitem", { name: /CRM \/ Khách hàng/ })).toBeTruthy();
+    mocks.childRender.mockClear();
+    mocks.session.effectiveAccess = access([]);
+    view.rerender(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    expect(screen.queryByRole("menuitem", { name: /CRM \/ Khách hàng/ })).toBeNull();
+    expect(screen.queryByText("Nội dung trang có truy vấn")).toBeNull();
+    expect(mocks.childRender).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["/account/security", "/account/security"],
+    ["/family", "/family"],
+    ["https://evil.example/steal", "/dashboard"],
+    ["//evil.example/steal", "/dashboard"],
+    ["/%252f%252fevil.example", "/dashboard"],
+    ["javascript:alert(1)", "/dashboard"],
+  ])("keeps only a safe internal return page when signed out: %s", async (pathname, destination) => {
+    mocks.pathname = pathname;
+    mocks.session.user = null;
+    render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(`/login?next=${encodeURIComponent(destination)}`));
+    expect(mocks.childRender).not.toHaveBeenCalled();
+  });
+
+  it("waits for session restoration before redirecting the protected security page", () => {
+    mocks.pathname = "/account/security";
+    mocks.session.user = null;
+    mocks.session.loading = true;
+    render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.childRender).not.toHaveBeenCalled();
+  });
+
+  it("allows a signed-in guardian to return to account security without granting admin routes", () => {
+    mocks.pathname = "/account/security";
+    mocks.session.user = currentUser("GUARDIAN");
+    const { rerender } = render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    expect(screen.getByText("Nội dung trang có truy vấn")).toBeTruthy();
+    mocks.childRender.mockClear();
+    mocks.pathname = "/admin/accounts";
+    rerender(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    expect(screen.queryByText("Nội dung trang có truy vấn")).toBeNull();
+    expect(mocks.childRender).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("giữ nền biểu tượng workspace trung tính và không áp kiểu chữ lên mọi span trong avatar", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/lms-theme.css"), "utf8");
+    const globals = readFileSync(resolve(process.cwd(), "app/globals.css"), "utf8");
+    const avatar = css.match(/\.sider-tenant-avatar[^{}]*\{([^}]*)\}/)?.[1];
+    expect(avatar).toBeDefined();
+    expect(avatar).toContain("background: transparent");
+    expect(avatar).toContain("color: var(--muted)");
+    expect(avatar).toContain("border: 0");
+    expect(avatar).not.toContain("var(--primary)");
+    expect(`${globals}\n${css}`).not.toMatch(/\.sider-tenant\s+span\s*[,\{]/);
+  });
+
+  it("dùng biểu tượng nền tảng trung tính thay DX ở sidebar và menu di động", async () => {
+    mocks.session.user = currentUser("SUPER_ADMIN");
+    mocks.session.organization = null;
+    mocks.session.effectiveAccess = null;
+    const { container } = render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+
+    const expectPlatformIdentity = (scope: HTMLElement) => {
+      const identity = scope.querySelector<HTMLElement>('[data-workspace-identity="platform"]');
+      expect(identity).not.toBeNull();
+      expect(identity!.classList.contains("sider-tenant-avatar")).toBe(true);
+      expect(identity!.getAttribute("aria-hidden")).toBe("true");
+      expect(identity!.querySelector('[data-icon="appstore"]')).not.toBeNull();
+      expect(identity!.textContent).toBe("");
+      expect(identity!.style.background).toBe("");
+      expect(identity!.style.width).toBe("34px");
+      expect(identity!.style.height).toBe("34px");
+      expect(within(scope).getByText("Toàn nền tảng")).toBeTruthy();
+      expect(within(scope).queryByText("DX", { exact: true })).toBeNull();
+    };
+
+    const desktop = container.querySelector<HTMLElement>(".desktop-sider")!;
+    expectPlatformIdentity(desktop);
+    expect(within(desktop).queryByRole("button", { name: "Chọn không gian làm việc" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Mở menu điều hướng" }));
+    expectPlatformIdentity(await screen.findByRole("dialog"));
+    expect(mocks.switchWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("dùng biểu tượng tổ chức trang trí khi tenant chưa có logo và giữ tên workspace", () => {
+    const { container } = render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    const identity = container.querySelector<HTMLElement>('[data-workspace-identity="organization"]');
+    expect(identity).not.toBeNull();
+    expect(identity!.classList.contains("sider-tenant-avatar")).toBe(true);
+    expect(identity!.getAttribute("aria-hidden")).toBe("true");
+    expect(identity!.querySelector('[data-icon="apartment"]')).not.toBeNull();
+    expect(identity!.querySelector("img")).toBeNull();
+    expect(identity!.textContent).toBe("");
+    expect(identity!.style.background).toBe("");
+    const copy = identity!.parentElement!.querySelector<HTMLElement>(".sider-tenant-copy")!;
+    expect(within(copy).getByText("Bright Academy")).toBeTruthy();
+    expect(within(copy).queryByText("Quản trị tổ chức")).toBeNull();
+  });
+
+  it.each([false, true])(
+    "giữ logo tenant thật trong sidebar và menu di động (có chuyển workspace: %s)",
+    async (switchable) => {
+      const logoUrl = "https://assets.example.test/bright-academy-logo.png";
+      mocks.session.organization = { ...tenant(["USERS", "COURSES", "ASSIGNMENTS"]), logoUrl };
+      if (switchable) {
+        mocks.session.workspaces = [
+          { membershipId: "membership-1", tenantId: "tenant-1", name: "Bright Academy", slug: "bright", role: "TENANT_ADMIN", logoUrl: null, primaryColor: "#176BFF" },
+          { membershipId: "membership-2", tenantId: "tenant-2", name: "Lumen School", slug: "lumen", role: "INSTRUCTOR", logoUrl: null, primaryColor: "#5B5BD6" },
+        ];
+      }
+      const { container } = render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+
+      const expectTenantLogo = (scope: HTMLElement) => {
+        const identity = scope.querySelector<HTMLElement>('[data-workspace-identity="organization"]');
+        const logo = identity?.querySelector("img");
+        expect(logo?.getAttribute("src")).toBe(logoUrl);
+        expect(identity!.getAttribute("aria-hidden")).toBe("true");
+        expect(identity!.querySelector('[data-icon="apartment"]')).toBeNull();
+        expect(identity!.textContent).toBe("");
+        expect(identity!.style.background).toBe("");
+        expect(within(scope).getByText("Bright Academy")).toBeTruthy();
+        const switcher = within(scope).queryByRole("button", { name: "Chọn không gian làm việc" });
+        if (switchable) {
+          expect(switcher?.getAttribute("type")).toBe("button");
+          expect((switcher as HTMLButtonElement).disabled).toBe(false);
+        } else {
+          expect(switcher).toBeNull();
+        }
+      };
+
+      expectTenantLogo(container.querySelector<HTMLElement>(".desktop-sider")!);
+      fireEvent.click(screen.getByRole("button", { name: "Mở menu điều hướng" }));
+      expectTenantLogo(await screen.findByRole("dialog"));
+      expect(mocks.switchWorkspace).not.toHaveBeenCalled();
+    },
+  );
+
+  it("shows platform accounts only to SUPER_ADMIN and navigates to the account route", () => {
+    mocks.pathname = "/admin/accounts";
+    mocks.session.user = currentUser("SUPER_ADMIN");
+    mocks.session.organization = null;
+    mocks.session.effectiveAccess = null;
+    const view = render(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Tài khoản nền tảng/ }));
+    expect(mocks.push).toHaveBeenCalledWith("/admin/accounts");
+    mocks.session.user = currentUser("TENANT_ADMIN");
+    mocks.session.organization = tenant(["USERS"]);
+    mocks.session.effectiveAccess = access(["USERS"]);
+    view.rerender(<WorkspaceShell><QueryPage /></WorkspaceShell>);
+    expect(screen.queryByRole("menuitem", { name: /Tài khoản nền tảng/ })).toBeNull();
+    expect(screen.queryByText("Nội dung trang có truy vấn")).toBeNull();
+  });
   it.each<Exclude<UserRole, "SUPER_ADMIN">>([
     "TENANT_ADMIN",
     "INSTRUCTOR",
@@ -299,7 +484,7 @@ describe("WorkspaceShell route access boundary", () => {
     ).toBeNull();
   });
 
-  it("ẩn khu vực toàn tổ chức và nhận diện đúng quản lý đơn vị", () => {
+  it("ẩn khu vực toàn tổ chức và nhận diện đúng quản lý đơn vị trong menu tài khoản", async () => {
     mocks.session.effectiveAccess = access([], "READ_ONLY");
     mocks.session.organization = tenant([]);
     mocks.session.user = currentUser("TENANT_ADMIN", "SCOPED");
@@ -309,7 +494,8 @@ describe("WorkspaceShell route access boundary", () => {
       </WorkspaceShell>,
     );
 
-    expect(screen.getAllByText("Quản lý đơn vị").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Mở menu tài khoản" }));
+    expect(await screen.findByRole("menuitem", { name: "Quản lý đơn vị" })).toBeTruthy();
     expect(
       screen.queryByRole("menuitem", { name: /Gói & thanh toán/ }),
     ).toBeNull();
@@ -357,7 +543,7 @@ describe("WorkspaceShell route access boundary", () => {
       fireEvent.click(
         screen.getByRole("button", { name: "Mở menu tài khoản" }),
       );
-      fireEvent.click(await screen.findByText("Ứng dụng kết nối"));
+      fireEvent.click(await screen.findByText("Kết nối dữ liệu"));
       expect(mocks.push).toHaveBeenCalledWith("/account/integrations");
     },
   );
@@ -401,6 +587,8 @@ describe("WorkspaceShell route access boundary", () => {
     expect(
       screen.getByRole("menuitem", { name: /Học viên của tôi/ }),
     ).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Học viên của tôi/ }));
+    expect(mocks.push).toHaveBeenCalledWith("/family");
     expect(screen.getByRole("menuitem", { name: /Học phí/ })).toBeTruthy();
     expect(
       screen.getByRole("menuitem", { name: /Thông báo trung tâm/ }),
@@ -548,14 +736,14 @@ describe("WorkspaceShell route access boundary", () => {
       </WorkspaceShell>,
     );
 
-    expect(screen.getByText("Dùng thử miễn phí")).toBeTruthy();
+    expect(screen.getByText(/Dùng thử đến .*2030/)).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Xem gói trả phí" }),
     ).toBeTruthy();
     expect(screen.getByText(/đến .*2030/)).toBeTruthy();
     expect(
-      screen.getByText(/quyền truy cập hiện được cấp cho workspace/),
-    ).toBeTruthy();
+      screen.queryByText(/quyền truy cập hiện được cấp cho workspace/),
+    ).toBeNull();
     expect(screen.queryByText(/đầy đủ quyền/i)).toBeNull();
   });
 
@@ -678,19 +866,23 @@ describe("WorkspaceShell route access boundary", () => {
       </WorkspaceShell>,
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Chọn không gian làm việc" }),
-    );
-    const option = await screen.findByText("Lumen School");
+    const switcher = screen.getByRole<HTMLButtonElement>("button", { name: "Chọn không gian làm việc" });
+    expect(switcher.type).toBe("button");
+    expect(switcher.disabled).toBe(false);
+    fireEvent.click(switcher);
+    expect((await screen.findByRole("menuitem", { name: /Bright Academy/ })).getAttribute("aria-disabled")).toBe("true");
+    const option = await screen.findByRole("menuitem", { name: /Lumen School/ });
     fireEvent.click(option);
     fireEvent.click(option);
 
     expect(mocks.switchWorkspace).toHaveBeenCalledTimes(1);
     expect(mocks.switchWorkspace).toHaveBeenCalledWith("tenant-2");
+    expect(switcher.disabled).toBe(true);
     resolveSwitch?.();
     await waitFor(() =>
       expect(mocks.replace).toHaveBeenCalledWith("/dashboard"),
     );
+    expect(switcher.disabled).toBe(false);
   });
 
   it("giữ trang hiện tại và hiện lỗi khi chuyển workspace thất bại", async () => {
@@ -726,7 +918,9 @@ describe("WorkspaceShell route access boundary", () => {
     );
     fireEvent.click(await screen.findByText("Lumen School"));
 
-    expect(await screen.findByText("Workspace đã bị khóa")).toBeTruthy();
+    // Only reviewed local copy is rendered for an unstructured backend failure.
+    expect(await screen.findByText("Không thể chuyển không gian làm việc")).toBeTruthy();
+    expect(screen.queryByText("Workspace đã bị khóa")).toBeNull();
     expect(mocks.replace).not.toHaveBeenCalled();
     expect(screen.getByText("Nội dung trang có truy vấn")).toBeTruthy();
   });

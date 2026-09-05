@@ -192,13 +192,17 @@ describe("AdminNotificationEventsPage", () => {
 
     await act(async () => first.reject(new Error("Worker API chưa sẵn sàng")));
     expect(await screen.findByText("Không tải được dead-letter")).toBeTruthy();
-    expect(screen.getByText("Worker API chưa sẵn sàng")).toBeTruthy();
+    expect(screen.getByText("Không tải được danh sách sự kiện thông báo.")).toBeTruthy();
+    expect(screen.queryByText("Worker API chưa sẵn sàng")).toBeNull();
 
-    mocks.list.mockImplementationOnce(
-      (_context: unknown, query: AdminNotificationEventsQuery) =>
-        Promise.resolve(page(query, 0)),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Thử lại" }));
+    const retry = deferred<ReturnType<typeof page>>();
+    mocks.list.mockReturnValueOnce(retry.promise);
+    const retryButton = screen.getByRole("button", { name: "Thử lại" });
+    act(() => { fireEvent.click(retryButton); fireEvent.click(retryButton); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Tải lại sự kiện thông báo" }).classList.contains("ant-btn-loading")).toBe(true));
+    expect(screen.getByRole("status").textContent).toContain("Đang tải metadata sự kiện thông báo");
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+    await act(async () => retry.resolve(page({ page: 1, limit: 20 }, 0)));
     expect(
       await screen.findByText("Không có sự kiện dead-letter phù hợp bộ lọc."),
     ).toBeTruthy();
@@ -418,7 +422,7 @@ describe("AdminNotificationEventsPage", () => {
       (await screen.findAllByText("Retry sự kiện thất bại")).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByText("Pipeline vẫn chưa sẵn sàng").length,
+      screen.getAllByText("Không thể đưa sự kiện vào hàng đợi lại.").length,
     ).toBeGreaterThan(0);
     expect(
       screen.getByRole("dialog", { name: "Retry sự kiện thông báo" }),
@@ -435,7 +439,8 @@ describe("AdminNotificationEventsPage", () => {
         operationId,
       ),
     );
-    mocks.getRetryOperation.mockResolvedValue(operation());
+    const check = deferred<AdminNotificationRetryOperation>();
+    mocks.getRetryOperation.mockReturnValueOnce(check.promise);
     renderPage();
     await screen.findByRole("button", { name: retryButtonName });
 
@@ -451,7 +456,12 @@ describe("AdminNotificationEventsPage", () => {
     expect(
       await screen.findByText("Cần kiểm tra trạng thái retry"),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra operation" }));
+    const checkButton = screen.getByRole("button", { name: "Kiểm tra operation" });
+    act(() => { fireEvent.click(checkButton); fireEvent.click(checkButton); });
+    expect(checkButton.classList.contains("ant-btn-loading")).toBe(true);
+    expect(mocks.getRetryOperation).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole("combobox", { name: "Chọn mã lý do retry" }) as HTMLSelectElement).disabled).toBe(true);
+    await act(async () => check.resolve(operation()));
     expect(await screen.findByText("Retry đã hoàn tất")).toBeTruthy();
     expect(mocks.getRetryOperation).toHaveBeenCalledWith(
       expect.objectContaining({ token: "platform-secret-token" }),

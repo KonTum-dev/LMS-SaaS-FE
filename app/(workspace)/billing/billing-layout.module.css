@@ -1,0 +1,20 @@
+.currentSummary:global(.billing-current-summary) {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.currentSummary > :first-child {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+.currentSummary > :last-child {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.currentSummary :global(.ant-tag) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

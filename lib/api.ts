@@ -23,6 +23,9 @@ export function apiRequestUrl(path: string): string {
 }
 
 export class ApiError extends Error {
+  /** Request context supplied by this client, never copied from server payloads. */
+  requestMethod?: string;
+
   constructor(
     message: string,
     public status: number,
@@ -167,16 +170,17 @@ export async function apiFetch<T>(
       throw new ApiError("Máy chủ trả dữ liệu không hợp lệ", response.status);
     }
   } catch (error) {
-    if (error instanceof ApiError) throw error;
-    if (
+    const timedOut =
       bounded.signal.aborted ||
       callerSignal?.aborted ||
       (error instanceof DOMException &&
-        (error.name === "AbortError" || error.name === "TimeoutError"))
-    ) {
-      throw new ApiError("Máy chủ phản hồi quá lâu, vui lòng thử lại", 0);
-    }
-    throw new ApiError("Không thể kết nối tới máy chủ", 0);
+        (error.name === "AbortError" || error.name === "TimeoutError"));
+    const requestError = error instanceof ApiError ? error : new ApiError(
+      timedOut ? "Máy chủ phản hồi quá lâu, vui lòng thử lại" : "Không thể kết nối tới máy chủ",
+      0,
+    );
+    requestError.requestMethod = (request.method ?? "GET").toUpperCase();
+    throw requestError;
   } finally {
     bounded.cleanup();
   }
@@ -184,6 +188,14 @@ export async function apiFetch<T>(
 
 interface BillingApiContext {
   token: string;
+}
+
+export interface TenantOrdersQuery {
+  page: number;
+  limit: number;
+  search?: string;
+  status?: PaymentOrder["status"];
+  type?: PaymentOrder["type"];
 }
 
 function queryString(values: object): string {
@@ -204,6 +216,10 @@ export const billingApi = {
     apiFetch<Subscription | null>("/billing/subscription", { token }),
   listOrders: ({ token }: BillingApiContext) =>
     apiFetch<PaymentOrder[]>("/billing/orders", { token }),
+  listOrdersDirectory: ({ token }: BillingApiContext, query: TenantOrdersQuery, options: { signal?: AbortSignal } = {}) =>
+    apiFetch<Paginated<PaymentOrder>>(`/billing/orders/directory${queryString(query)}`, {
+      token, ...(options.signal ? { signal: options.signal } : {}),
+    }),
   getOrder: ({ token }: BillingApiContext, id: string) =>
     apiFetch<PaymentOrder>(`/billing/orders/${id}`, { token }),
   createCheckout: (
@@ -243,6 +259,18 @@ export const billingApi = {
     apiFetch<Subscription>("/billing/downgrade", { method: "DELETE", token }),
   adminListPlans: ({ token }: BillingApiContext) =>
     apiFetch<BillingPlan[]>("/admin/billing/plans", { token }),
+  adminGetPlan: ({ token }: BillingApiContext, id: string) =>
+    apiFetch<BillingPlan>(`/admin/billing/plans/${id}`, { token }),
+  adminDisablePlan: ({ token }: BillingApiContext, id: string) =>
+    apiFetch<BillingPlan>(`/admin/billing/plans/${id}`, {
+      method: "DELETE",
+      token,
+    }),
+  adminRestorePlan: ({ token }: BillingApiContext, id: string) =>
+    apiFetch<BillingPlan>(`/admin/billing/plans/${id}/restore`, {
+      method: "POST",
+      token,
+    }),
   adminCreatePlan: ({ token }: BillingApiContext, input: BillingPlanInput) =>
     apiFetch<BillingPlan>("/admin/billing/plans", {
       body: JSON.stringify(input),

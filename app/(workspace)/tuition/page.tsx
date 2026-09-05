@@ -1,4 +1,11 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsPolishMessages as operationsMessages } from "@/lib/i18n/learning-polish-messages";
+import polish from "@/components/layout/learning-polish.module.css";
+import { useMemo as useI18nMemo } from "react";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
 
 import {
   BankOutlined,
@@ -8,26 +15,8 @@ import {
   StopOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  Col,
-  Empty,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Row,
-  Select,
-  Space,
-  Statistic,
-  Table,
-  Tag,
-  Typography,
-} from "antd";
+import { Alert, Button, Card, Col, Empty, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography } from "antd";
+import { Form } from "@/components/form/localized-form";
 import type { ColumnsType } from "antd/es/table";
 import { useMemo, useState } from "react";
 import { useAuth } from "@/components/providers/app-providers";
@@ -49,44 +38,6 @@ import {
 } from "@/lib/tuition-api";
 
 const PAGE_SIZE = 20;
-const money = new Intl.NumberFormat("vi-VN", {
-  currency: "VND",
-  maximumFractionDigits: 0,
-  style: "currency",
-});
-const dateTime = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-const statusPresentation: Record<
-  TuitionInvoiceStatus,
-  { color: string; label: string }
-> = {
-  DRAFT: { color: "default", label: "Bản nháp" },
-  ISSUED: { color: "processing", label: "Chờ thanh toán" },
-  OVERDUE: { color: "red", label: "Quá hạn" },
-  PAID: { color: "green", label: "Đã thanh toán" },
-  PARTIALLY_PAID: { color: "gold", label: "Đã thanh toán một phần" },
-  VOID: { color: "default", label: "Đã hủy" },
-};
-
-const statusOptions: Array<{ label: string; value: TuitionInvoiceStatus | "" }> = [
-  { label: "Mọi trạng thái", value: "" },
-  { label: "Bản nháp", value: "DRAFT" },
-  { label: "Chờ thanh toán", value: "ISSUED" },
-  { label: "Đã thanh toán một phần", value: "PARTIALLY_PAID" },
-  { label: "Đã thanh toán", value: "PAID" },
-  { label: "Quá hạn", value: "OVERDUE" },
-  { label: "Đã hủy", value: "VOID" },
-];
-
-const paymentMethodLabels: Record<TuitionPaymentMethod, string> = {
-  BANK_TRANSFER: "Chuyển khoản",
-  CARD: "Thẻ",
-  CASH: "Tiền mặt",
-  OTHER: "Khác",
-};
 
 interface CreateInvoiceFormValues {
   amountVnd: number | string;
@@ -106,70 +57,23 @@ interface PaymentFormValues {
   providerReference?: string;
 }
 
-function tuitionRootKey(scope: ViewerScope) {
-  return [...lmsQueryKeys.viewer(scope), "tuition"] as const;
-}
-
-function tuitionInvoiceListKey(
-  scope: ViewerScope,
-  query: TuitionInvoiceQuery,
-) {
-  return [
-    ...tuitionRootKey(scope),
-    "invoices",
-    normalizeQueryFilters({
-      cohortId: query.cohortId,
-      learnerId: query.learnerId,
-      limit: query.limit,
-      page: query.page,
-      status: query.status,
-    }),
-  ] as const;
-}
-
-function formatDate(value?: string): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "—" : dateTime.format(parsed);
-}
-
-function positiveVnd(value: number | string, maximum?: number): number {
-  const amount = Number(value);
-  if (!Number.isSafeInteger(amount) || amount < 1) {
-    throw new Error("Số tiền phải là số nguyên VND lớn hơn 0");
-  }
-  if (maximum !== undefined && amount > maximum) {
-    throw new Error("Số tiền thanh toán vượt số dư hóa đơn");
-  }
-  return amount;
-}
-
-function requiredIsoDate(value: string, label: string): string {
-  const timestamp = Date.parse(value);
-  if (!value || Number.isNaN(timestamp)) {
-    throw new Error(`${label} không hợp lệ`);
-  }
-  return new Date(timestamp).toISOString();
-}
-
-function optionalIsoDate(value?: string): string | undefined {
-  if (!value?.trim()) return undefined;
-  return requiredIsoDate(value, "Thời điểm thanh toán");
-}
-
-function selectValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value !== "object" || value === null) return "";
-  const event = value as {
-    currentTarget?: { value?: unknown };
-    target?: { value?: unknown };
-  };
-  const candidate = event.currentTarget?.value ?? event.target?.value;
-  return typeof candidate === "string" ? candidate : "";
-}
-
 export default function TuitionPage() {
-  const { message } = App.useApp();
+  const {
+    t,
+    money,
+    statusPresentation,
+    statusOptions,
+    paymentMethodLabels,
+    tuitionRootKey,
+    tuitionInvoiceListKey,
+    formatDate,
+    positiveVnd,
+    requiredIsoDate,
+    optionalIsoDate,
+    selectValue,
+    locale,
+  } = useOperationsCopy();
+  const { message, reportError } = useFeedback();
   const { effectiveAccess, organization, token, user } = useAuth();
   const queryClient = useQueryClient();
   const [createForm] = Form.useForm<CreateInvoiceFormValues>();
@@ -275,7 +179,8 @@ export default function TuitionPage() {
     [invoiceOptions?.learners],
   );
   const learnerNames = useMemo(
-    () => new Map(learners.map((learner) => [learner.userId, learner.fullName])),
+    () =>
+      new Map(learners.map((learner) => [learner.userId, learner.fullName])),
     [learners],
   );
   const selectedCreateLearner = useMemo(
@@ -301,7 +206,7 @@ export default function TuitionPage() {
   );
   const createCohortOptions = useMemo(
     () => [
-      { label: "Không gắn với lớp", value: "" },
+      { label: t("Không gắn với lớp"), value: "" },
       ...(selectedCreateLearner?.cohortIds ?? [])
         .map((id) => cohortById.get(id))
         .filter((cohort) => cohort !== undefined)
@@ -314,11 +219,12 @@ export default function TuitionPage() {
           value: cohort._id,
         })),
     ],
-    [cohortById, orgUnitById, selectedCreateLearner?.cohortIds],
+    [cohortById, orgUnitById, selectedCreateLearner?.cohortIds, t],
   );
   const eligibleCreateOrgUnitIds = useMemo(() => {
     const ids = new Set<string>();
-    if (selectedCreateLearner?.orgUnitId) ids.add(selectedCreateLearner.orgUnitId);
+    if (selectedCreateLearner?.orgUnitId)
+      ids.add(selectedCreateLearner.orgUnitId);
     for (const cohortId of selectedCreateLearner?.cohortIds ?? []) {
       const orgUnitId = cohortById.get(cohortId)?.orgUnitId;
       if (orgUnitId) ids.add(orgUnitId);
@@ -340,8 +246,8 @@ export default function TuitionPage() {
     : undefined;
   const soloBillingMode = Boolean(
     invoiceOptions &&
-      !invoiceOptions.scoped &&
-      invoiceOptions.orgUnits.length === 0,
+    !invoiceOptions.scoped &&
+    invoiceOptions.orgUnits.length === 0,
   );
   const hasCreateBillingContext = Boolean(
     createCohortId || createOrgUnitId || soloBillingMode,
@@ -352,18 +258,18 @@ export default function TuitionPage() {
   );
   const canCreateInvoice = Boolean(
     canManage &&
-      invoiceOptions &&
-      (!invoiceOptions.scoped || invoiceOptions.orgUnits.length > 0),
+    invoiceOptions &&
+    (!invoiceOptions.scoped || invoiceOptions.orgUnits.length > 0),
   );
   const learnerOptions = useMemo(
     () => [
-      { label: "Mọi học viên", value: "" },
+      { label: t("Mọi học viên"), value: "" },
       ...learners.map((learner) => ({
         label: `${learner.fullName} · ${learner.email}`,
         value: learner.userId,
       })),
     ],
-    [learners],
+    [learners, t],
   );
 
   const invoices = useMemo(
@@ -372,9 +278,16 @@ export default function TuitionPage() {
   );
   const summary = useMemo(
     () => ({
-      balance: invoices.reduce((total, invoice) => total + invoice.balanceVnd, 0),
-      overdue: invoices.filter((invoice) => invoice.status === "OVERDUE").length,
-      paid: invoices.reduce((total, invoice) => total + invoice.paidAmountVnd, 0),
+      balance: invoices.reduce(
+        (total, invoice) => total + invoice.balanceVnd,
+        0,
+      ),
+      overdue: invoices.filter((invoice) => invoice.status === "OVERDUE")
+        .length,
+      paid: invoices.reduce(
+        (total, invoice) => total + invoice.paidAmountVnd,
+        0,
+      ),
     }),
     [invoices],
   );
@@ -391,14 +304,12 @@ export default function TuitionPage() {
         ...(values.description?.trim()
           ? { description: values.description.trim() }
           : {}),
-        dueAt: requiredIsoDate(values.dueAt, "Hạn thanh toán"),
+        dueAt: requiredIsoDate(values.dueAt, t("Hạn thanh toán")),
         learnerId: values.learnerId,
         title: values.title.trim(),
       });
     } catch (caught) {
-      message.error(
-        caught instanceof Error ? caught.message : "Không thể tạo hóa đơn",
-      );
+      reportError(caught, "Không thể tạo hóa đơn");
     }
   };
 
@@ -414,9 +325,7 @@ export default function TuitionPage() {
     try {
       await issueMutation.mutateAsync(invoiceId);
     } catch (caught) {
-      message.error(
-        caught instanceof Error ? caught.message : "Không thể phát hành hóa đơn",
-      );
+      reportError(caught, "Không thể phát hành hóa đơn");
     }
   };
 
@@ -424,9 +333,7 @@ export default function TuitionPage() {
     try {
       await voidMutation.mutateAsync(invoiceId);
     } catch (caught) {
-      message.error(
-        caught instanceof Error ? caught.message : "Không thể hủy hóa đơn",
-      );
+      reportError(caught, "Không thể hủy hóa đơn");
     }
   };
 
@@ -453,31 +360,27 @@ export default function TuitionPage() {
         invoiceId: paymentInvoice._id,
       });
     } catch (caught) {
-      message.error(
-        caught instanceof Error
-          ? caught.message
-          : "Không thể ghi nhận thanh toán",
-      );
+      reportError(caught, "Không thể ghi nhận thanh toán");
     }
   };
 
   const columns: ColumnsType<TuitionInvoice> = [
     {
       key: "invoice",
+      width: 240,
       render: (_, invoice) => (
         <div>
-          <Typography.Text copyable>{invoice.invoiceNumber}</Typography.Text>
-          <div>
-            <strong>{invoice.title}</strong>
-          </div>
+          <Typography.Text className={polish.invoiceNumber} copyable>{invoice.invoiceNumber}</Typography.Text>
+          <strong className={polish.invoiceTitle}>{invoice.title}</strong>
           {invoice.description && (
-            <Typography.Text type="secondary">
-              {invoice.description}
-            </Typography.Text>
+            <details className={polish.invoiceNote}>
+              <summary>{t("Ghi chú")}</summary>
+              <p>{invoice.description}</p>
+            </details>
           )}
         </div>
       ),
-      title: "Hóa đơn",
+      title: t("Hóa đơn"),
     },
     ...(isTenantAdmin || isGuardian
       ? [
@@ -489,7 +392,7 @@ export default function TuitionPage() {
                 <strong>
                   {learnerNames.get(value) ??
                     invoice.learner?.fullName ??
-                    "Học viên được liên kết"}
+                    t("Học viên được liên kết")}
                 </strong>
                 <div className="table-muted">
                   {invoice.learner?.email ?? value}
@@ -497,35 +400,35 @@ export default function TuitionPage() {
               </div>
             ),
             responsive: ["sm" as const],
-            title: "Học viên",
+            title: t("Học viên"),
           },
         ]
       : []),
     {
       dataIndex: "amountVnd",
       key: "amount",
-      render: (value: number) => money.format(value),
-      title: "Phải thu",
+      render: (value: number) => <span className={polish.money}>{money.format(value)}</span>,
+      title: t("Phải thu"),
     },
     {
       key: "collected",
       render: (_, invoice) => (
-        <div>
+        <div className={polish.money}>
           <strong>{money.format(invoice.paidAmountVnd)}</strong>
           <div className="table-muted">
-            Còn {money.format(invoice.balanceVnd)}
+            {t("Còn")} {money.format(invoice.balanceVnd)}
           </div>
         </div>
       ),
       responsive: ["md"],
-      title: "Đã thu",
+      title: t("Đã thu"),
     },
     {
       dataIndex: "dueAt",
       key: "dueAt",
-      render: (value: string) => formatDate(value),
+      render: (value: string) => value ? <time className={polish.date} dateTime={value} title={formatDate(value)}>{formatDate(value, true)}</time> : "—",
       responsive: ["lg"],
-      title: "Hạn thanh toán",
+      title: t("Hạn thanh toán"),
     },
     {
       dataIndex: "status",
@@ -534,7 +437,7 @@ export default function TuitionPage() {
         const presentation = statusPresentation[value];
         return <Tag color={presentation.color}>{presentation.label}</Tag>;
       },
-      title: "Trạng thái",
+      title: t("Trạng thái"),
     },
     ...(isTenantAdmin
       ? [
@@ -543,10 +446,10 @@ export default function TuitionPage() {
             render: (_: unknown, invoice: TuitionInvoice) => {
               const canManageInvoice = Boolean(
                 canManage &&
-                  invoiceOptions &&
-                  (!invoiceOptions.scoped ||
-                    (invoice.orgUnitId &&
-                      writableOrgUnitIds.has(invoice.orgUnitId))),
+                invoiceOptions &&
+                (!invoiceOptions.scoped ||
+                  (invoice.orgUnitId &&
+                    writableOrgUnitIds.has(invoice.orgUnitId))),
               );
               const canIssue = invoice.lifecycle === "DRAFT";
               const canPay =
@@ -554,11 +457,7 @@ export default function TuitionPage() {
               const canVoid =
                 invoice.lifecycle !== "VOID" && invoice.paidAmountVnd === 0;
               if (!canIssue && !canPay && !canVoid) {
-                return (
-                  <Typography.Text type="secondary">
-                    Không có thao tác
-                  </Typography.Text>
-                );
+                return null;
               }
               return (
                 <Space wrap>
@@ -574,7 +473,7 @@ export default function TuitionPage() {
                       size="small"
                       type="primary"
                     >
-                      Phát hành
+                      {t("Phát hành")}{" "}
                     </Button>
                   )}
                   {canPay && (
@@ -584,16 +483,16 @@ export default function TuitionPage() {
                       onClick={() => openPayment(invoice)}
                       size="small"
                     >
-                      Ghi nhận thanh toán
+                      {t("Ghi nhận thanh toán")}{" "}
                     </Button>
                   )}
                   {canVoid && (
                     <Popconfirm
-                      cancelText="Giữ hóa đơn"
+                      cancelText={t("Giữ hóa đơn")}
                       disabled={!canManageInvoice}
-                      okText="Xác nhận hủy"
+                      okText={t("Xác nhận hủy")}
                       onConfirm={() => voidInvoice(invoice._id)}
-                      title="Hủy hóa đơn này?"
+                      title={t("Hủy hóa đơn này?")}
                     >
                       <Button
                         danger
@@ -605,14 +504,14 @@ export default function TuitionPage() {
                         }
                         size="small"
                       >
-                        Hủy hóa đơn
+                        {t("Hủy hóa đơn")}{" "}
                       </Button>
                     </Popconfirm>
                   )}
                 </Space>
               );
             },
-            title: "Thao tác",
+            title: t("Thao tác"),
           },
         ]
       : []),
@@ -622,7 +521,9 @@ export default function TuitionPage() {
     return (
       <Alert
         showIcon
-        title="Học phí chỉ dành cho quản trị tổ chức, học viên và phụ huynh."
+        title={t(
+          "Học phí chỉ dành cho quản trị tổ chức, học viên và phụ huynh.",
+        )}
         type="warning"
       />
     );
@@ -631,7 +532,7 @@ export default function TuitionPage() {
     return (
       <Alert
         showIcon
-        title="Phiên làm việc thiếu phạm vi thành viên hợp lệ."
+        title={t("Phiên làm việc thiếu phạm vi thành viên hợp lệ.")}
         type="error"
       />
     );
@@ -641,11 +542,15 @@ export default function TuitionPage() {
     <div className="page-shell">
       <div className="page-heading">
         <div>
-          <h1>Học phí</h1>
+          <h1>{t("Học phí")}</h1>
           <p>
             {isTenantAdmin
-              ? "Theo dõi công nợ, phát hành hóa đơn và ghi nhận các khoản đã thu."
-              : "Theo dõi hóa đơn, hạn thanh toán và lịch sử các khoản đã ghi nhận."}
+              ? t(
+                  "Theo dõi công nợ, phát hành hóa đơn và ghi nhận các khoản đã thu.",
+                )
+              : t(
+                  "Theo dõi hóa đơn, hạn thanh toán và lịch sử các khoản đã ghi nhận.",
+                )}
           </p>
         </div>
         {isTenantAdmin && (
@@ -661,109 +566,84 @@ export default function TuitionPage() {
             }}
             title={
               readOnly
-                ? "Gia hạn thuê bao để tạo hóa đơn học phí"
-                : invoiceOptions?.scoped &&
-                    invoiceOptions.orgUnits.length === 0
-                  ? "Bạn chưa có đơn vị được phép thu học phí"
-                : undefined
+                ? t("Gia hạn thuê bao để tạo hóa đơn học phí")
+                : invoiceOptions?.scoped && invoiceOptions.orgUnits.length === 0
+                  ? t("Bạn chưa có đơn vị được phép thu học phí")
+                  : undefined
             }
             type="primary"
           >
-            Tạo hóa đơn
+            {t("Tạo hóa đơn")}{" "}
           </Button>
         )}
       </div>
 
-      {isLearner && (
-        <Alert
-          description="Bạn chỉ có thể xem các hóa đơn học phí của chính mình."
-          showIcon
-          title="Thông tin học phí cá nhân"
-          type="info"
-        />
-      )}
       {isTenantAdmin && readOnly && (
         <Alert
-          description="Bạn vẫn có thể xem và lọc dữ liệu; tạo, phát hành, hủy và ghi nhận thanh toán đang tạm khóa."
+          description={t(
+            "Bạn vẫn có thể xem và lọc dữ liệu; tạo, phát hành, hủy và ghi nhận thanh toán đang tạm khóa.",
+          )}
           showIcon
-          title="Workspace đang ở chế độ chỉ đọc"
+          title={t("Workspace đang ở chế độ chỉ đọc")}
           type="warning"
         />
       )}
       {invoicesQuery.error && (
         <Alert
           action={
-            <Button onClick={() => void invoicesQuery.refetch()} size="small">
-              Thử lại
+            <Button loading={invoicesQuery.isFetching} onClick={() => void invoicesQuery.refetch()} size="small">
+              {t("Thử lại")}{" "}
             </Button>
           }
           description={
             invoicesQuery.error instanceof Error
-              ? invoicesQuery.error.message
-              : "Không thể tải danh sách hóa đơn"
+              ? describeOperationsError(
+                  invoicesQuery.error,
+                  locale,
+                  t("Không thể tải danh sách hóa đơn"),
+                )
+              : t("Không thể tải danh sách hóa đơn")
           }
           showIcon
-          title="Không tải được học phí"
+          title={t("Không tải được học phí")}
           type="error"
         />
       )}
       {isTenantAdmin && invoiceOptionsQuery.error && (
         <Alert
-          description="Danh sách hóa đơn vẫn dùng được, nhưng chưa thể chọn đúng học viên, lớp và đơn vị để lập hóa đơn mới."
+          description={t(
+            "Danh sách hóa đơn vẫn dùng được, nhưng chưa thể chọn đúng học viên, lớp và đơn vị để lập hóa đơn mới.",
+          )}
           showIcon
-          title="Không tải được danh mục lập hóa đơn"
+          title={t("Không tải được danh mục lập hóa đơn")}
           type="warning"
         />
       )}
-      {isTenantAdmin && invoiceOptions?.scoped && invoiceOptions.orgUnits.length === 0 && (
-        <Alert
-          description="Bạn vẫn có thể xem hóa đơn trong phạm vi hiện tại, nhưng cần quyền Nhân sự vận hành trở lên tại ít nhất một đơn vị để lập và thu học phí."
-          showIcon
-          title="Chưa có đơn vị được phép thu học phí"
-          type="info"
-        />
-      )}
+      {isTenantAdmin &&
+        invoiceOptions?.scoped &&
+        invoiceOptions.orgUnits.length === 0 && (
+          <Alert
+            description={t(
+              "Bạn vẫn có thể xem hóa đơn trong phạm vi hiện tại, nhưng cần quyền Nhân sự vận hành trở lên tại ít nhất một đơn vị để lập và thu học phí.",
+            )}
+            showIcon
+            title={t("Chưa có đơn vị được phép thu học phí")}
+            type="info"
+          />
+        )}
 
-      <Row gutter={[16, 16]}>
-        <Col sm={12} xl={6} xs={24}>
-          <Card className="surface-card">
-            <Statistic
-              title="Hóa đơn theo bộ lọc"
-              value={invoicesQuery.data?.total ?? 0}
-            />
-          </Card>
-        </Col>
-        <Col sm={12} xl={6} xs={24}>
-          <Card className="surface-card">
-            <Statistic
-              title="Đã thu (trang này)"
-              value={money.format(summary.paid)}
-            />
-          </Card>
-        </Col>
-        <Col sm={12} xl={6} xs={24}>
-          <Card className="surface-card">
-            <Statistic
-              title="Còn phải thu (trang này)"
-              value={money.format(summary.balance)}
-            />
-          </Card>
-        </Col>
-        <Col sm={12} xl={6} xs={24}>
-          <Card className="surface-card">
-            <Statistic title="Quá hạn (trang này)" value={summary.overdue} />
-          </Card>
-        </Col>
-      </Row>
+      <div className={polish.summary} aria-label={t("Số liệu trang hiện tại")}>
+        <span>{t("Đã thu (trang này)")}<strong>{money.format(summary.paid)}</strong></span>
+        <span>{t("Còn phải thu (trang này)")}<strong>{money.format(summary.balance)}</strong></span>
+        <span>{t("Quá hạn (trang này)")}<strong>{summary.overdue}</strong></span>
+      </div>
 
-      <Card className="surface-card" title="Danh sách hóa đơn">
-        <Space wrap>
+      <Card className="surface-card" title={t("Danh sách hóa đơn")} extra={<Typography.Text type="secondary">{t("Tổng số hóa đơn")}: {invoicesQuery.data?.total ?? 0}</Typography.Text>}>
+        <div className={`list-filter-bar ${polish.tableFilters}`}>
           <Select<TuitionInvoiceStatus | "">
-            aria-label="Lọc theo trạng thái"
+            aria-label={t("Lọc theo trạng thái")}
             onChange={(nextValue) => {
-              const value = selectValue(nextValue) as
-                | TuitionInvoiceStatus
-                | "";
+              const value = selectValue(nextValue) as TuitionInvoiceStatus | "";
               setStatus(value || undefined);
               setPage(1);
             }}
@@ -772,7 +652,7 @@ export default function TuitionPage() {
           />
           {isTenantAdmin && (
             <Select<string>
-              aria-label="Lọc theo học viên"
+              aria-label={t("Lọc theo học viên")}
               loading={invoiceOptionsQuery.isLoading}
               onChange={(nextValue) => {
                 const value = selectValue(nextValue);
@@ -785,7 +665,7 @@ export default function TuitionPage() {
               value={learnerId ?? ""}
             />
           )}
-        </Space>
+        </div>
 
         <Table<TuitionInvoice>
           columns={columns}
@@ -796,8 +676,8 @@ export default function TuitionPage() {
               <Empty
                 description={
                   isLearner
-                    ? "Bạn chưa có hóa đơn học phí"
-                    : "Chưa có hóa đơn phù hợp"
+                    ? t("Bạn chưa có hóa đơn học phí")
+                    : t("Chưa có hóa đơn phù hợp")
                 }
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               />
@@ -820,7 +700,7 @@ export default function TuitionPage() {
         footer={null}
         onCancel={closeCreate}
         open={createOpen}
-        title="Tạo hóa đơn học phí nháp"
+        title={t("Tạo hóa đơn học phí nháp")}
       >
         <Form<CreateInvoiceFormValues>
           form={createForm}
@@ -829,12 +709,12 @@ export default function TuitionPage() {
           preserve={false}
         >
           <Form.Item
-            label="Học viên"
+            label={t("Học viên")}
             name="learnerId"
-            rules={[{ required: true, message: "Chọn học viên" }]}
+            rules={[{ required: true, message: t("Chọn học viên") }]}
           >
             <Select
-              aria-label="Học viên"
+              aria-label={t("Học viên")}
               loading={invoiceOptionsQuery.isLoading}
               onChange={(nextValue) => {
                 setCreateLearnerId(selectValue(nextValue));
@@ -847,18 +727,20 @@ export default function TuitionPage() {
               }}
               optionFilterProp="label"
               options={learnerOptions.slice(1)}
-              placeholder="Chọn học viên hoạt động"
+              placeholder={t("Chọn học viên hoạt động")}
               showSearch
             />
           </Form.Item>
           <Form.Item
-            extra="Gắn với lớp giúp hệ thống tự xác định đơn vị thu và kiểm tra học viên đang có trong lớp."
-            label="Lớp áp dụng (khuyến nghị)"
+            extra={t(
+              "Gắn với lớp giúp hệ thống tự xác định đơn vị thu và kiểm tra học viên đang có trong lớp.",
+            )}
+            label={t("Lớp áp dụng (khuyến nghị)")}
             name="cohortId"
           >
             <Select
               allowClear
-              aria-label="Lớp áp dụng"
+              aria-label={t("Lớp áp dụng")}
               disabled={!createLearnerId}
               onChange={(nextValue) => {
                 const value = selectValue(nextValue);
@@ -870,7 +752,7 @@ export default function TuitionPage() {
               }}
               optionFilterProp="label"
               options={createCohortOptions}
-              placeholder="Chọn lớp của học viên"
+              placeholder={t("Chọn lớp của học viên")}
               showSearch
             />
           </Form.Item>
@@ -879,10 +761,14 @@ export default function TuitionPage() {
               description={
                 selectedCreateCohort.orgUnitId &&
                 orgUnitById.get(selectedCreateCohort.orgUnitId)
-                  ? `Đơn vị thu được lấy từ lớp: ${
-                      orgUnitById.get(selectedCreateCohort.orgUnitId)?.name
-                    }.`
-                  : "Lớp này đang vận hành theo mô hình cá nhân, không gắn đơn vị."
+                  ? t("Đơn vị thu được lấy từ lớp: {value0}.", {
+                      value0:
+                        orgUnitById.get(selectedCreateCohort.orgUnitId)?.name ??
+                        "—",
+                    })
+                  : t(
+                      "Lớp này đang vận hành theo mô hình cá nhân, không gắn đơn vị.",
+                    )
               }
               showIcon
               title={`${selectedCreateCohort.code} · ${selectedCreateCohort.name}`}
@@ -890,58 +776,67 @@ export default function TuitionPage() {
             />
           ) : soloBillingMode ? (
             <Alert
-              description="Workspace chưa dùng cơ cấu chi nhánh nên hóa đơn có thể lập trực tiếp cho học viên."
+              description={t(
+                "Workspace chưa dùng cơ cấu chi nhánh nên hóa đơn có thể lập trực tiếp cho học viên.",
+              )}
               showIcon
-              title="Mô hình giáo viên độc lập"
+              title={t("Mô hình giáo viên độc lập")}
               type="info"
             />
           ) : (
             <Form.Item
               extra={
                 createLearnerId && createOrgUnitOptions.length === 0
-                  ? "Học viên chưa có đơn vị chính hoặc lớp đang hoạt động trong phạm vi bạn phụ trách."
-                  : "Dùng khi khoản thu không thuộc một lớp cụ thể."
+                  ? t(
+                      "Học viên chưa có đơn vị chính hoặc lớp đang hoạt động trong phạm vi bạn phụ trách.",
+                    )
+                  : t("Dùng khi khoản thu không thuộc một lớp cụ thể.")
               }
-              label="Đơn vị thu học phí"
+              label={t("Đơn vị thu học phí")}
               name="orgUnitId"
-              rules={[{ required: true, message: "Chọn đơn vị thu học phí" }]}
+              rules={[
+                { required: true, message: t("Chọn đơn vị thu học phí") },
+              ]}
             >
               <Select
-                aria-label="Đơn vị thu học phí"
+                aria-label={t("Đơn vị thu học phí")}
                 disabled={!createLearnerId}
                 onChange={(nextValue) =>
                   setCreateOrgUnitId(selectValue(nextValue))
                 }
                 optionFilterProp="label"
                 options={createOrgUnitOptions}
-                placeholder="Chọn đơn vị phù hợp với học viên"
+                placeholder={t("Chọn đơn vị phù hợp với học viên")}
                 showSearch
               />
             </Form.Item>
           )}
           <Form.Item
-            label="Nội dung thu"
+            label={t("Nội dung thu")}
             name="title"
             rules={[
-              { required: true, message: "Nhập nội dung thu" },
+              { required: true, message: t("Nhập nội dung thu") },
               { min: 2, max: 200 },
             ]}
           >
-            <Input maxLength={200} placeholder="Ví dụ: Học phí khóa Data đợt 1" />
+            <Input
+              maxLength={200}
+              placeholder={t("Ví dụ: Học phí khóa Data đợt 1")}
+            />
           </Form.Item>
-          <Form.Item label="Mô tả" name="description">
+          <Form.Item label={t("Mô tả")} name="description">
             <Input.TextArea
               maxLength={1_000}
-              placeholder="Thông tin bổ sung (không bắt buộc)"
+              placeholder={t("Thông tin bổ sung (không bắt buộc)")}
               rows={3}
             />
           </Form.Item>
           <Row gutter={16}>
             <Col sm={12} xs={24}>
               <Form.Item
-                label="Số tiền"
+                label={t("Số tiền")}
                 name="amountVnd"
-                rules={[{ required: true, message: "Nhập số tiền" }]}
+                rules={[{ required: true, message: t("Nhập số tiền") }]}
               >
                 <InputNumber
                   addonAfter="VND"
@@ -953,23 +848,23 @@ export default function TuitionPage() {
             </Col>
             <Col sm={12} xs={24}>
               <Form.Item
-                label="Hạn thanh toán"
+                label={t("Hạn thanh toán")}
                 name="dueAt"
-                rules={[{ required: true, message: "Chọn hạn thanh toán" }]}
+                rules={[{ required: true, message: t("Chọn hạn thanh toán") }]}
               >
                 <Input type="datetime-local" />
               </Form.Item>
             </Col>
           </Row>
           <Space>
-            <Button onClick={closeCreate}>Hủy</Button>
+            <Button onClick={closeCreate}>{t("Hủy")}</Button>
             <Button
               disabled={!createLearnerId || !hasCreateBillingContext}
               htmlType="submit"
               loading={createMutation.isPending}
               type="primary"
             >
-              Lưu hóa đơn nháp
+              {t("Lưu hóa đơn nháp")}{" "}
             </Button>
           </Space>
         </Form>
@@ -986,7 +881,7 @@ export default function TuitionPage() {
           }
         }}
         open={Boolean(paymentInvoice)}
-        title="Ghi nhận thanh toán học phí"
+        title={t("Ghi nhận thanh toán học phí")}
       >
         {paymentInvoice && (
           <Form<PaymentFormValues>
@@ -999,7 +894,9 @@ export default function TuitionPage() {
             preserve={false}
           >
             <Alert
-              description={`Số dư hiện tại: ${money.format(paymentInvoice.balanceVnd)}`}
+              description={t("Số dư hiện tại: {value0}", {
+                value0: money.format(paymentInvoice.balanceVnd),
+              })}
               showIcon
               title={paymentInvoice.invoiceNumber}
               type="info"
@@ -1007,9 +904,9 @@ export default function TuitionPage() {
             <Row gutter={16}>
               <Col sm={12} xs={24}>
                 <Form.Item
-                  label="Số tiền thanh toán"
+                  label={t("Số tiền thanh toán")}
                   name="amountVnd"
-                  rules={[{ required: true, message: "Nhập số tiền" }]}
+                  rules={[{ required: true, message: t("Nhập số tiền") }]}
                 >
                   <InputNumber
                     addonAfter="VND"
@@ -1022,9 +919,9 @@ export default function TuitionPage() {
               </Col>
               <Col sm={12} xs={24}>
                 <Form.Item
-                  label="Phương thức"
+                  label={t("Phương thức")}
                   name="method"
-                  rules={[{ required: true, message: "Chọn phương thức" }]}
+                  rules={[{ required: true, message: t("Chọn phương thức") }]}
                 >
                   <Select
                     options={[
@@ -1039,20 +936,20 @@ export default function TuitionPage() {
               </Col>
             </Row>
             <Form.Item
-              label="Mã giao dịch"
+              label={t("Mã giao dịch")}
               name="providerReference"
-              extra="Nên nhập khi nhận tiền qua chuyển khoản."
+              extra={t("Nên nhập khi nhận tiền qua chuyển khoản.")}
             >
               <Input
                 maxLength={160}
                 prefix={<BankOutlined />}
-                placeholder="Ví dụ: VCB-20260903-001"
+                placeholder={t("Ví dụ: VCB-20260903-001")}
               />
             </Form.Item>
-            <Form.Item label="Thời điểm thanh toán" name="paidAt">
+            <Form.Item label={t("Thời điểm thanh toán")} name="paidAt">
               <Input type="datetime-local" />
             </Form.Item>
-            <Form.Item label="Ghi chú" name="note">
+            <Form.Item label={t("Ghi chú")} name="note">
               <Input.TextArea maxLength={500} rows={3} />
             </Form.Item>
             <Space>
@@ -1063,14 +960,14 @@ export default function TuitionPage() {
                   setPaymentIdempotencyKey("");
                 }}
               >
-                Hủy
+                {t("Hủy")}{" "}
               </Button>
               <Button
                 htmlType="submit"
                 loading={paymentMutation.isPending}
                 type="primary"
               >
-                Lưu thanh toán
+                {t("Lưu thanh toán")}{" "}
               </Button>
             </Space>
           </Form>
@@ -1078,4 +975,136 @@ export default function TuitionPage() {
       </Modal>
     </div>
   );
+}
+
+function useOperationsCopy() {
+  const i18n = useI18n(operationsMessages);
+  return useI18nMemo(() => {
+    const { t, locale } = i18n;
+    const money = new Intl.NumberFormat(locale === "en" ? "en-US" : "vi-VN", {
+      currency: "VND",
+      maximumFractionDigits: 0,
+      style: "currency",
+    });
+
+    const dateTime = new Intl.DateTimeFormat(
+      locale === "en" ? "en-US" : "vi-VN",
+      {
+        dateStyle: "medium",
+        timeStyle: "short",
+      },
+    );
+    const shortDate = new Intl.DateTimeFormat(locale === "en" ? "en-US" : "vi-VN", {
+      day: "2-digit", month: "2-digit", year: "numeric",
+    });
+
+    const statusPresentation: Record<
+      TuitionInvoiceStatus,
+      { color: string; label: string }
+    > = {
+      DRAFT: { color: "default", label: t("Bản nháp") },
+      ISSUED: { color: "processing", label: t("Chờ thanh toán") },
+      OVERDUE: { color: "red", label: t("Quá hạn") },
+      PAID: { color: "green", label: t("Đã thanh toán") },
+      PARTIALLY_PAID: { color: "gold", label: t("Đã thanh toán một phần") },
+      VOID: { color: "default", label: t("Đã hủy") },
+    };
+
+    const statusOptions: Array<{
+      label: string;
+      value: TuitionInvoiceStatus | "";
+    }> = [
+      { label: t("Mọi trạng thái"), value: "" },
+      { label: t("Bản nháp"), value: "DRAFT" },
+      { label: t("Chờ thanh toán"), value: "ISSUED" },
+      { label: t("Đã thanh toán một phần"), value: "PARTIALLY_PAID" },
+      { label: t("Đã thanh toán"), value: "PAID" },
+      { label: t("Quá hạn"), value: "OVERDUE" },
+      { label: t("Đã hủy"), value: "VOID" },
+    ];
+
+    const paymentMethodLabels: Record<TuitionPaymentMethod, string> = {
+      BANK_TRANSFER: t("Chuyển khoản"),
+      CARD: t("Thẻ"),
+      CASH: t("Tiền mặt"),
+      OTHER: t("Khác"),
+    };
+
+    function tuitionRootKey(scope: ViewerScope) {
+      return [...lmsQueryKeys.viewer(scope), "tuition"] as const;
+    }
+
+    function tuitionInvoiceListKey(
+      scope: ViewerScope,
+      query: TuitionInvoiceQuery,
+    ) {
+      return [
+        ...tuitionRootKey(scope),
+        "invoices",
+        normalizeQueryFilters({
+          cohortId: query.cohortId,
+          learnerId: query.learnerId,
+          limit: query.limit,
+          page: query.page,
+          status: query.status,
+        }),
+      ] as const;
+    }
+
+    function formatDate(value?: string, dateOnly = false): string {
+      if (!value) return "—";
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? "—" : (dateOnly ? shortDate : dateTime).format(parsed);
+    }
+
+    function positiveVnd(value: number | string, maximum?: number): number {
+      const amount = Number(value);
+      if (!Number.isSafeInteger(amount) || amount < 1) {
+        throw new Error(t("Số tiền phải là số nguyên VND lớn hơn 0"));
+      }
+      if (maximum !== undefined && amount > maximum) {
+        throw new Error(t("Số tiền thanh toán vượt số dư hóa đơn"));
+      }
+      return amount;
+    }
+
+    function requiredIsoDate(value: string, label: string): string {
+      const timestamp = Date.parse(value);
+      if (!value || Number.isNaN(timestamp)) {
+        throw new Error(t("{value0} không hợp lệ", { value0: label }));
+      }
+      return new Date(timestamp).toISOString();
+    }
+
+    function optionalIsoDate(value?: string): string | undefined {
+      if (!value?.trim()) return undefined;
+      return requiredIsoDate(value, t("Thời điểm thanh toán"));
+    }
+
+    function selectValue(value: unknown): string {
+      if (typeof value === "string") return value;
+      if (typeof value !== "object" || value === null) return "";
+      const event = value as {
+        currentTarget?: { value?: unknown };
+        target?: { value?: unknown };
+      };
+      const candidate = event.currentTarget?.value ?? event.target?.value;
+      return typeof candidate === "string" ? candidate : "";
+    }
+    return {
+      ...i18n,
+      money,
+      dateTime,
+      statusPresentation,
+      statusOptions,
+      paymentMethodLabels,
+      tuitionRootKey,
+      tuitionInvoiceListKey,
+      formatDate,
+      positiveVnd,
+      requiredIsoDate,
+      optionalIsoDate,
+      selectValue,
+    };
+  }, [i18n]);
 }

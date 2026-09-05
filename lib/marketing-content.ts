@@ -48,8 +48,7 @@ export interface MarketingLink {
 
 export interface MarketingNavigation {
   items: readonly MarketingLink[];
-  primaryCta: MarketingLink;
-  secondaryCta: MarketingLink;
+  entryCta: { href: "/dashboard"; label: string };
 }
 
 export interface MarketingFooterGroup {
@@ -92,7 +91,11 @@ export interface MarketingCapabilityMetric {
   value: string;
 }
 
-export type MarketingPricingTierId = "trial" | "center" | "enterprise";
+export type MarketingPricingTierId =
+  | "trial"
+  | "center"
+  | "business"
+  | "enterprise";
 
 export interface MarketingPricingTier {
   audience: string;
@@ -103,7 +106,8 @@ export interface MarketingPricingTier {
   id: MarketingPricingTierId;
   name: string;
   priceLabel: string;
-  trialDays?: 14;
+  priceVnd?: { monthly: number; yearly: number };
+  trialDays?: 30;
 }
 
 export interface MarketingFaqItem {
@@ -131,14 +135,11 @@ export interface MarketingBlogPost {
 
 export const marketingNavigation = {
   items: [
-    { href: "/", label: "Trang chủ" },
     { href: "/features", label: "Tính năng" },
-    { href: "/about-us", label: "Về DX LMS" },
     { href: "/pricing", label: "Gói dịch vụ" },
     { href: "/blog", label: "Bài viết" },
   ],
-  primaryCta: { href: "/register", label: "Dùng thử miễn phí" },
-  secondaryCta: { href: "/login", label: "Đăng nhập" },
+  entryCta: { href: "/dashboard", label: "Vào LMS" },
 } as const satisfies MarketingNavigation;
 
 export const marketingFooterContent = {
@@ -150,7 +151,7 @@ export const marketingFooterContent = {
       links: [
         { href: "/features", label: "Tính năng" },
         { href: "/pricing", label: "Gói dịch vụ" },
-        { href: "/register", label: "Dùng thử 14 ngày" },
+        { href: "/register", label: "Dùng thử 30 ngày" },
       ],
     },
     {
@@ -260,17 +261,17 @@ export const marketingOnboardingSteps = [
     id: "create-account",
     step: 1,
     href: "/register",
-    title: "Tạo tài khoản quản trị",
+    title: "Tạo tài khoản",
     description:
-      "Đăng ký bằng email, đặt tên workspace và nhận kỳ dùng thử 14 ngày tự động cho tổ chức mới.",
+      "Đăng ký bằng email và đặt tên cho trung tâm của bạn.",
   },
   {
     id: "personalize-workspace",
     step: 2,
     href: "/settings",
-    title: "Thiết lập workspace",
+    title: "Mời đội ngũ",
     description:
-      "Cập nhật nhận diện, cơ cấu đơn vị và mời đúng thành viên với vai trò phù hợp.",
+      "Mời giáo viên, học viên và chọn vai trò cho từng người.",
   },
   {
     id: "launch-learning",
@@ -278,7 +279,7 @@ export const marketingOnboardingSteps = [
     href: "/courses",
     title: "Mở khóa học đầu tiên",
     description:
-      "Tạo giáo trình, tổ chức lớp, ghi danh học viên rồi theo dõi hoạt động ngay trong cùng hệ thống.",
+      "Thêm nội dung, tạo lớp và bắt đầu theo dõi việc học.",
   },
 ] as const satisfies readonly MarketingOnboardingStep[];
 
@@ -343,49 +344,66 @@ export const marketingCapabilityMetrics = [
 export const marketingPricingTiers = [
   {
     id: "trial",
-    name: "Dùng thử 14 ngày",
+    name: "Dùng thử 30 ngày",
     audience: "Dành cho workspace mới",
     description:
-      "Khởi tạo không gian đào tạo và trải nghiệm quyền của gói dùng thử được hệ thống cấp tự động.",
-    priceLabel: "Miễn phí trong 14 ngày",
-    trialDays: 14,
+      "Trải nghiệm quyền và hạn mức của gói Center trước khi quyết định tiếp tục sử dụng.",
+    priceLabel: "Miễn phí trong 30 ngày",
+    trialDays: 30,
     featured: false,
     features: [
       "Không yêu cầu thông tin thanh toán khi đăng ký",
+      "Hạn mức kích hoạt đồng thời 1.000 học viên",
       "Một kỳ dùng thử cho mỗi workspace mới",
-      "Xem ngày kết thúc trial trong trang gói và thanh toán",
     ],
     cta: { href: "/register", label: "Tạo workspace" },
   },
   {
     id: "center",
     name: "Center",
-    audience: "Dành cho lớp học và trung tâm đang vận hành",
+    audience: "Dành cho lớp học và trung tâm vừa",
     description:
-      "Chọn các mô-đun và hạn mức phù hợp với số thành viên, khóa học cùng cơ cấu hiện tại.",
-    priceLabel: "Liên hệ để nhận cấu hình phù hợp",
+      "Một mức giá cố định để vận hành khóa học, lớp học và đội ngũ trong cùng workspace.",
+    priceLabel: "299.000đ / tháng",
+    priceVnd: { monthly: 299000, yearly: 2990000 },
     featured: true,
     features: [
-      "Quản lý khóa học, lớp học và hoạt động học tập",
-      "Vai trò cho quản trị viên, giảng viên, học viên và phụ huynh",
-      "Học phí, thông báo và báo cáo theo quyền của gói",
+      "Hạn mức kích hoạt đồng thời 1.000 học viên",
+      "Khóa học, lớp học và đánh giá",
+      "Học phí, phụ huynh và báo cáo",
     ],
-    cta: { href: "/contact-us", label: "Trao đổi nhu cầu" },
+    cta: { href: "/register", label: "Dùng thử gói Center" },
+  },
+  {
+    id: "business",
+    name: "Business",
+    audience: "Dành cho trung tâm và chuỗi đang mở rộng",
+    description:
+      "Tăng hạn mức học viên cho mô hình có nhiều lớp, đội ngũ và đơn vị cùng vận hành.",
+    priceLabel: "799.000đ / tháng",
+    priceVnd: { monthly: 799000, yearly: 7990000 },
+    featured: false,
+    features: [
+      "Hạn mức kích hoạt đồng thời 5.000 học viên",
+      "Đầy đủ tính năng của Center",
+      "Cơ cấu đơn vị và phân quyền theo phạm vi",
+    ],
+    cta: { href: "/register", label: "Dùng thử rồi nâng cấp" },
   },
   {
     id: "enterprise",
     name: "Enterprise",
-    audience: "Dành cho tổ chức nhiều đơn vị hoặc chi nhánh",
+    audience: "Dành cho tổ chức cần trên 5.000 học viên",
     description:
-      "Thiết kế phạm vi truy cập, mô-đun và hạn mức theo mô hình quản trị của toàn hệ thống.",
-    priceLabel: "Liên hệ để thiết kế phương án",
+      "Enterprise chưa mở tự phục vụ; hạn mức và lộ trình triển khai được xác định theo quy mô thực tế sau giai đoạn dùng thử Center.",
+    priceLabel: "Theo phương án triển khai",
     featured: false,
     features: [
-      "Cây đơn vị và phân quyền theo chi nhánh",
-      "Báo cáo toàn tổ chức hoặc theo phạm vi được giao",
-      "Trao đổi cấu hình vận hành và lộ trình triển khai",
+      "Hạn mức kích hoạt đồng thời trên 5.000 học viên",
+      "Phạm vi truy cập theo cơ cấu tổ chức",
+      "Chưa mở đăng ký và nâng cấp tự phục vụ",
     ],
-    cta: { href: "/contact-us", label: "Liên hệ tư vấn" },
+    cta: { href: "/contact-us", label: "Trao đổi nhu cầu" },
   },
 ] as const satisfies readonly MarketingPricingTier[];
 
@@ -394,7 +412,7 @@ export const marketingFaqItems = [
     id: "trial-duration",
     question: "Kỳ dùng thử của DX LMS kéo dài bao lâu?",
     answer:
-      "Workspace mới được kích hoạt dùng thử 14 ngày. Ngày kết thúc cụ thể được hiển thị trong khu vực gói và thanh toán sau khi đăng ký.",
+      "Workspace mới được kích hoạt dùng thử 30 ngày. Ngày kết thúc cụ thể được hiển thị trong khu vực gói và thanh toán sau khi đăng ký.",
   },
   {
     id: "trial-payment-details",
@@ -407,6 +425,12 @@ export const marketingFaqItems = [
     question: "Mời thêm thành viên có tạo thêm trial không?",
     answer:
       "Không. Trial được cấp một lần cho workspace mới, không cấp lại theo từng tài khoản hoặc lời mời thành viên.",
+  },
+  {
+    id: "active-learners",
+    question: "Học viên đang hoạt động được tính như thế nào?",
+    answer:
+      "Một học viên được tính khi họ có membership đang hoạt động với vai trò học viên trong workspace (tương ứng trạng thái ACTIVE và vai trò LEARNER). Hạn mức được kiểm tra khi kích hoạt học viên mới; chuyển xuống gói thấp hơn không tự động vô hiệu hóa học viên đang hoạt động. Đây không phải số lượt đăng nhập theo tháng.",
   },
   {
     id: "roles",
@@ -443,7 +467,7 @@ export const marketingBlogPosts = [
     category: "Phát triển học tập",
     readingTime: "6 phút đọc",
     publishedAt: "2026-08-28",
-    hero: "/marketing/blog/maximize-potential.webp",
+    hero: "/marketing/blog/learning-path-v2.webp",
     sections: [
       {
         heading: "Bắt đầu từ kết quả cần đạt",
@@ -492,7 +516,7 @@ export const marketingBlogPosts = [
     category: "Xu hướng giáo dục",
     readingTime: "7 phút đọc",
     publishedAt: "2026-08-21",
-    hero: "/marketing/blog/evolution-learning.webp",
+    hero: "/marketing/blog/blended-class-v2.webp",
     sections: [
       {
         heading: "Giai đoạn số hóa tài liệu",
@@ -536,7 +560,7 @@ export const marketingBlogPosts = [
     category: "Vận hành LMS",
     readingTime: "6 phút đọc",
     publishedAt: "2026-08-14",
-    hero: "/marketing/blog/smart-features.webp",
+    hero: "/marketing/blog/teaching-workflow-v2.webp",
     sections: [
       {
         heading: "Thông minh không đồng nghĩa với phức tạp",

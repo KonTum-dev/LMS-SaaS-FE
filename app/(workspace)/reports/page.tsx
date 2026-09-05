@@ -1,10 +1,14 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningPolishMessages as learningMessages } from "@/lib/i18n/learning-polish-messages";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import { ReloadOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import {
   Alert,
-  App,
   Button,
   Card,
   Col,
@@ -21,7 +25,7 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useAuth } from "@/components/providers/app-providers";
 import {
   operationsReportApi,
@@ -37,21 +41,7 @@ import {
   type OrgUnitType,
 } from "@/lib/org-units-api";
 import { getViewerScope, type ViewerScope } from "@/lib/query-keys";
-
-const money = new Intl.NumberFormat("vi-VN", {
-  currency: "VND",
-  maximumFractionDigits: 0,
-  style: "currency",
-});
-const number = new Intl.NumberFormat("vi-VN");
-const date = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "medium",
-  timeZone: "UTC",
-});
-const dateTime = new Intl.DateTimeFormat("vi-VN", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
+import styles from "./page.module.css";
 
 const TYPE_PRESENTATION: Record<OrgUnitType, { color: string; label: string }> = {
   BRANCH: { color: "blue", label: "Chi nhánh" },
@@ -82,7 +72,44 @@ function OperationsReport({
   scope,
   token,
 }: ReportViewProps) {
-  const { message } = App.useApp();
+  const { t, locale } = useI18n(learningMessages);
+  const money = useMemo(() => new Intl.NumberFormat(locale === "en" ? "en-US" : "vi-VN", {
+    currency: "VND",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }), [locale]);
+  const number = useMemo(() => new Intl.NumberFormat(locale === "en" ? "en-US" : "vi-VN"), [locale]);
+  const date = useMemo(() => new Intl.DateTimeFormat(locale === "en" ? "en-US" : "vi-VN", {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }), [locale]);
+  const dateTime = useMemo(() => new Intl.DateTimeFormat(locale === "en" ? "en-US" : "vi-VN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }), [locale]);
+  function findScopeName(
+    orgUnitId: string | null,
+    options: Array<{ label: string; value: string }>,
+  ): string {
+    if (!orgUnitId) return t("Tất cả đơn vị");
+    return options.find((option) => option.value === orgUnitId)?.label ?? orgUnitId;
+  }
+  function formatScope(from: string, to: string): string {
+    return `${formatDate(from)} – ${formatDate(to)}`;
+  }
+  function formatDate(value: string): string {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : date.format(parsed);
+  }
+  function formatDateTime(value: string): string {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? "—" : dateTime.format(parsed);
+  }
+  const formatPercent = useCallback((value: number): string => {
+    return `${number.format(safePercent(value))}%`;
+  }, [number]);
+
+  const { message, formatError } = useFeedback();
   const [draftFilters, setDraftFilters] = useState<ReportFilters>(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] =
     useState<ReportFilters>(EMPTY_FILTERS);
@@ -90,9 +117,9 @@ function OperationsReport({
     () => ({
       ...(appliedFilters.from && appliedFilters.to
         ? {
-            from: `${appliedFilters.from}${UTC_DAY_START}`,
-            to: `${appliedFilters.to}${UTC_DAY_END}`,
-          }
+          from: `${appliedFilters.from}${UTC_DAY_START}`,
+          to: `${appliedFilters.to}${UTC_DAY_END}`,
+        }
         : {}),
       ...(appliedFilters.orgUnitId
         ? { orgUnitId: appliedFilters.orgUnitId }
@@ -129,28 +156,28 @@ function OperationsReport({
                 <>
                   {" · "}
                   <Tag color={TYPE_PRESENTATION[unit.type].color}>
-                    {TYPE_PRESENTATION[unit.type].label}
+                    {t(TYPE_PRESENTATION[unit.type].label)}
                   </Tag>
                 </>
               ) : (
-                " · Chưa gắn đơn vị"
+                t("· Chưa gắn đơn vị")
               )}
             </div>
           </div>
         ),
-        title: "Đơn vị",
+        title: t("Đơn vị"),
       },
       {
         align: "right",
         key: "cohorts",
         render: (_, unit) => number.format(unit.operations.activeCohorts),
-        title: "Lớp hoạt động",
+        title: t("Lớp hoạt động"),
       },
       {
         align: "right",
         key: "learners",
         render: (_, unit) => number.format(unit.operations.activeLearners),
-        title: "Học viên",
+        title: t("Học viên"),
       },
       {
         align: "right",
@@ -161,7 +188,7 @@ function OperationsReport({
             {number.format(unit.operations.scheduledSessions)}
           </span>
         ),
-        title: "Buổi hoàn thành / lịch",
+        title: t("Buổi hoàn thành / lịch"),
       },
       {
         align: "right",
@@ -171,11 +198,10 @@ function OperationsReport({
             <strong>{formatPercent(unit.attendance.attendanceRatePercent)}</strong>
             <span className="table-muted">
               {" · "}
-              {number.format(unit.attendance.marked)} lượt
-            </span>
+              {number.format(unit.attendance.marked)} {t("lượt")}</span>
           </span>
         ),
-        title: "Chuyên cần",
+        title: t("Chuyên cần"),
       },
     ];
 
@@ -186,7 +212,7 @@ function OperationsReport({
           key: "collected",
           render: (_, unit) =>
             unit.tuition ? money.format(unit.tuition.collectedAmountVnd) : "—",
-          title: "Đã thu",
+          title: t("Đã thu"),
         },
         {
           align: "right",
@@ -195,13 +221,13 @@ function OperationsReport({
             unit.tuition
               ? money.format(unit.tuition.outstandingAmountVnd)
               : "—",
-          title: "Còn phải thu",
+          title: t("Còn phải thu"),
         },
       );
     }
 
     return base;
-  }, [isTenantAdmin]);
+  }, [isTenantAdmin, formatPercent, money, number, t]);
 
   const applyFilters = () => {
     if (Boolean(draftFilters.from) !== Boolean(draftFilters.to)) {
@@ -226,48 +252,52 @@ function OperationsReport({
   const overview = report.data;
   const isEmpty = Boolean(
     overview &&
-      overview.units.length === 0 &&
-      overview.operations.activeCohorts === 0 &&
-      overview.operations.activeLearners === 0 &&
-      overview.operations.scheduledSessions === 0 &&
-      overview.attendance.marked === 0 &&
-      (!overview.tuition || overview.tuition.invoiceCount === 0),
+    overview.units.length === 0 &&
+    overview.operations.activeCohorts === 0 &&
+    overview.operations.activeLearners === 0 &&
+    overview.operations.scheduledSessions === 0 &&
+    overview.attendance.marked === 0 &&
+    (!overview.tuition || overview.tuition.invoiceCount === 0),
   );
 
   return (
-    <main aria-labelledby="operations-report-title" className="page-shell">
+    <main aria-labelledby="operations-report-title" className={`page-shell ${styles.page}`}>
       <header className="page-heading">
         <div className="page-heading-copy">
-          <h1 id="operations-report-title">Báo cáo vận hành</h1>
-          <p>
-            Theo dõi quy mô lớp, lịch học, chuyên cần và tình hình thu học phí
-            theo từng đơn vị.
-          </p>
+          <h1 id="operations-report-title">{t("Báo cáo vận hành")}</h1>
+          <p>{t("Theo dõi quy mô lớp, lịch học, chuyên cần và tình hình thu học phí theo từng đơn vị.")}</p>
         </div>
         <Button
           icon={<ReloadOutlined />}
           loading={report.isFetching}
           onClick={() => void report.refetch()}
-        >
-          Làm mới
-        </Button>
+        >{t("Làm mới")}</Button>
       </header>
 
       {readOnly && (
         <Alert
-          description="Bạn vẫn có thể xem, lọc và làm mới báo cáo; trang này không thay đổi dữ liệu vận hành."
+          description={t("Bạn vẫn có thể xem, lọc và làm mới báo cáo; trang này không thay đổi dữ liệu vận hành.")}
           showIcon
-          title="Workspace chỉ đọc"
+          title={t("Workspace chỉ đọc")}
           type="info"
         />
       )}
 
-      <Card className="surface-card" title="Phạm vi báo cáo">
-        <Row gutter={[16, 16]}>
+      <Card className={`surface-card ${styles.scopeCard}`}>
+        <details className={styles.scopeDetails}>
+          <summary>
+            <span className={styles.scopeCopy}>
+              <strong>{t("Phạm vi báo cáo")}</strong>
+              {overview && <span>{formatScope(overview.scope.from, overview.scope.to)} · {findScopeName(overview.scope.orgUnitId, unitOptions)}</span>}
+            </span>
+            <span className={styles.filterLink}>{t("Bộ lọc")} ↓</span>
+          </summary>
+          <div className={styles.filterBody}>
+        <Row align="bottom" gutter={[16, 16]}>
           <Col lg={6} md={12} xs={24}>
-            <Typography.Text strong>Từ ngày</Typography.Text>
+            <Typography.Text strong>{t("Từ ngày")}</Typography.Text>
             <Input
-              aria-label="Từ ngày"
+              aria-label={t("Từ ngày")}
               onChange={(event) =>
                 setDraftFilters((current) => ({
                   ...current,
@@ -279,9 +309,9 @@ function OperationsReport({
             />
           </Col>
           <Col lg={6} md={12} xs={24}>
-            <Typography.Text strong>Đến ngày</Typography.Text>
+            <Typography.Text strong>{t("Đến ngày")}</Typography.Text>
             <Input
-              aria-label="Đến ngày"
+              aria-label={t("Đến ngày")}
               onChange={(event) =>
                 setDraftFilters((current) => ({
                   ...current,
@@ -293,10 +323,10 @@ function OperationsReport({
             />
           </Col>
           <Col lg={8} md={12} xs={24}>
-            <Typography.Text strong>Đơn vị</Typography.Text>
+            <Typography.Text strong>{t("Đơn vị")}</Typography.Text>
             <Select
               allowClear
-              aria-label="Đơn vị báo cáo"
+              aria-label={t("Đơn vị báo cáo")}
               loading={unitsQuery.isLoading}
               onChange={(value) =>
                 setDraftFilters((current) => ({
@@ -306,7 +336,7 @@ function OperationsReport({
               }
               optionFilterProp="label"
               options={unitOptions}
-              placeholder="Tất cả đơn vị"
+              placeholder={t("Tất cả đơn vị")}
               showSearch
               style={{ width: "100%" }}
               value={draftFilters.orgUnitId || undefined}
@@ -314,28 +344,24 @@ function OperationsReport({
           </Col>
           <Col lg={4} md={12} xs={24}>
             <Space>
-              <Button onClick={applyFilters} type="primary">
-                Áp dụng
-              </Button>
-              <Button onClick={clearFilters}>Xóa lọc</Button>
+              <Button loading={report.isFetching} onClick={applyFilters} type="primary">{t("Áp dụng")}</Button>
+              <Button onClick={clearFilters}>{t("Xóa lọc")}</Button>
             </Space>
           </Col>
         </Row>
-        <Typography.Paragraph type="secondary">
-          Khoảng ngày được tính từ 00:00:00 đến 23:59:59 theo UTC.
-        </Typography.Paragraph>
+        <Typography.Text type="secondary">{t("Múi giờ: UTC")}</Typography.Text>
+          </div>
+        </details>
       </Card>
 
       {unitsQuery.error && (
         <Alert
           action={
-            <Button onClick={() => void unitsQuery.refetch()}>
-              Tải lại đơn vị
-            </Button>
+            <Button loading={unitsQuery.isFetching} onClick={() => void unitsQuery.refetch()}>{t("Tải lại đơn vị")}</Button>
           }
-          description="Báo cáo vẫn dùng được, nhưng chưa thể chọn phạm vi chi nhánh hoặc phòng ban."
+          description={t("Báo cáo vẫn dùng được, nhưng chưa thể chọn phạm vi chi nhánh hoặc phòng ban.")}
           showIcon
-          title="Không tải được cơ cấu tổ chức"
+          title={t("Không tải được cơ cấu tổ chức")}
           type="warning"
         />
       )}
@@ -343,17 +369,13 @@ function OperationsReport({
       {report.error && (
         <Alert
           action={
-            <Button icon={<ReloadOutlined />} onClick={() => void report.refetch()}>
-              Thử lại
-            </Button>
+            <Button icon={<ReloadOutlined />} loading={report.isFetching} onClick={() => void report.refetch({ cancelRefetch: false })}>{t("Thử lại")}</Button>
           }
           description={
-            report.error instanceof Error
-              ? report.error.message
-              : "Không thể tải dữ liệu báo cáo."
+            formatError(report.error, "Không thể tải dữ liệu báo cáo.")
           }
           showIcon
-          title="Không tải được báo cáo vận hành"
+          title={t("Không tải được báo cáo vận hành")}
           type="error"
         />
       )}
@@ -366,57 +388,45 @@ function OperationsReport({
 
       {overview ? (
         <>
-          <Card className="surface-card">
-            <Space size="large" wrap>
-              <Typography.Text type="secondary">
-                {formatScope(overview.scope.from, overview.scope.to)}
-              </Typography.Text>
-              <Typography.Text type="secondary">
-                Phạm vi: {findScopeName(overview.scope.orgUnitId, unitOptions)}
-              </Typography.Text>
-              <Typography.Text type="secondary">
-                Cập nhật {formatDateTime(overview.generatedAt)}
-              </Typography.Text>
-            </Space>
-          </Card>
+          <div className={styles.updated}>{t("Cập nhật")} {formatDateTime(overview.generatedAt)}</div>
 
           {isEmpty ? (
             <Card className="surface-card">
-              <Empty description="Chưa có dữ liệu vận hành trong phạm vi đã chọn" />
+              <Empty description={t("Chưa có dữ liệu vận hành trong phạm vi đã chọn")} />
             </Card>
           ) : (
             <>
               <Row gutter={[16, 16]}>
-                <Col lg={6} sm={12} xs={24}>
-                  <Card className="surface-card">
-                    <Statistic
-                      title="Lớp đang hoạt động"
+                <Col lg={6} sm={12} xs={12}>
+                  <Card className={`surface-card ${styles.summaryStat}`}>
+                    <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                      title={t("Lớp đang hoạt động")}
                       value={overview.operations.activeCohorts}
                     />
                   </Card>
                 </Col>
-                <Col lg={6} sm={12} xs={24}>
-                  <Card className="surface-card">
-                    <Statistic
-                      title="Học viên đang học"
+                <Col lg={6} sm={12} xs={12}>
+                  <Card className={`surface-card ${styles.summaryStat}`}>
+                    <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                      title={t("Học viên đang học")}
                       value={overview.operations.activeLearners}
                     />
                   </Card>
                 </Col>
-                <Col lg={6} sm={12} xs={24}>
-                  <Card className="surface-card">
-                    <Statistic
-                      suffix={`· ${number.format(overview.operations.completedSessions)} hoàn thành`}
-                      title="Buổi học trong lịch"
+                <Col lg={6} sm={12} xs={12}>
+                  <Card className={`surface-card ${styles.summaryStat}`}>
+                    <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                      title={t("Buổi học trong lịch")}
                       value={overview.operations.scheduledSessions}
                     />
+                    <p className={styles.metricHint}>{t("· {p0} hoàn thành", { p0: number.format(overview.operations.completedSessions) })}</p>
                   </Card>
                 </Col>
-                <Col lg={6} sm={12} xs={24}>
-                  <Card className="surface-card">
-                    <Statistic
+                <Col lg={6} sm={12} xs={12}>
+                  <Card className={`surface-card ${styles.summaryStat}`}>
+                    <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
                       suffix="%"
-                      title="Tỷ lệ chuyên cần"
+                      title={t("Tỷ lệ chuyên cần")}
                       value={safePercent(overview.attendance.attendanceRatePercent)}
                     />
                   </Card>
@@ -425,69 +435,67 @@ function OperationsReport({
 
               <Row gutter={[16, 16]}>
                 <Col lg={isTenantAdmin ? 12 : 24} xs={24}>
-                  <Card className="surface-card" title="Chuyên cần">
+                  <Card className={`surface-card ${styles.detailCard}`} title={t("Chuyên cần")}>
                     <Progress
                       percent={safePercent(
                         overview.attendance.attendanceRatePercent,
                       )}
                       status="normal"
                     />
-                    <Space size="large" wrap>
-                      <Statistic
-                        title="Đã điểm danh"
+                    <div className={styles.attendanceStats}>
+                      <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                        title={t("Đã điểm danh")}
                         value={overview.attendance.marked}
                       />
-                      <Statistic
-                        title="Có mặt"
+                      <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                        title={t("Có mặt")}
                         value={overview.attendance.present}
                       />
-                      <Statistic title="Đi muộn" value={overview.attendance.late} />
-                      <Statistic title="Vắng" value={overview.attendance.absent} />
-                      <Statistic
-                        title="Có phép"
+                      <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","} title={t("Đi muộn")} value={overview.attendance.late} />
+                      <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","} title={t("Vắng")} value={overview.attendance.absent} />
+                      <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                        title={t("Có phép")}
                         value={overview.attendance.excused}
                       />
-                    </Space>
+                    </div>
                   </Card>
                 </Col>
 
                 {isTenantAdmin ? (
                   <Col lg={12} xs={24}>
-                    <Card className="surface-card" title="Học phí">
+                    <Card className={`surface-card ${styles.detailCard}`} title={t("Học phí")}>
                       {overview.tuition ? (
                         <>
                           <Typography.Paragraph type="secondary">
-                            {number.format(overview.tuition.invoiceCount)} hóa đơn
-                            trong kỳ
-                          </Typography.Paragraph>
-                          <Row gutter={[12, 12]}>
+                            {number.format(overview.tuition.invoiceCount)} {t("hóa đơn trong kỳ")}</Typography.Paragraph>
+                          <Row className={styles.moneyGrid} gutter={[12, 12]}>
                             <Col sm={12} xs={24}>
-                              <Statistic
-                                title="Đã phát hành"
+                              <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                                title={t("Đã phát hành")}
                                 value={money.format(
                                   overview.tuition.issuedAmountVnd,
                                 )}
                               />
                             </Col>
                             <Col sm={12} xs={24}>
-                              <Statistic
-                                title="Đã thu"
+                              <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                                title={t("Đã thu")}
                                 value={money.format(
                                   overview.tuition.collectedAmountVnd,
                                 )}
                               />
                             </Col>
                             <Col sm={12} xs={24}>
-                              <Statistic
-                                title="Còn phải thu"
+                              <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                                title={t("Còn phải thu")}
                                 value={money.format(
                                   overview.tuition.outstandingAmountVnd,
                                 )}
                               />
                             </Col>
                             <Col sm={12} xs={24}>
-                              <Statistic
-                                title="Quá hạn"
+                              <Statistic decimalSeparator={locale === "vi" ? "," : "."} groupSeparator={locale === "vi" ? "." : ","}
+                                title={t("Quá hạn")}
                                 value={money.format(
                                   overview.tuition.overdueAmountVnd,
                                 )}
@@ -498,7 +506,7 @@ function OperationsReport({
                       ) : (
                         <Alert
                           showIcon
-                          title="Chưa có số liệu học phí cho phạm vi này"
+                          title={t("Chưa có số liệu học phí cho phạm vi này")}
                           type="warning"
                         />
                       )}
@@ -509,22 +517,22 @@ function OperationsReport({
 
               {!isTenantAdmin && (
                 <Alert
-                  description="Giảng viên chỉ xem số liệu lớp học và chuyên cần theo phạm vi được cấp quyền."
+                  description={t("Giảng viên chỉ xem số liệu lớp học và chuyên cần theo phạm vi được cấp quyền.")}
                   showIcon
-                  title="Số liệu học phí chỉ dành cho quản trị tổ chức"
+                  title={t("Số liệu học phí chỉ dành cho quản trị tổ chức")}
                   type="info"
                 />
               )}
 
               <Card
                 className="surface-card table-surface"
-                title="So sánh theo đơn vị"
+                title={t("So sánh theo đơn vị")}
               >
                 <Table<OperationsReportUnit>
                   columns={columns}
                   dataSource={overview.units}
                   locale={{
-                    emptyText: "Chưa có đơn vị để so sánh trong phạm vi đã chọn",
+                    emptyText: t("Chưa có đơn vị để so sánh trong phạm vi đã chọn"),
                   }}
                   pagination={false}
                   rowKey={(unit) => unit.orgUnitId ?? "unassigned"}
@@ -540,6 +548,7 @@ function OperationsReport({
 }
 
 export default function OperationsReportPage() {
+  const { t } = useI18n(learningMessages);
   const { effectiveAccess, organization, token, user } = useAuth();
   const scope = getViewerScope(user, organization);
   const isTenantAdmin = user?.role === "TENANT_ADMIN";
@@ -549,7 +558,7 @@ export default function OperationsReportPage() {
     return (
       <Alert
         showIcon
-        title="Báo cáo vận hành chỉ dành cho quản trị tổ chức và giảng viên."
+        title={t("Báo cáo vận hành chỉ dành cho quản trị tổ chức và giảng viên.")}
         type="error"
       />
     );
@@ -558,7 +567,7 @@ export default function OperationsReportPage() {
     return (
       <Alert
         showIcon
-        title="Phiên thành viên không hợp lệ. Vui lòng đăng nhập lại."
+        title={t("Phiên thành viên không hợp lệ. Vui lòng đăng nhập lại.")}
         type="error"
       />
     );
@@ -594,33 +603,7 @@ function buildUnitOptions(
   return options;
 }
 
-function findScopeName(
-  orgUnitId: string | null,
-  options: Array<{ label: string; value: string }>,
-): string {
-  if (!orgUnitId) return "Tất cả đơn vị";
-  return options.find((option) => option.value === orgUnitId)?.label ?? orgUnitId;
-}
-
-function formatScope(from: string, to: string): string {
-  return `${formatDate(from)} – ${formatDate(to)}`;
-}
-
-function formatDate(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : date.format(parsed);
-}
-
-function formatDateTime(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "—" : dateTime.format(parsed);
-}
-
 function safePercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, value));
-}
-
-function formatPercent(value: number): string {
-  return `${number.format(safePercent(value))}%`;
 }

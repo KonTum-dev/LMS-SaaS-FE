@@ -189,7 +189,10 @@ export interface CohortDirectoryResponse {
 }
 
 export interface CohortInstructorDirectoryQuery {
+  limit?: number;
   orgUnitId?: string;
+  page?: number;
+  search?: string;
 }
 
 export interface CohortApiContext {
@@ -311,9 +314,10 @@ export const cohortApi = {
   ) =>
     apiFetch<CohortDirectoryResponse>(
       `/cohorts/eligible-instructors${buildCohortQuery({
-        limit: 100,
+        limit: query.limit ?? 100,
         orgUnitId: query.orgUnitId,
-        page: 1,
+        page: query.page ?? 1,
+        search: query.search,
       })}`,
       {
         cache: "no-store",

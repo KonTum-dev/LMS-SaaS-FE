@@ -50,10 +50,11 @@ function setupApi() {
     if (!path.startsWith("/courses/course-1/learner-progress?")) {
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     }
-    const page = Number(new URLSearchParams(path.split("?", 2)[1]).get("page") ?? "1");
+    const params = new URLSearchParams(path.split("?", 2)[1]);
+    const page = Number(params.get("page") ?? "1");
     const response: Paginated<LearnerProgressRow> = {
       items: [learner(mocks.tenantId === "tenant-1" ? "Lan Nguyễn" : "Bình Trần")],
-      limit: 20,
+      limit: Number(params.get("limit") ?? "20"),
       page,
       total: 41,
     };
@@ -134,6 +135,45 @@ describe("course learner progress report", () => {
     expect(await screen.findByText("Workspace chỉ đọc")).toBeTruthy();
     expect(await screen.findByText("Lan Nguyễn")).toBeTruthy();
     expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("đổi số dòng quay về trang 1 và xóa tìm kiếm giữ số dòng đã chọn", async () => {
+    renderPage();
+    await screen.findByText("Lan Nguyễn");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenLastCalledWith(
+      "/courses/course-1/learner-progress?limit=20&page=2", { token: "tenant-token" },
+    ));
+    fireEvent.change(screen.getByLabelText("Số dòng mỗi trang"), { target: { value: "50" } });
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenLastCalledWith(
+      "/courses/course-1/learner-progress?limit=50&page=1", { token: "tenant-token" },
+    ));
+    const requestCount = mocks.apiFetch.mock.calls.length;
+    fireEvent.change(screen.getByLabelText("Tìm học viên theo tên hoặc email"), { target: { value: " Lan " } });
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(requestCount);
+    fireEvent.click(screen.getByRole("button", { name: "Tìm kiếm" }));
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenLastCalledWith(
+      "/courses/course-1/learner-progress?limit=50&page=1&search=Lan", { token: "tenant-token" },
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenLastCalledWith(
+      "/courses/course-1/learner-progress?limit=50&page=1", { token: "tenant-token" },
+    ));
+    expect((screen.getByLabelText("Tìm học viên theo tên hoặc email") as HTMLInputElement).value).toBe("");
+  });
+
+  it("bỏ từ khóa đã áp dụng ngay khi xóa nội dung ô tìm kiếm", async () => {
+    renderPage();
+    await screen.findByText("Lan Nguyễn");
+    fireEvent.change(screen.getByLabelText("Tìm học viên theo tên hoặc email"), { target: { value: "Lan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tìm kiếm" }));
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenLastCalledWith(
+      "/courses/course-1/learner-progress?limit=20&page=1&search=Lan", { token: "tenant-token" },
+    ));
+    fireEvent.change(screen.getByLabelText("Tìm học viên theo tên hoặc email"), { target: { value: "" } });
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenLastCalledWith(
+      "/courses/course-1/learner-progress?limit=20&page=1", { token: "tenant-token" },
+    ));
   });
 
   it.each<[UserRole, EffectiveAccess["modules"]]>([

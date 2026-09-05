@@ -8,6 +8,7 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -37,6 +38,7 @@ const api = vi.hoisted(() => ({
   createCheckout: vi.fn(),
   getSubscription: vi.fn(),
   listOrders: vi.fn(),
+  listOrdersDirectory: vi.fn(),
   listPlans: vi.fn(),
   scheduleDowngrade: vi.fn(),
   simulate: vi.fn(),
@@ -85,14 +87,37 @@ vi.mock("@ant-design/icons", () => ({
   EyeOutlined: () => null,
   HistoryOutlined: () => null,
 }));
-vi.mock(
-  "antd",
-  async () => (await import("@/test-utils/lightweight-antd")).lightweightAntd,
-);
+vi.mock("antd", async () => ({
+  ...(await import("@/test-utils/lightweight-antd")).lightweightAntd,
+  Select: ({
+    "aria-label": ariaLabel,
+    onChange,
+    options,
+    value,
+  }: {
+    "aria-label"?: string;
+    onChange?: (value: string | undefined) => void;
+    options: Array<{ label: string; value: string }>;
+    value?: string;
+  }) => (
+    <select
+      aria-label={ariaLabel}
+      value={value ?? ""}
+      onChange={(event) => onChange?.(event.target.value || undefined)}
+    >
+      <option value="">Tất cả</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  ),
+}));
 
 const planEntitlements: PlanEntitlements = {
-  maxActiveLearners: null,
-  maxBranches: null,
+  maxActiveLearners: 200,
+  maxBranches: 3,
   maxCourses: 25,
   maxUsers: 250,
   modules: ["USERS", "COURSES", "ASSIGNMENTS"],
@@ -173,8 +198,8 @@ function readOnlySubscription(): Subscription {
     effectiveAccess: {
       graceEndsAt: "2030-09-08T00:00:00.000Z",
       limits: {
-        maxActiveLearners: null,
-        maxBranches: null,
+        maxActiveLearners: 200,
+        maxBranches: 3,
         maxCourses: 25,
         maxUsers: 250,
       },
@@ -214,6 +239,16 @@ describe("BillingPage mock reload", () => {
     api.listPlans.mockResolvedValue([]);
     api.getSubscription.mockResolvedValue(null);
     api.listOrders.mockResolvedValue([mockPending()]);
+    // Both list contracts see the same fixture without adding business-query calls.
+    api.listOrdersDirectory.mockImplementation(async (_context, query) => {
+      const items = (await api.listOrders.mock.results.at(-1)?.value) ?? [];
+      return {
+        items,
+        page: query.page,
+        limit: query.limit,
+        total: items.length,
+      };
+    });
     api.simulate.mockResolvedValue({ ...mockPending(), status: "PAID" });
     submitCheckoutForm.mockReset();
   });
@@ -250,6 +285,129 @@ describe("BillingPage mock reload", () => {
     await waitFor(() => expect(appUi.message.success).toHaveBeenCalled());
   });
 
+  it("history paginates beyond 50 orders and filters without hiding the checkout pending order", async () => {
+    api.listOrdersDirectory.mockImplementation(async (_context, query) => ({
+      items: [
+        {
+          ...mockPending(),
+          _id: `history-${query.page}`,
+          invoiceNumber: `DX-HISTORY-${query.page}`,
+          status: "PAID",
+        },
+      ],
+      page: query.page,
+      limit: query.limit,
+      total: 121,
+    }));
+    const client = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <BillingPage />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("DX-HISTORY-1");
+    expect(
+      (screen.getByRole("button", { name: "Trang sau" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("DX-HISTORY-2");
+    fireEvent.change(screen.getByLabelText("Trạng thái"), {
+      target: { value: "PAID" },
+    });
+    await waitFor(() =>
+      expect(api.listOrdersDirectory).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        { page: 1, limit: 20, status: "PAID" },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    fireEvent.change(screen.getByLabelText("Loại đơn"), {
+      target: { value: "RENEWAL" },
+    });
+    const search = screen.getByRole("textbox", { name: "Tìm mã hóa đơn" });
+    fireEvent.change(search, { target: { value: "  DX-HISTORY  " } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() =>
+      expect(api.listOrdersDirectory).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        {
+          page: 1,
+          limit: 20,
+          status: "PAID",
+          type: "RENEWAL",
+          search: "DX-HISTORY",
+        },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    fireEvent.change(screen.getByLabelText("Số dòng mỗi trang"), {
+      target: { value: "50" },
+    });
+    await waitFor(() =>
+      expect(api.listOrdersDirectory).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        {
+          page: 1,
+          limit: 50,
+          status: "PAID",
+          type: "RENEWAL",
+          search: "DX-HISTORY",
+        },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    expect(
+      screen.getByText("Thanh toán đang chờ: DXLMS-MOCK-001"),
+    ).toBeTruthy();
+    expect(api.listOrders).toHaveBeenCalledTimes(1);
+    expect(api.createCheckout).not.toHaveBeenCalled();
+    expect(api.simulate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    await waitFor(() =>
+      expect(api.listOrdersDirectory).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        { page: 1, limit: 50 },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    expect((search as HTMLInputElement).value).toBe("");
+  });
+
+  it("hides stale payment history on a listing error and retries without a payment mutation", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <BillingPage />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("DXLMS-MOCK-001");
+    api.listOrdersDirectory.mockRejectedValueOnce(
+      new Error("private backend detail"),
+    );
+    await act(async () => {
+      await client.invalidateQueries({
+        predicate: (query) => query.queryKey.includes("directory"),
+      });
+    });
+    await screen.findByText("Không thể tải lịch sử thanh toán");
+    expect(screen.queryByText("DXLMS-MOCK-001")).toBeNull();
+    expect(screen.queryByText("private backend detail")).toBeNull();
+    expect(
+      screen.getByText("Thanh toán đang chờ: DXLMS-MOCK-001"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Thử lại" }));
+    await screen.findByText("DXLMS-MOCK-001");
+    expect(api.listOrdersDirectory).toHaveBeenCalledTimes(3);
+    expect(api.listOrders).toHaveBeenCalledTimes(1);
+    expect(api.createCheckout).not.toHaveBeenCalled();
+    expect(api.simulate).not.toHaveBeenCalled();
+  });
+
   it("hướng dẫn bước chọn gói sau khi vừa tạo workspace mà không tự tạo đơn", async () => {
     navigation.searchParam.mockImplementation((key: string) =>
       key === "onboarding" ? "1" : null,
@@ -264,7 +422,9 @@ describe("BillingPage mock reload", () => {
     );
 
     expect(await screen.findByText("Workspace đã sẵn sàng")).toBeTruthy();
-    expect(screen.getByText(/chỉ tạo đơn khi bạn xác nhận thanh toán/i)).toBeTruthy();
+    expect(
+      screen.getByText(/chỉ tạo đơn khi bạn xác nhận thanh toán/i),
+    ).toBeTruthy();
     expect(api.createCheckout).not.toHaveBeenCalled();
   });
 
@@ -433,6 +593,12 @@ describe("BillingPage mock reload", () => {
       0,
     );
     expect(screen.getAllByText("Tối đa 25 khóa học").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Tối đa 200 học viên hoạt động").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Tối đa 3 chi nhánh hoạt động").length,
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText("Khóa học").length).toBeGreaterThan(0);
     await waitFor(() =>
       expect(auth.updateEffectiveAccess).toHaveBeenCalledWith(
@@ -627,8 +793,8 @@ describe("BillingPage mock reload", () => {
       effectiveAccess: {
         graceEndsAt: null,
         limits: {
-          maxActiveLearners: null,
-          maxBranches: null,
+          maxActiveLearners: 18,
+          maxBranches: 2,
           maxCourses: 3,
           maxUsers: 20,
         },
@@ -660,10 +826,18 @@ describe("BillingPage mock reload", () => {
     expect(currentSummary).not.toBeNull();
     expect(currentSummary!.textContent).toContain("Tối đa 20 người dùng");
     expect(currentSummary!.textContent).toContain("Tối đa 3 khóa học");
+    expect(currentSummary!.textContent).toContain(
+      "Tối đa 18 học viên hoạt động",
+    );
+    expect(currentSummary!.textContent).toContain(
+      "Tối đa 2 chi nhánh hoạt động",
+    );
     expect(within(currentSummary!).getByText("Người dùng")).toBeTruthy();
     expect(within(currentSummary!).queryByText("Khóa học")).toBeNull();
     expect(
-      screen.getByText(/Workspace đang dùng các quyền hiện được cấp theo gói Standard/),
+      screen.getByText(
+        /Workspace đang dùng các quyền hiện được cấp theo gói Standard/,
+      ),
     ).toBeTruthy();
     expect(screen.queryByText(/toàn bộ quyền|đầy đủ quyền/i)).toBeNull();
   });

@@ -1,5 +1,9 @@
 "use client";
 
+import { useFeedback } from "@/components/feedback/feedback-provider";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningMessages } from "@/lib/i18n/learning-messages";
+
 import { Alert, Button, Progress } from "antd";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
@@ -19,7 +23,7 @@ type UploadJobStatus =
 interface UploadJob {
   asset?: MediaAsset;
   clientMutationId: string;
-  error?: string;
+  error?: { source: string; cause?: unknown };
   fileName: string;
   fingerprint: string;
   id: string;
@@ -92,10 +96,26 @@ function SecureMediaUploaderSession({
   target,
   token,
 }: SecureMediaUploaderProps) {
+  const { t } = useI18n(learningMessages);
+  const { formatError } = useFeedback();
   const helpId = useId();
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [selectionError, setSelectionError] = useState<string | null>(null);
+  const selectionMessage = (source: string) => {
+    const count = /^Chỉ được đính kèm tối đa (\d+) tệp\.$/.exec(source);
+    if (count) return t("Chỉ được đính kèm tối đa {p0} tệp.", { p0: count[1] });
+    const size =
+      /^Mỗi tệp phải lớn hơn 0 byte và không vượt quá (\d+) MiB\.$/.exec(
+        source,
+      );
+    if (size)
+      return t("Mỗi tệp phải lớn hơn 0 byte và không vượt quá {max} MiB.", {
+        max: size[1],
+      });
+    return t(source);
+  };
   const activeJobIds = useRef(new Set<string>());
+  const selectionInFlight = useRef(false);
   const controllers = useRef(new Map<string, AbortController>());
   const files = useRef(new Map<string, File>());
   const mounted = useRef(true);
@@ -163,12 +183,16 @@ function SecureMediaUploaderSession({
   };
 
   const execute = async (job: UploadJob) => {
-    if (!activeJobIds.current.has(job.id)) return;
+    if (
+      disabled ||
+      controllers.current.has(job.id) ||
+      !activeJobIds.current.has(job.id)
+    )
+      return;
     const file = files.current.get(job.id);
     if (!job.asset && !file) return;
     onBusyChange?.(true);
     const controller = new AbortController();
-    controllers.current.get(job.id)?.abort();
     controllers.current.set(job.id, controller);
     patchJob(job.id, { error: undefined, status: "RUNNING" });
     try {
@@ -182,13 +206,22 @@ function SecureMediaUploaderSession({
           signal: controller.signal,
           target,
         }));
-      if (!mounted.current || !activeJobIds.current.has(job.id) || controller.signal.aborted) {
+      if (
+        !mounted.current ||
+        !activeJobIds.current.has(job.id) ||
+        controller.signal.aborted
+      ) {
         throw new DOMException("Upload aborted", "AbortError");
       }
       files.current.delete(job.id);
       patchJob(job.id, { asset, stage: "ATTACHING", status: "ATTACHING" });
       await onAvailable(asset);
-      if (!mounted.current || !activeJobIds.current.has(job.id) || controller.signal.aborted) return;
+      if (
+        !mounted.current ||
+        !activeJobIds.current.has(job.id) ||
+        controller.signal.aborted
+      )
+        return;
       patchJob(job.id, { asset, stage: "AVAILABLE", status: "DONE" });
     } catch (error) {
       const cancelled =
@@ -200,10 +233,8 @@ function SecureMediaUploaderSession({
       if (!activeJobIds.current.has(job.id)) return;
       patchJob(job.id, {
         error: cancelled
-          ? "Đã hủy tải tệp."
-          : error instanceof Error
-            ? error.message
-            : "Không thể hoàn tất tải tệp.",
+          ? { source: "Đã hủy tải tệp." }
+          : { source: "Không thể hoàn tất tải tệp.", cause: error },
         status: cancelled ? "CANCELLED" : "ERROR",
       });
       if (cancelled) files.current.delete(job.id);
@@ -215,6 +246,13 @@ function SecureMediaUploaderSession({
   };
 
   const selectFiles = async (selected: File[]) => {
+    if (
+      disabled ||
+      selectionInFlight.current ||
+      controllers.current.size > 0 ||
+      busy
+    )
+      return;
     const validation = validateMediaFiles({
       allowedContentTypes,
       currentCount: currentAssetIds.length + unsettledCount,
@@ -242,7 +280,12 @@ function SecureMediaUploaderSession({
       };
     });
     setJobs((current) => [...current, ...nextJobs]);
-    for (const job of nextJobs) await execute(job);
+    selectionInFlight.current = true;
+    try {
+      for (const job of nextJobs) await execute(job);
+    } finally {
+      selectionInFlight.current = false;
+    }
   };
 
   const cancel = (job: UploadJob) => {
@@ -252,7 +295,10 @@ function SecureMediaUploaderSession({
       return;
     }
     files.current.delete(job.id);
-    patchJob(job.id, { error: "Đã hủy tải tệp.", status: "CANCELLED" });
+    patchJob(job.id, {
+      error: { source: "Đã hủy tải tệp." },
+      status: "CANCELLED",
+    });
   };
 
   const removeJob = (jobId: string) => {
@@ -265,7 +311,7 @@ function SecureMediaUploaderSession({
   };
 
   return (
-    <div className={styles.uploadPanel}>
+    <div aria-busy={busy} className={styles.uploadPanel}>
       <label>
         <strong>{label}</strong>
         <input
@@ -288,12 +334,18 @@ function SecureMediaUploaderSession({
         />
       </label>
       <small id={helpId}>
-        Tối đa {maxCount} tệp, {Math.round(maxBytes / 1024 / 1024)} MiB mỗi tệp.
-        SHA-256 được tính trong trình duyệt; nội dung tải thẳng lên kho riêng
-        tư.
+        {t("Tối đa")} {maxCount} {t("tệp,")}{" "}
+        {Math.round(maxBytes / 1024 / 1024)}{" "}
+        {t(
+          "MiB mỗi tệp. SHA-256 được tính trong trình duyệt; nội dung tải thẳng lên kho riêng tư.",
+        )}
       </small>
       {selectionError && (
-        <Alert showIcon title={selectionError} type="warning" />
+        <Alert
+          showIcon
+          title={selectionMessage(selectionError)}
+          type="warning"
+        />
       )}
       {jobs.length > 0 && (
         <ul aria-live="polite" className={styles.uploadJobs}>
@@ -304,16 +356,20 @@ function SecureMediaUploaderSession({
                   {job.fileName}
                 </strong>
                 <span className={styles.jobStatus}>
-                  {job.error ??
+                  {(job.error
+                    ? job.error.cause === undefined
+                      ? t(job.error.source)
+                      : formatError(job.error.cause, job.error.source)
+                    : null) ??
                     (job.status === "QUEUED"
-                      ? "Đang chờ tải lên"
-                      : stageLabels[job.stage])}
+                      ? t("Đang chờ tải lên")
+                      : t(stageLabels[job.stage]))}
                 </span>
                 {job.status === "ERROR" && (
                   <span className={styles.jobHint}>
-                    “Bỏ tệp” chỉ dọn dữ liệu trong trình duyệt. Asset dở dang đã
-                    khởi tạo (nếu có) tiếp tục do lifecycle cleanup phía máy chủ
-                    quản lý; thao tác này không xác nhận xóa asset trên máy chủ.
+                    {t(
+                      "“Bỏ tệp” chỉ dọn dữ liệu trong trình duyệt. Asset dở dang đã khởi tạo (nếu có) tiếp tục do lifecycle cleanup phía máy chủ quản lý; thao tác này không xác nhận xóa asset trên máy chủ.",
+                    )}
                   </span>
                 )}
                 <Progress
@@ -330,7 +386,9 @@ function SecureMediaUploaderSession({
                       ? "exception"
                       : job.status === "DONE"
                         ? "success"
-                        : "active"
+                        : job.status === "CANCELLED"
+                          ? "normal"
+                          : "active"
                   }
                 />
               </div>
@@ -342,30 +400,30 @@ function SecureMediaUploaderSession({
                       onClick={() => void execute(job)}
                       size="small"
                     >
-                      Thử lại
+                      {t("Thử lại")}
                     </Button>
                     <Button
                       danger
                       onClick={() => removeJob(job.id)}
                       size="small"
                     >
-                      Bỏ tệp
+                      {t("Bỏ tệp")}
                     </Button>
                   </>
                 )}
                 {job.status === "QUEUED" && (
                   <Button danger onClick={() => removeJob(job.id)} size="small">
-                    Bỏ tệp
+                    {t("Bỏ tệp")}
                   </Button>
                 )}
                 {job.status === "RUNNING" && (
                   <Button danger onClick={() => cancel(job)} size="small">
-                    Hủy
+                    {t("Hủy")}
                   </Button>
                 )}
                 {(job.status === "DONE" || job.status === "CANCELLED") && (
                   <Button onClick={() => removeJob(job.id)} size="small">
-                    Ẩn
+                    {t("Ẩn")}
                   </Button>
                 )}
               </div>

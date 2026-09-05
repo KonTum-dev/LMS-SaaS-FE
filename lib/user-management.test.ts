@@ -10,20 +10,29 @@ import {
   sanitizeInvitationList,
   userIdentityId,
   userRoleLabels,
+  newUserPasswordValidationError,
 } from "./user-management";
 
 describe("user management payloads", () => {
+  it("applies the new-account policy without silently truncating passwords", () => {
+    expect(newUserPasswordValidationError("Parent@1234")).toContain("12");
+    expect(newUserPasswordValidationError("😀".repeat(6))).toContain("12");
+    expect(newUserPasswordValidationError("é".repeat(37))).toContain("72");
+    expect(newUserPasswordValidationError("Parent@12345")).toBeNull();
+    expect(newUserPasswordValidationError("😀".repeat(12))).toBeNull();
+    expect(() => buildCreateUserPayload({ email: "parent@example.com", fullName: "Parent", password: "TooShort", role: "GUARDIAN" })).toThrow("12");
+  });
   it("chuẩn hóa tài khoản mới và chỉ gửi các trường backend cho phép", () => {
     expect(buildCreateUserPayload({
       email: "  LEARNER@BRIGHT.LOCAL ",
       fullName: "  Học viên mới  ",
-      password: "Student@123",
+      password: "Student@1234",
       role: "LEARNER",
       status: "INACTIVE",
     })).toEqual({
       email: "learner@bright.local",
       fullName: "Học viên mới",
-      password: "Student@123",
+      password: "Student@1234",
       role: "LEARNER",
     });
   });
@@ -48,7 +57,7 @@ describe("user management payloads", () => {
         email: "learner@bright.local",
         fullName: "Học viên mới",
         orgUnitId: "  branch-1  ",
-        password: "Student@123",
+        password: "Student@1234",
         role: "LEARNER",
       }),
     ).toMatchObject({ orgUnitId: "branch-1" });

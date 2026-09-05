@@ -11,6 +11,7 @@ import {
 import { ApiError } from "@/lib/api";
 import { lmsQueryKeys, type ViewerScope } from "@/lib/query-keys";
 import { AssessmentAttemptRunner } from "./assessment-attempt-runner";
+import { FeedbackLanguageSwitcher, FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 
 const mocks = vi.hoisted(() => ({
   getAttempt: vi.fn(),
@@ -128,6 +129,7 @@ afterEach(() => {
   cleanup();
   sessionStorage.clear();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("AssessmentAttemptRunner", () => {
@@ -259,12 +261,20 @@ describe("AssessmentAttemptRunner", () => {
       },
     );
     mocks.getAttempt.mockRejectedValue(new Error("Mất kết nối"));
-    renderRunner(false, client);
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
+    render(<FeedbackLocaleProvider><FeedbackLanguageSwitcher /><QueryClientProvider client={client}><AssessmentAttemptRunner attemptId="attempt-1" readOnly={false} scope={scope} token="tenant-token" /></QueryClientProvider></FeedbackLocaleProvider>);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
     expect(screen.getByText("Chưa chốt được lượt làm")).toBeTruthy();
+    expect(screen.getByText(/Chưa thể xác nhận hết giờ: Mất kết nối/)).toBeTruthy();
+    expect(mocks.getAttempt).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(screen.getByText(/Could not confirm timeout: Mất kết nối/)).toBeTruthy();
+    expect(mocks.getAttempt).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Tiếng Việt" }));
     expect(screen.getByText(/Chưa thể xác nhận hết giờ: Mất kết nối/)).toBeTruthy();
     expect(mocks.getAttempt).toHaveBeenCalledTimes(1);
 

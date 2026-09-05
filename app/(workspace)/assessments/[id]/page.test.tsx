@@ -140,6 +140,22 @@ afterEach(() => {
 });
 
 describe("AssessmentDetailPage", () => {
+  it("retries a failed load once and disables retry while fetching", async () => {
+    let resolve!: (value: AssessmentLearnerDetail) => void;
+    const pending = new Promise<AssessmentLearnerDetail>((done) => { resolve = done; });
+    mocks.getLearnerDetail.mockRejectedValueOnce(new Error("Temporary outage")).mockReturnValue(pending);
+    renderPage();
+    const retry = await screen.findByRole("button", { name: "Thử lại" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Thử lại" })).toBeNull());
+    expect(document.querySelector('[role="status"], .ant-skeleton')).toBeTruthy();
+    fireEvent.click(retry);
+    expect(mocks.getLearnerDetail).toHaveBeenCalledTimes(2);
+    await act(async () => { resolve(detail); });
+    expect(await screen.findByRole("heading", { name: detail.title })).toBeTruthy();
+    expect(mocks.startAttempt).not.toHaveBeenCalled();
+  });
+
   it("React StrictMode vẫn điều hướng và cập nhật cache sau khi start thành công", async () => {
     const startedDetail = {
       ...detail,

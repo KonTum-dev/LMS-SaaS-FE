@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -134,6 +135,24 @@ function renderPage() {
   );
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+function expectDisabled(name: string) {
+  expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+}
+
+function fillCreateForm() {
+  fireEvent.change(screen.getByLabelText("Học viên"), { target: { value: "learner-1" } });
+  fireEvent.change(screen.getByLabelText("Phụ huynh / người giám hộ"), { target: { value: "guardian-1" } });
+  fireEvent.change(screen.getByLabelText("Mối quan hệ"), { target: { value: "PARENT" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Nhận cập nhật học tập" }));
+}
+
 async function selectLearner() {
   await screen.findByRole("option", { name: /Lê Học Viên/ });
   fireEvent.change(screen.getByLabelText("Chọn học viên để tra cứu"), {
@@ -170,6 +189,102 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("GuardiansPage", () => {
+  it("deduplicates repeated creates, locks consent and modal controls, and permits retry after failure", async () => {
+    const pending = deferred<GuardianRelationship>();
+    mocks.create.mockReturnValueOnce(pending.promise);
+    renderPage();
+    await selectLearner();
+    fireEvent.click(screen.getByRole("button", { name: "Thêm người giám hộ" }));
+    fillCreateForm();
+    const form = screen.getByRole("button", { name: "Lưu quan hệ" }).closest("form")!;
+    act(() => { fireEvent.submit(form); fireEvent.submit(form); });
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    for (const name of ["Hủy", "Lưu quan hệ", "Thêm người giám hộ", "Sửa quan hệ Trần Phụ Huynh", "Lưu trữ quan hệ Trần Phụ Huynh", "Xác nhận lưu trữ"]) expectDisabled(name);
+    expect((screen.getByLabelText("Học viên") as HTMLSelectElement).disabled).toBe(true);
+    const consent = screen.getByRole("checkbox", { name: "Nhận cập nhật học tập" }) as HTMLInputElement;
+    expect(consent.disabled).toBe(true);
+    expect(consent.checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    await act(async () => pending.reject(new Error("Temporary failure")));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Lưu quan hệ" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(consent.checked).toBe(true);
+    fireEvent.submit(form);
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.archive).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("serializes consent updates against archive/create and holds the lock until refresh completes", async () => {
+    const pending = deferred<GuardianRelationship>();
+    const refresh = deferred<GuardianRelationship[]>();
+    mocks.update.mockReturnValueOnce(pending.promise);
+    renderPage();
+    await selectLearner();
+    fireEvent.click(screen.getByRole("button", { name: "Sửa quan hệ Trần Phụ Huynh" }));
+    fireEvent.change(screen.getByLabelText("Mối quan hệ"), { target: { value: "GUARDIAN" } });
+    fireEvent.change(screen.getByLabelText("Trạng thái"), { target: { value: "ACTIVE" } });
+    const form = screen.getByRole("button", { name: "Lưu thay đổi" }).closest("form")!;
+    act(() => { fireEvent.submit(form); fireEvent.submit(form); });
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    expect(mocks.update).toHaveBeenCalledWith({ token: "tenant-token" }, "relationship-1", expect.objectContaining({ canReceiveAcademicUpdates: false }));
+    for (const name of ["Hủy", "Lưu thay đổi", "Thêm người giám hộ", "Xác nhận lưu trữ"]) expectDisabled(name);
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận lưu trữ" }));
+    expect(mocks.archive).not.toHaveBeenCalled();
+    mocks.listByLearner.mockReturnValueOnce(refresh.promise);
+    await act(async () => pending.resolve(relationship));
+    await waitFor(() => expect(mocks.listByLearner).toHaveBeenCalledTimes(2));
+    expectDisabled("Thêm người giám hộ");
+    expectDisabled("Xác nhận lưu trữ");
+    await act(async () => refresh.resolve([relationship]));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Xác nhận lưu trữ" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận lưu trữ" }));
+    await waitFor(() => expect(mocks.archive).toHaveBeenCalledTimes(1));
+  });
+
+  it("deduplicates archive and prevents opening conflicting forms while it is pending", async () => {
+    const pending = deferred<GuardianRelationship>();
+    mocks.archive.mockReturnValueOnce(pending.promise);
+    renderPage();
+    await selectLearner();
+    const confirm = screen.getByRole("button", { name: "Xác nhận lưu trữ" });
+    act(() => { fireEvent.click(confirm); fireEvent.click(confirm); });
+    await waitFor(() => expect(mocks.archive).toHaveBeenCalledTimes(1));
+    expectDisabled("Sửa quan hệ Trần Phụ Huynh");
+    expectDisabled("Thêm người giám hộ");
+    fireEvent.click(screen.getByRole("button", { name: "Sửa quan hệ Trần Phụ Huynh" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => pending.resolve(relationship));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Sửa quan hệ Trần Phụ Huynh" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Sửa quan hệ Trần Phụ Huynh" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("links tenant admins to parent account management and excludes inactive or wrong-role accounts", async () => {
+    mocks.listDirectory.mockResolvedValue([
+      learnerDirectory, guardianDirectory,
+      { ...guardianDirectory, _id: "inactive-member", userId: "inactive", fullName: "Inactive membership", status: "INACTIVE" },
+      { ...guardianDirectory, _id: "disabled-user", userId: "disabled", fullName: "Disabled account", accountStatus: "INACTIVE" },
+      { ...guardianDirectory, _id: "instructor", userId: "instructor", fullName: "Instructor account", role: "INSTRUCTOR" },
+    ]);
+    renderPage();
+    await selectLearner();
+    expect(screen.getByRole("button", { name: "Tài khoản phụ huynh" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Thêm người giám hộ" }));
+    expect(screen.getByRole("option", { name: /Trần Phụ Huynh/ })).toBeTruthy();
+    for (const name of ["Inactive membership", "Disabled account", "Instructor account"]) {
+      expect(screen.queryByRole("option", { name: new RegExp(name) })).toBeNull();
+    }
+  });
+
+  it("does not expose account management to a guardian", async () => {
+    mocks.role = "GUARDIAN";
+    renderPage();
+    await screen.findByText("Trần Phụ Huynh");
+    expect(screen.queryByText("Tài khoản phụ huynh")).toBeNull();
+  });
   it("admin tải user directory và yêu cầu chọn learner trước khi đọc quan hệ", async () => {
     renderPage();
 
@@ -194,8 +309,8 @@ describe("GuardiansPage", () => {
       { status: "ACTIVE" },
       { signal: expect.any(AbortSignal) },
     );
-    expect(screen.getByText("Quan hệ đang hiển thị")).toBeTruthy();
-    expect(screen.getByText("Nhận cập nhật học phí")).toBeTruthy();
+    expect(screen.getByText("1 quan hệ")).toBeTruthy();
+    expect(screen.getByText("Cập nhật học phí")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Sửa quan hệ Trần Phụ Huynh" }),
     ).toBeTruthy();
@@ -238,7 +353,7 @@ describe("GuardiansPage", () => {
     );
     expect(mocks.listDirectory).not.toHaveBeenCalled();
     expect(mocks.listLearners).not.toHaveBeenCalled();
-    expect(screen.getByText("Chế độ chỉ đọc")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Thêm người giám hộ" })).toBeNull();
     expect(screen.queryByText("Thao tác")).toBeNull();
   });
 

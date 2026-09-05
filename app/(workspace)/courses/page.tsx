@@ -1,30 +1,22 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { learningPolishMessages as learningMessages } from "@/lib/i18n/learning-polish-messages";
+import polish from "@/components/layout/learning-polish.module.css";
+import { listPageCount, normalizeListSearch } from "@/lib/list-controls";
+
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
 import {
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  Empty,
-  Form,
-  Input,
-  Modal,
-  Pagination,
-  Popconfirm,
-  Select,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-} from "antd";
+import { Alert, Button, Card, Empty, Input, Modal, Pagination, Popconfirm, Select, Space, Spin, Tag, Typography } from "antd";
+import { Form } from "@/components/form/localized-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAntdTanStackForm } from "@/components/form/use-antd-tanstack-form";
 import { isFormValidationError } from "@/components/form/validation-error";
@@ -78,7 +70,8 @@ function directoryPath(path: string, page: number, search: string) {
 }
 
 export default function CoursesPage() {
-  const { message } = App.useApp();
+  const { t } = useI18n(learningMessages);
+  const { message, reportError, formatError } = useFeedback();
   const { effectiveAccess, organization, token, user } = useAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -94,6 +87,10 @@ export default function CoursesPage() {
   const [learnerSearch, setLearnerSearch] = useState("");
   const [rosterPage, setRosterPage] = useState(1);
   const [rosterSearch, setRosterSearch] = useState("");
+  const [listSearch, setListSearch] = useState("");
+  const [listStatus, setListStatus] = useState<CourseStatus | undefined>();
+  const [listPage, setListPage] = useState(1);
+  const [listSize, setListSize] = useState(12);
   const role = user?.role;
   const readOnly = effectiveAccess?.readOnly ?? false;
   const scopedTenantAdmin =
@@ -109,6 +106,20 @@ export default function CoursesPage() {
   const canViewRoster = canManageRole && enrollmentEnabled;
   const canMutateRoster = canViewRoster && !readOnly;
   const scope = getViewerScope(user, organization);
+  const actionRequests = useRef(new Map<string, Promise<void>>());
+  const [pendingActions, setPendingActions] = useState<ReadonlySet<string>>(new Set());
+  const actionKey = (action: string, id = "") => JSON.stringify([scope, action, id]);
+  const runAction = (key: string, action: () => Promise<void>) => {
+    const existing = actionRequests.current.get(key);
+    if (existing) return existing;
+    const request = Promise.resolve().then(action).finally(() => {
+      actionRequests.current.delete(key);
+      setPendingActions(current => { const next = new Set(current); next.delete(key); return next; });
+    });
+    actionRequests.current.set(key, request);
+    setPendingActions(current => new Set(current).add(key));
+    return request;
+  };
   const coursesKey = scope
     ? lmsQueryKeys.courses(scope)
     : (["lms", "signed-out", "courses"] as const);
@@ -154,12 +165,12 @@ export default function CoursesPage() {
     queryKey: scope
       ? lmsQueryKeys.eligibleInstructors(scope, instructorDirectory)
       : [
-          "lms",
-          "signed-out",
-          "courses",
-          "eligible-instructors",
-          instructorDirectory,
-        ],
+        "lms",
+        "signed-out",
+        "courses",
+        "eligible-instructors",
+        instructorDirectory,
+      ],
     queryFn: () =>
       apiFetch<Paginated<DirectoryPerson>>(
         directoryPath(
@@ -178,13 +189,13 @@ export default function CoursesPage() {
     queryKey: scope
       ? lmsQueryKeys.eligibleLearners(scope, selectedCourseId, learnerDirectory)
       : [
-          "lms",
-          "signed-out",
-          "enrollments",
-          selectedCourseId,
-          "eligible-learners",
-          learnerDirectory,
-        ],
+        "lms",
+        "signed-out",
+        "enrollments",
+        selectedCourseId,
+        "eligible-learners",
+        learnerDirectory,
+      ],
     queryFn: () =>
       apiFetch<Paginated<DirectoryPerson>>(
         directoryPath(
@@ -203,13 +214,13 @@ export default function CoursesPage() {
     queryKey: scope
       ? lmsQueryKeys.courseRoster(scope, selectedCourseId, rosterDirectory)
       : [
-          "lms",
-          "signed-out",
-          "enrollments",
-          selectedCourseId,
-          "roster",
-          rosterDirectory,
-        ],
+        "lms",
+        "signed-out",
+        "enrollments",
+        selectedCourseId,
+        "roster",
+        rosterDirectory,
+      ],
     queryFn: () =>
       apiFetch<Paginated<CourseRosterItem>>(
         directoryPath(
@@ -221,15 +232,32 @@ export default function CoursesPage() {
       ),
   });
   const courses = coursesQuery.data ?? [];
+  const normalizedSearch = normalizeListSearch(listSearch);
+  const filteredCourses = courses.filter((course) => {
+    const instructor = typeof course.instructorId === "object" ? course.instructorId : null;
+    return (!listStatus || course.status === listStatus)
+      && (!normalizedSearch || normalizeListSearch([
+        course.title, course.slug, course.description, instructor?.fullName, instructor?.email,
+      ].filter(Boolean).join(" ")).includes(normalizedSearch));
+  });
+  const currentListPage = Math.min(listPage, listPageCount(filteredCourses.length, listSize));
+  if (!coursesQuery.isFetching && !coursesQuery.isPending && listPage > currentListPage) setListPage(currentListPage);
+  const visibleCourses = filteredCourses.slice((currentListPage - 1) * listSize, currentListPage * listSize);
+  const hasListFilters = Boolean(listSearch || listStatus);
+  const clearListFilters = () => {
+    setListSearch("");
+    setListStatus(undefined);
+    setListPage(1);
+  };
   const instructors = useMemo(() => {
     const directory = instructorsQuery.data?.items ?? EMPTY_DIRECTORY;
     const current =
       editing && typeof editing.instructorId === "object"
         ? {
-            email: editing.instructorId.email,
-            fullName: editing.instructorId.fullName,
-            userId: editing.instructorId._id,
-          }
+          email: editing.instructorId.email,
+          fullName: editing.instructorId.fullName,
+          userId: editing.instructorId._id,
+        }
         : null;
     return current && !directory.some((item) => item.userId === current.userId)
       ? [current, ...directory]
@@ -335,29 +363,27 @@ export default function CoursesPage() {
     (values) =>
       selectedCourse
         ? enrollMutation
-            .mutateAsync({ ...values, courseId: selectedCourse._id })
-            .then(() => undefined)
+          .mutateAsync({ ...values, courseId: selectedCourse._id })
+          .then(() => undefined)
         : Promise.resolve(),
   );
-  const saveCourse = async () => {
+  const saveCourse = () => runAction(actionKey("save"), async () => {
+    if (!canManageCourse || !scope) return;
     try {
       await tanstackCourseForm.submit(await courseForm.validateFields());
     } catch (caught) {
       if (!isFormValidationError(caught))
-        message.error(
-          caught instanceof Error ? caught.message : "Không thể lưu khóa học",
-        );
+        reportError(caught, "Không thể lưu khóa học");
     }
-  };
-  const archive = async (course: Course) => {
+  });
+  const archive = (course: Course) => runAction(actionKey("archive", course._id), async () => {
+    if (!canManageCourse || !scope) return;
     try {
       await archiveMutation.mutateAsync(course);
     } catch (caught) {
-      message.error(
-        caught instanceof Error ? caught.message : "Không thể lưu trữ khóa học",
-      );
+      reportError(caught, "Không thể lưu trữ khóa học");
     }
-  };
+  });
   const showEnrollment = (course: Course) => {
     setSelectedCourse(course);
     setLearnerPage(1);
@@ -367,38 +393,34 @@ export default function CoursesPage() {
     enrollmentForm.resetFields();
     setEnrollmentOpen(true);
   };
-  const enroll = async () => {
-    if (!selectedCourse) return;
+  const enroll = () => runAction(actionKey("enroll", selectedCourseId), async () => {
+    if (!selectedCourse || !canMutateRoster || !scope) return;
     try {
       await tanstackEnrollmentForm.submit(
         await enrollmentForm.validateFields(),
       );
     } catch (caught) {
       if (!isFormValidationError(caught))
-        message.error(
-          caught instanceof Error ? caught.message : "Không thể ghi danh",
-        );
+        reportError(caught, "Không thể ghi danh");
     }
-  };
-  const removeEnrollment = async (id: string) => {
-    if (!selectedCourse) return;
+  });
+  const removeEnrollment = (id: string) => runAction(actionKey("remove", id), async () => {
+    if (!selectedCourse || !canMutateRoster || !scope) return;
     try {
       await removeEnrollmentMutation.mutateAsync({
         courseId: selectedCourse._id,
         id,
       });
     } catch (caught) {
-      message.error(
-        caught instanceof Error ? caught.message : "Không thể hủy ghi danh",
-      );
+      reportError(caught, "Không thể hủy ghi danh");
     }
-  };
+  });
 
   if (user?.role === "SUPER_ADMIN")
     return (
       <Alert
         showIcon
-        title="Quản trị nền tảng xem số liệu tổng hợp; khóa học được vận hành trong từng tổ chức."
+        title={t("Quản trị nền tảng xem số liệu tổng hợp; khóa học được vận hành trong từng tổ chức.")}
         type="info"
       />
     );
@@ -410,14 +432,14 @@ export default function CoursesPage() {
       <header className="page-heading courses-page-heading">
         <div className="page-heading-copy">
           <h1 id="courses-page-title">
-            {user?.role === "LEARNER" ? "Khóa học của tôi" : "Khóa học"}
+            {user?.role === "LEARNER" ? t("Khóa học của tôi") : t("Khóa học")}
           </h1>
           <p>
             {user?.role === "LEARNER"
-              ? "Các khóa học đã ghi danh và đang được mở."
+              ? t("Tiếp tục các khóa học bạn đã tham gia.")
               : scopedTenantAdmin
-                ? "Dùng danh mục khóa học chung để quản lý ghi danh trong đơn vị của bạn."
-                : "Tổ chức nội dung đào tạo, phân công giảng viên và ghi danh học viên."}
+                ? t("Ghi danh học viên trong đơn vị vào danh mục chung.")
+                : t("Quản lý nội dung, giảng viên và học viên.")}
           </p>
         </div>
         {canManageCourseRole && (
@@ -426,45 +448,64 @@ export default function CoursesPage() {
             disabled={readOnly}
             icon={<PlusOutlined />}
             onClick={showCreate}
-            title={readOnly ? "Gia hạn thuê bao để tạo khóa học" : undefined}
+            title={readOnly ? t("Gia hạn thuê bao để tạo khóa học") : undefined}
             type="primary"
-          >
-            Tạo khóa học
-          </Button>
+          >{t("Tạo khóa học")}</Button>
         )}
       </header>
       {scopedTenantAdmin && (
         <Alert
-          description="Nội dung khóa học được quản trị viên toàn tổ chức hoặc giảng viên phụ trách quản lý. Bạn vẫn có thể ghi danh học viên thuộc phạm vi đơn vị."
+          description={t("Bạn quản lý ghi danh trong đơn vị. Nội dung do quản trị viên toàn tổ chức hoặc giảng viên phụ trách quản lý.")}
           showIcon
-          title="Danh mục học thuật dùng chung"
+          title={t("Danh mục học thuật dùng chung")}
           type="info"
         />
       )}
-      {coursesQuery.error ? (
+      <div aria-label={t("Bộ lọc khóa học")} className="list-filter-bar" role="search">
+        <Input.Search
+          allowClear
+          aria-label={t("Tìm khóa học")}
+          maxLength={100}
+          onChange={(event) => { setListSearch(event.target.value); setListPage(1); }}
+          placeholder={t("Tìm theo tên hoặc mô tả")}
+          value={listSearch}
+        />
+        {role !== "LEARNER" && (
+          <Select<CourseStatus>
+            allowClear
+            aria-label={t("Lọc trạng thái khóa học")}
+            onChange={(value) => { setListStatus(value); setListPage(1); }}
+            options={statuses.map((option) => ({ ...option, label: t(option.label) }))}
+            placeholder={t("Tất cả trạng thái")}
+            value={listStatus}
+          />
+        )}
+        {hasListFilters && <Button onClick={clearListFilters}>{t("Xóa bộ lọc")}</Button>}
+      </div>
+      {coursesQuery.error || pendingActions.has(actionKey("retry-courses")) ? (
         <Alert
+          action={<Button loading={coursesQuery.isFetching || pendingActions.has(actionKey("retry-courses"))} onClick={() => void runAction(actionKey("retry-courses"), async () => { await coursesQuery.refetch({ cancelRefetch: false }); })}>{t("Thử lại")}</Button>}
           showIcon
           title={
-            coursesQuery.error instanceof Error
-              ? coursesQuery.error.message
-              : "Không tải được khóa học"
+            formatError(coursesQuery.error, "Không tải được khóa học")
           }
           type="error"
         />
       ) : coursesQuery.isPending ? (
         <div
-          aria-label="Đang tải khóa học"
+          aria-label={t("Đang tải khóa học")}
           className="page-loading"
           role="status"
         >
           <Spin size="large" />
         </div>
-      ) : courses.length ? (
-        <section aria-label="Danh sách khóa học" className="course-grid">
-          {courses.map((course) => {
+      ) : visibleCourses.length ? (
+        <>
+        <section aria-label={t("Danh sách khóa học")} className="course-grid">
+          {visibleCourses.map((course) => {
             const courseTitleId = `course-title-${course._id}`;
             return (
-              <Card className="surface-card course-card" key={course._id}>
+              <Card className={`surface-card course-card ${polish.courseCard}`} key={course._id}>
                 <article
                   aria-labelledby={courseTitleId}
                   className="course-card-content"
@@ -480,7 +521,7 @@ export default function CoursesPage() {
                               : "gold"
                         }
                       >
-                        {statusLabel[course.status]}
+                        {t(statusLabel[course.status])}
                       </Tag>
                     </Space>
                     <Typography.Title
@@ -493,17 +534,17 @@ export default function CoursesPage() {
                     </Typography.Title>
                   </header>
 
-                  <Typography.Paragraph
+                  {course.description && <Typography.Paragraph
                     className="course-card-description"
                     ellipsis={{ rows: 3 }}
                   >
-                    {course.description || "Chưa có mô tả cho khóa học này."}
-                  </Typography.Paragraph>
+                    {course.description}
+                  </Typography.Paragraph>}
 
                   {typeof course.instructorId === "object" && (
                     <dl className="course-card-meta">
                       <div>
-                        <dt>Giảng viên</dt>
+                        <dt>{t("Giảng viên")}</dt>
                         <dd>{course.instructorId.fullName}</dd>
                       </div>
                     </dl>
@@ -515,40 +556,41 @@ export default function CoursesPage() {
                         className="course-card-primary-action"
                         onClick={() => router.push(`/courses/${course._id}`)}
                         type="primary"
-                      >
-                        Mở khóa học
-                      </Button>
-                    )}
-                    {canManageCourse && (
-                      <Button
-                        icon={<EditOutlined />}
-                        onClick={() => showEdit(course)}
-                      >
-                        Chỉnh sửa
-                      </Button>
+                      >{t("Mở khóa học")}</Button>
                     )}
                     {canViewRoster && course.status !== "ARCHIVED" && (
                       <Button
                         icon={<TeamOutlined />}
                         onClick={() => showEnrollment(course)}
-                      >
-                        Học viên
-                      </Button>
+                      >{t("Học viên")}</Button>
                     )}
                     {canManageCourse && (
+                      <details className={polish.courseMenu} onKeyDown={(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>
+                      <summary aria-label={t("Tùy chọn khóa học {name}", { name: course.title })}>⋯</summary>
+                      <div className={polish.courseMenuPanel}>
+                      <Button
+                        icon={<EditOutlined />}
+                        onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); showEdit(course); }}
+                        type="text"
+                      >{t("Chỉnh sửa")}</Button>
                       <Popconfirm
-                        cancelText="Hủy"
-                        okText="Lưu trữ"
-                        onConfirm={() => void archive(course)}
-                        title="Lưu trữ khóa học này?"
+                        cancelText={t("Hủy")}
+                        okText={t("Lưu trữ")}
+                        onConfirm={() => archive(course)}
+                        okButtonProps={{ loading: pendingActions.has(actionKey("archive", course._id)) }}
+                        title={t("Lưu trữ khóa học này?")}
                       >
                         <Button
-                          aria-label={`Lưu trữ khóa học ${course.title}`}
+                          aria-label={t("Lưu trữ khóa học {p0}", { p0: course.title })}
                           danger
+                          loading={pendingActions.has(actionKey("archive", course._id))}
                           icon={<DeleteOutlined />}
-                          title="Lưu trữ khóa học"
-                        />
+                          title={t("Lưu trữ khóa học")}
+                          type="text"
+                        >{t("Lưu trữ")}</Button>
                       </Popconfirm>
+                      </div>
+                      </details>
                     )}
                   </Space>
                 </article>
@@ -556,33 +598,48 @@ export default function CoursesPage() {
             );
           })}
         </section>
+        <div className="list-pagination">
+          <Pagination
+            current={currentListPage}
+            hideOnSinglePage={false}
+            onChange={(page, size) => { setListPage(size === listSize ? page : 1); setListSize(size); }}
+            pageSize={listSize}
+            pageSizeOptions={[12, 24, 48, 96]}
+            responsive
+            showLessItems
+            showSizeChanger={{ "aria-label": t("Số dòng mỗi trang"), showSearch: false }}
+            showTotal={(total, range) => t("{p0}–{p1} trên {p2} mục", { p0: range[0], p1: range[1], p2: total })}
+            total={filteredCourses.length}
+          />
+        </div>
+        </>
       ) : (
         <Card className="surface-card courses-empty-card">
           <Empty
             className="empty-block"
             description={
-              user?.role === "LEARNER"
-                ? "Bạn chưa được ghi danh vào khóa học nào"
-                : "Chưa có khóa học"
+              hasListFilters
+                ? t("Không có khóa học phù hợp")
+                : user?.role === "LEARNER"
+                ? t("Bạn chưa được ghi danh vào khóa học nào")
+                : t("Chưa có khóa học")
             }
           >
-            {canManageCourseRole && (
-              <Button disabled={readOnly} onClick={showCreate} type="primary">
-                Tạo khóa học đầu tiên
-              </Button>
+            {hasListFilters ? <Typography.Text type="secondary">{t("Thử thay đổi từ khóa hoặc xóa bộ lọc.")}</Typography.Text> : canManageCourseRole && (
+              <Button disabled={readOnly} onClick={showCreate} type="primary">{t("Tạo khóa học đầu tiên")}</Button>
             )}
           </Empty>
         </Card>
       )}
 
       <Modal
-        cancelText="Hủy"
-        confirmLoading={saveCourseMutation.isPending}
-        okText={editing ? "Lưu thay đổi" : "Tạo khóa học"}
+        cancelText={t("Hủy")}
+        confirmLoading={pendingActions.has(actionKey("save")) || saveCourseMutation.isPending}
+        okText={editing ? t("Lưu thay đổi") : t("Tạo khóa học")}
         onCancel={() => setCourseOpen(false)}
         onOk={() => void saveCourse()}
         open={courseOpen}
-        title={editing ? "Chỉnh sửa khóa học" : "Tạo khóa học"}
+        title={editing ? t("Chỉnh sửa khóa học") : t("Tạo khóa học")}
       >
         <Form
           form={courseForm}
@@ -591,31 +648,31 @@ export default function CoursesPage() {
           style={{ marginTop: 22 }}
         >
           <Form.Item
-            label="Tên khóa học"
+            label={t("Tên khóa học")}
             name="title"
-            rules={[{ required: true, min: 2, message: "Nhập tên khóa học" }]}
+            rules={[{ required: true, min: 2, message: t("Nhập tên khóa học") }]}
           >
             <Input />
           </Form.Item>
           <Form.Item
-            extra="Dùng chữ thường, số và dấu gạch ngang."
-            label="Đường dẫn khóa học"
+            extra={t("Dùng chữ thường, số và dấu gạch ngang.")}
+            label={t("Đường dẫn khóa học")}
             name="slug"
             rules={[
               {
                 required: true,
                 pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-                message: "Dùng chữ thường, số và dấu gạch ngang",
+                message: t("Dùng chữ thường, số và dấu gạch ngang"),
               },
             ]}
           >
             <Input addonBefore="/courses/" placeholder="tieng-anh-giao-tiep" />
           </Form.Item>
-          <Form.Item label="Mô tả" name="description">
+          <Form.Item label={t("Mô tả")} name="description">
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Form.Item label="Trạng thái" name="status">
-            <Select options={statuses} />
+          <Form.Item label={t("Trạng thái")} name="status">
+            <Select options={statuses.map(option => ({ ...option, label: t(option.label) }))} />
           </Form.Item>
           {user?.role === "TENANT_ADMIN" && (
             <>
@@ -623,14 +680,12 @@ export default function CoursesPage() {
                 <Alert
                   showIcon
                   title={
-                    instructorsQuery.error instanceof Error
-                      ? instructorsQuery.error.message
-                      : "Không tải được danh sách giảng viên"
+                    formatError(instructorsQuery.error, "Không tải được danh sách giảng viên")
                   }
                   type="warning"
                 />
               )}
-              <Form.Item label="Giảng viên phụ trách" name="instructorId">
+              <Form.Item label={t("Giảng viên phụ trách")} name="instructorId">
                 <Select
                   allowClear
                   filterOption={false}
@@ -643,7 +698,7 @@ export default function CoursesPage() {
                     label: `${item.fullName} · ${item.email}`,
                     value: item.userId,
                   }))}
-                  placeholder="Tìm giảng viên"
+                  placeholder={t("Tìm giảng viên")}
                   showSearch
                 />
               </Form.Item>
@@ -669,27 +724,24 @@ export default function CoursesPage() {
         open={enrollmentOpen}
         title={`Ghi danh · ${selectedCourse?.title ?? ""}`}
       >
-        {enrollmentError ? (
+        {enrollmentError || pendingActions.has(actionKey("retry-enrollment", selectedCourseId)) ? (
           <Alert
             action={
               <Button
+                loading={pendingActions.has(actionKey("retry-enrollment", selectedCourseId)) || rosterQuery.isFetching || (canMutateRoster && learnersQuery.isFetching)}
                 onClick={() =>
-                  void Promise.all([
-                    rosterQuery.refetch(),
-                    ...(canMutateRoster ? [learnersQuery.refetch()] : []),
-                  ])
+                  void runAction(actionKey("retry-enrollment", selectedCourseId), async () => { await Promise.all([
+                    rosterQuery.refetch({ cancelRefetch: false }),
+                    ...(canMutateRoster ? [learnersQuery.refetch({ cancelRefetch: false })] : []),
+                  ]); })
                 }
                 size="small"
-              >
-                Thử lại
-              </Button>
+              >{t("Thử lại")}</Button>
             }
             showIcon
             style={{ marginTop: 22 }}
             title={
-              enrollmentError instanceof Error
-                ? enrollmentError.message
-                : "Không tải được dữ liệu ghi danh"
+              formatError(enrollmentError, "Không tải được dữ liệu ghi danh")
             }
             type="error"
           />
@@ -703,10 +755,10 @@ export default function CoursesPage() {
           <>
             {readOnly && (
               <Alert
-                description="Bạn vẫn có thể xem danh sách; thao tác ghi danh và rút học viên đang tạm khóa."
+                description={t("Bạn vẫn có thể xem danh sách; thao tác ghi danh và rút học viên đang tạm khóa.")}
                 showIcon
                 style={{ marginTop: 22 }}
-                title="Workspace chỉ đọc"
+                title={t("Workspace chỉ đọc")}
                 type="info"
               />
             )}
@@ -722,7 +774,7 @@ export default function CoursesPage() {
                   <Form.Item
                     name="userId"
                     noStyle
-                    rules={[{ required: true, message: "Chọn học viên" }]}
+                    rules={[{ required: true, message: t("Chọn học viên") }]}
                   >
                     <Select
                       disabled={enrollMutation.isPending}
@@ -736,7 +788,7 @@ export default function CoursesPage() {
                         label: `${item.fullName} · ${item.email}`,
                         value: item.userId,
                       }))}
-                      placeholder="Tìm học viên đủ điều kiện"
+                      placeholder={t("Tìm học viên đủ điều kiện")}
                       showSearch
                       style={{ width: "100%" }}
                     />
@@ -744,11 +796,9 @@ export default function CoursesPage() {
                   <Button
                     disabled={!learners.length}
                     htmlType="submit"
-                    loading={enrollMutation.isPending}
+                    loading={pendingActions.has(actionKey("enroll", selectedCourseId)) || enrollMutation.isPending}
                     type="primary"
-                  >
-                    Ghi danh
-                  </Button>
+                  >{t("Ghi danh")}</Button>
                 </Space.Compact>
                 {(learnersQuery.data?.total ?? 0) > DIRECTORY_LIMIT && (
                   <Pagination
@@ -766,15 +816,14 @@ export default function CoursesPage() {
             <div style={{ marginTop: 24 }}>
               <Input.Search
                 allowClear
-                aria-label="Tìm trong danh sách đã ghi danh"
+                aria-label={t("Tìm trong danh sách đã ghi danh")}
                 onSearch={(value) => {
                   setRosterSearch(value);
                   setRosterPage(1);
                 }}
-                placeholder="Tìm học viên đã ghi danh"
+                placeholder={t("Tìm học viên đã ghi danh")}
               />
-              <strong style={{ display: "block", marginTop: 16 }}>
-                Đã ghi danh ({rosterQuery.data?.total ?? 0})
+              <strong style={{ display: "block", marginTop: 16 }}>{t("Đã ghi danh (")}{rosterQuery.data?.total ?? 0})
               </strong>
               {selectedEnrollments.length ? (
                 selectedEnrollments.map((item) => {
@@ -801,24 +850,23 @@ export default function CoursesPage() {
                       </span>
                       {canMutateRoster ? (
                         <Popconfirm
-                          cancelText="Hủy"
-                          okText="Rút"
-                          onConfirm={() => void removeEnrollment(item._id)}
-                          title="Rút học viên khỏi khóa học?"
+                          cancelText={t("Hủy")}
+                          okText={t("Rút")}
+                          onConfirm={() => removeEnrollment(item._id)}
+                          okButtonProps={{ loading: pendingActions.has(actionKey("remove", item._id)) }}
+                          title={t("Rút học viên khỏi khóa học?")}
                         >
-                          <Button danger size="small" type="text">
-                            Rút
-                          </Button>
+                          <Button danger loading={pendingActions.has(actionKey("remove", item._id))} size="small" type="text">{t("Rút")}</Button>
                         </Popconfirm>
                       ) : (
-                        <Tag color="green">Đang học</Tag>
+                        <Tag color="green">{t("Đang học")}</Tag>
                       )}
                     </div>
                   );
                 })
               ) : (
                 <Empty
-                  description="Chưa có học viên"
+                  description={t("Chưa có học viên")}
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
               )}

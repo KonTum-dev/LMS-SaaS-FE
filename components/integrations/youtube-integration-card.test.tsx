@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { App } from "antd";
+import { App, ConfigProvider } from "antd";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import type { ViewerScope } from "@/lib/query-keys";
@@ -63,6 +63,7 @@ function renderCard({
   return {
     ...render(
       <QueryClientProvider client={queryClient}>
+        <ConfigProvider theme={{ token: { motion: false } }}>
         <App>
           <YouTubeIntegrationCard
             canPublish={canPublish}
@@ -71,6 +72,7 @@ function renderCard({
             token="session-token"
           />
         </App>
+        </ConfigProvider>
       </QueryClientProvider>,
     ),
     queryClient,
@@ -118,6 +120,53 @@ afterEach(() => {
 });
 
 describe("YouTubeIntegrationCard", () => {
+  it("shows pending, prevents duplicate confirmations and unlocks on failure", async () => {
+    let reject!: (reason: unknown) => void;
+    mocks.connect.mockImplementationOnce(() => new Promise((_resolve, rejectRequest) => { reject = rejectRequest; }));
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /Liên kết YouTube/ }));
+    const input = screen.getByLabelText("Mật khẩu hiện tại") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "CurrentPassword123" } });
+    const form = input.closest("form")!;
+    act(() => { fireEvent.submit(form); fireEvent.submit(form); });
+    await waitFor(() => expect(mocks.connect).toHaveBeenCalledTimes(1));
+    const confirm = screen.getByRole("button", { name: "Xác nhận và liên kết" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    await waitFor(() => expect(confirm.className).toContain("ant-btn-loading"));
+    expect(confirm.getAttribute("aria-busy")).toBe("true");
+    expect((screen.getByRole("button", { name: "Hủy" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(form);
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.connect).toHaveBeenCalledTimes(1);
+    await act(async () => { reject(new ApiError("invalid", 403, "CURRENT_PASSWORD_INVALID")); });
+    expect(await screen.findByText("Mật khẩu hiện tại không đúng.")).toBeTruthy();
+    expect(confirm.disabled).toBe(false);
+    expect(confirm.className).not.toContain("ant-btn-loading");
+    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), { target: { value: "RetryPassword123" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.connect).toHaveBeenCalledTimes(2));
+    expect(mocks.navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps disconnect confirmation loading through status refresh", async () => {
+    mocks.getStatus.mockResolvedValue({ channel: { id: "UC-safe", title: "Kênh cá nhân" }, connectedAt: null, state: "CONNECTED", uploadEnabled: true });
+    let resolve!: (value: unknown) => void;
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /Hủy liên kết YouTube/ }));
+    mocks.getStatus.mockImplementationOnce(() => new Promise((resolveRequest) => { resolve = resolveRequest; }));
+    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), { target: { value: "CurrentPassword123" } });
+    const confirm = screen.getByRole("button", { name: "Hủy liên kết YouTube" }) as HTMLButtonElement;
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.getStatus).toHaveBeenCalledTimes(2));
+    expect(confirm.disabled).toBe(true);
+    expect(confirm.className).toContain("ant-btn-loading");
+    await act(async () => { resolve({ channel: null, connectedAt: null, state: "DISCONNECTED", uploadEnabled: false }); });
+    const connect = await screen.findByRole("button", { name: /youtube Liên kết YouTube/ }) as HTMLButtonElement;
+    await waitFor(() => expect(connect.disabled).toBe(false));
+    expect(connect.className).not.toContain("ant-btn-loading");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("không gọi API hay render action khi tài khoản không thuộc tenant", () => {
     renderCard({ canPublish: false, canRevoke: false });
 
@@ -128,7 +177,7 @@ describe("YouTubeIntegrationCard", () => {
     ).toBeTruthy();
     expect(mocks.getStatus).not.toHaveBeenCalled();
     expect(
-      screen.queryByRole("button", { name: /Kết nối YouTube/ }),
+      screen.queryByRole("button", { name: /Liên kết YouTube/ }),
     ).toBeNull();
   });
 
@@ -147,18 +196,18 @@ describe("YouTubeIntegrationCard", () => {
       expect.any(AbortSignal),
     );
     expect(
-      screen.queryByRole("button", { name: /Kết nối YouTube/ }),
+      screen.queryByRole("button", { name: /Liên kết YouTube/ }),
     ).toBeNull();
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Ngắt kết nối YouTube/ }),
+      screen.getByRole("button", { name: /Hủy liên kết YouTube/ }),
     );
     expect(screen.getByText(/workspace hoặc tài khoản DX LMS khác/i)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
       target: { value: "CurrentPassword123" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Ngắt kết nối YouTube" }),
+      screen.getByRole("button", { name: "Hủy liên kết YouTube" }),
     );
 
     await waitFor(() =>
@@ -172,7 +221,7 @@ describe("YouTubeIntegrationCard", () => {
   it("chỉ hiện thông tin khi thành viên không có quyền publish và chưa kết nối", async () => {
     renderCard({ canPublish: false, canRevoke: true });
 
-    expect((await screen.findAllByText("Chưa kết nối")).length).toBeGreaterThan(
+    expect((await screen.findAllByText("Chưa liên kết")).length).toBeGreaterThan(
       0,
     );
     expect(
@@ -191,23 +240,23 @@ describe("YouTubeIntegrationCard", () => {
     renderCard({ canPublish: false, canRevoke: true });
 
     expect(
-      await screen.findByRole("button", { name: /Ngắt kết nối YouTube/ }),
+      await screen.findByRole("button", { name: /Hủy liên kết YouTube/ }),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: /Kết nối lại YouTube/ }),
+      screen.queryByRole("button", { name: /Liên kết lại YouTube/ }),
     ).toBeNull();
   });
 
   it("xác nhận mật khẩu rồi điều hướng same-tab tới OAuth URL đã kiểm tra", async () => {
     renderCard();
     fireEvent.click(
-      await screen.findByRole("button", { name: /Kết nối YouTube/ }),
+      await screen.findByRole("button", { name: /Liên kết YouTube/ }),
     );
     fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
       target: { value: "CurrentPassword123" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Xác nhận và kết nối" }),
+      screen.getByRole("button", { name: "Xác nhận và liên kết" }),
     );
 
     await waitFor(() =>
@@ -228,13 +277,13 @@ describe("YouTubeIntegrationCard", () => {
     );
     renderCard();
     fireEvent.click(
-      await screen.findByRole("button", { name: /Kết nối YouTube/ }),
+      await screen.findByRole("button", { name: /Liên kết YouTube/ }),
     );
     fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), {
       target: { value: "WrongPassword123" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Xác nhận và kết nối" }),
+      screen.getByRole("button", { name: "Xác nhận và liên kết" }),
     );
 
     expect(await screen.findByText("Mật khẩu hiện tại không đúng.")).toBeTruthy();
@@ -266,7 +315,7 @@ describe("YouTubeIntegrationCard", () => {
     renderCard();
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /Ngắt kết nối YouTube/ }),
+      await screen.findByRole("button", { name: /Hủy liên kết YouTube/ }),
     );
 
     expect(

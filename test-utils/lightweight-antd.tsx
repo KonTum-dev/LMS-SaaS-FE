@@ -65,6 +65,7 @@ function LightweightInput(props: {
   autoComplete?: string;
   disabled?: boolean;
   max?: number;
+  maxLength?: number;
   min?: number;
   onChange?: ChangeEventHandler<HTMLInputElement>;
   onPressEnter?: KeyboardEventHandler<HTMLInputElement>;
@@ -103,11 +104,18 @@ function LightweightTextArea({
   return <textarea aria-describedby={ariaDescribedBy} aria-invalid={ariaInvalid} aria-label={ariaLabel} disabled={disabled} maxLength={maxLength} onChange={onChange} placeholder={placeholder} rows={rows} value={value} />;
 }
 
-function LightweightSearch(props: {
-  "aria-label"?: string;
-  placeholder?: string;
+function LightweightSearch({ enterButton, onPressEnter, onSearch, ...props }: Parameters<typeof LightweightInput>[0] & {
+  className?: string;
+  enterButton?: ReactNode;
+  onSearch?: (value: string) => void;
 }) {
-  return <input aria-label={props["aria-label"]} placeholder={props.placeholder} />;
+  return <>
+    <LightweightInput {...props} onPressEnter={(event) => {
+      onPressEnter?.(event);
+      onSearch?.(event.currentTarget.value);
+    }} />
+    {enterButton ? <button type="button" onClick={() => onSearch?.(props.value ?? "")}>{enterButton}</button> : null}
+  </>;
 }
 
 const LightweightInputNamespace = Object.assign(LightweightInput, {
@@ -325,8 +333,25 @@ const LightweightTypography = {
   Title: function LightweightTitle({ children }: LooseProps) { return <h3>{children}</h3>; },
 };
 
-function LightweightPagination({ current, total }: { current?: number; total?: number }) {
-  return <nav aria-label="Phân trang">Trang {current ?? 1} · {total ?? 0}</nav>;
+function LightweightPagination({ current = 1, total = 0, pageSize = 10, onChange, showSizeChanger, pageSizeOptions = [10, 20, 50, 100], ...props }: {
+  "aria-label"?: string;
+  current?: number;
+  total?: number;
+  pageSize?: number;
+  onChange?: (page: number, pageSize: number) => void;
+  showSizeChanger?: boolean | { "aria-label"?: string };
+  pageSizeOptions?: Array<string | number>;
+}) {
+  return <nav aria-label={props["aria-label"] ?? "Phân trang"}>
+    Trang {current} · {total}
+    {onChange ? <>
+      <button type="button" aria-label="Trang trước" disabled={current <= 1} onClick={() => onChange(current - 1, pageSize)}>Trước</button>
+      <button type="button" aria-label="Trang sau" disabled={current * pageSize >= total} onClick={() => onChange(current + 1, pageSize)}>Sau</button>
+      {showSizeChanger ? <select aria-label={typeof showSizeChanger === "object" ? showSizeChanger["aria-label"] ?? "Số dòng mỗi trang" : "Số dòng mỗi trang"} value={pageSize} onChange={(event) => onChange(current, Number(event.target.value))}>
+        {pageSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
+      </select> : null}
+    </> : null}
+  </nav>;
 }
 
 function LightweightPopconfirm({
@@ -358,10 +383,13 @@ interface TestColumn<RecordType extends Record<string, unknown>> {
 interface LightweightTableProps<RecordType extends Record<string, unknown>> {
   columns?: TestColumn<RecordType>[];
   dataSource?: RecordType[];
+  locale?: { emptyText?: ReactNode };
   pagination?: {
     current?: number;
     onChange?: (page: number, pageSize: number) => void;
     pageSize?: number;
+    pageSizeOptions?: Array<number | string>;
+    showSizeChanger?: boolean | { "aria-label"?: string };
     total?: number;
   };
   rowKey?: keyof RecordType | ((record: RecordType) => Key);
@@ -370,6 +398,7 @@ interface LightweightTableProps<RecordType extends Record<string, unknown>> {
 export function LightweightTable<RecordType extends Record<string, unknown>>({
   columns = [],
   dataSource = [],
+  locale,
   pagination,
   rowKey,
 }: LightweightTableProps<RecordType>) {
@@ -385,6 +414,9 @@ export function LightweightTable<RecordType extends Record<string, unknown>>({
     <>
       <table>
         <tbody>
+          {dataSource.length === 0 && locale?.emptyText ? (
+            <tr><td colSpan={Math.max(1, columns.length)}>{locale.emptyText}</td></tr>
+          ) : null}
           {dataSource.map((record, rowIndex) => (
             <tr key={recordKey(record, rowIndex)}>
               {columns.map((column, columnIndex) => {
@@ -417,6 +449,19 @@ export function LightweightTable<RecordType extends Record<string, unknown>>({
           onClick={() => pagination.onChange?.((pagination.current ?? 1) + 1, pagination.pageSize ?? 10)}
           type="button"
         >Sau</button>
+        {pagination.showSizeChanger && (
+          <select
+            aria-label={typeof pagination.showSizeChanger === "object"
+              ? pagination.showSizeChanger["aria-label"] ?? "Số dòng mỗi trang"
+              : "Số dòng mỗi trang"}
+            onChange={(event) => pagination.onChange?.(pagination.current ?? 1, Number(event.target.value))}
+            value={pagination.pageSize ?? 10}
+          >
+            {(pagination.pageSizeOptions ?? [10, 20, 50, 100]).map((size) => (
+              <option key={size} value={size}>{size}</option>
+            ))}
+          </select>
+        )}
       </nav>}
     </>
   );

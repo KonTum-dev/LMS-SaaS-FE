@@ -1,14 +1,15 @@
 "use client";
+import { describeOperationsError } from "@/lib/i18n/operations-errors";
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { operationsMessages } from "@/lib/i18n/operations-messages";
+import { useMemo as useI18nMemo } from "react";
 
-import {
-  EditOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-} from "@ant-design/icons";
+import { useFeedback } from "@/components/feedback/feedback-provider";
+
+import { EditOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
-  App,
   Button,
   Card,
   Empty,
@@ -43,30 +44,12 @@ import {
   orgUnitsApi,
   type OrgUnitTreeNode,
 } from "@/lib/org-units-api";
-import { getViewerScope, lmsQueryKeys, type ViewerScope } from "@/lib/query-keys";
+import {
+  getViewerScope,
+  lmsQueryKeys,
+  type ViewerScope,
+} from "@/lib/query-keys";
 import type { TenantMember } from "@/lib/types";
-
-const ACCESS_PRESENTATION: Record<
-  OrgUnitAccessLevel,
-  { color: string; label: string }
-> = {
-  MANAGER: { color: "purple", label: "Quản lý" },
-  STAFF: { color: "blue", label: "Nhân sự" },
-  VIEWER: { color: "default", label: "Chỉ xem" },
-};
-const STATUS_PRESENTATION: Record<
-  OrgUnitAssignmentStatus,
-  { color: string; label: string }
-> = {
-  ACTIVE: { color: "green", label: "Hoạt động" },
-  ARCHIVED: { color: "default", label: "Đã lưu trữ" },
-};
-const ROLE_LABELS: Record<TenantMember["role"], string> = {
-  GUARDIAN: "Phụ huynh",
-  INSTRUCTOR: "Giảng viên",
-  LEARNER: "Học viên",
-  TENANT_ADMIN: "Quản trị viên",
-};
 
 interface AssignmentFormState {
   accessLevel: OrgUnitAccessLevel;
@@ -103,7 +86,20 @@ function OrgUnitAccessView({
   scope,
   token,
 }: AccessViewProps) {
-  const { message } = App.useApp();
+  const {
+    t,
+    ACCESS_PRESENTATION,
+    STATUS_PRESENTATION,
+    ROLE_LABELS,
+    flattenOrgUnits,
+    orgUnitReferenceId,
+    membershipReferenceId,
+    orgUnitPresentation,
+    memberPresentation,
+    scopeUnitNames,
+    errorMessage,
+  } = useOperationsCopy();
+  const { message, reportError } = useFeedback();
   const queryClient = useQueryClient();
   const [orgUnitId, setOrgUnitId] = useState<string>();
   const [membershipId, setMembershipId] = useState<string>();
@@ -138,9 +134,9 @@ function OrgUnitAccessView({
   const managementBlocked = meQuery.data?.scoped === true || listForbidden;
   const canManage = Boolean(
     isTenantAdmin &&
-      !readOnly &&
-      meQuery.data?.scoped === false &&
-      !assignmentsQuery.error,
+    !readOnly &&
+    meQuery.data?.scoped === false &&
+    !assignmentsQuery.error,
   );
 
   const orgUnitsQuery = useQuery({
@@ -148,8 +144,7 @@ function OrgUnitAccessView({
     queryKey: orgUnitQueryKeys.tree(scope, false),
   });
   const membersQuery = useQuery({
-    enabled:
-      isTenantAdmin && meQuery.data?.scoped === false && !listForbidden,
+    enabled: isTenantAdmin && meQuery.data?.scoped === false && !listForbidden,
     queryFn: ({ signal }) =>
       apiFetch<TenantMember[]>("/users", {
         cache: "no-store",
@@ -163,10 +158,11 @@ function OrgUnitAccessView({
       flattenOrgUnits(orgUnitsQuery.data?.items ?? []).filter(
         (unit) => unit.status === "ACTIVE",
       ),
-    [orgUnitsQuery.data?.items],
+    [flattenOrgUnits, orgUnitsQuery.data?.items],
   );
   const members = useMemo(
-    () => (membersQuery.data ?? []).filter((member) => member.status === "ACTIVE"),
+    () =>
+      (membersQuery.data ?? []).filter((member) => member.status === "ACTIVE"),
     [membersQuery.data],
   );
   const orgUnitNames = useMemo(
@@ -185,7 +181,9 @@ function OrgUnitAccessView({
   const saveMutation = useMutation({
     mutationFn: (request: SaveRequest) => {
       if (!canManage) {
-        throw new Error("Tài khoản này không thể thay đổi phân quyền chi nhánh");
+        throw new Error(
+          t("Tài khoản này không thể thay đổi phân quyền chi nhánh"),
+        );
       }
       return request.kind === "create"
         ? orgUnitAccessApi.create({ token }, request.input)
@@ -195,8 +193,7 @@ function OrgUnitAccessView({
             request.input,
           );
     },
-    onError: (error) =>
-      message.error(errorMessage(error, "Không thể lưu phân quyền")),
+    onError: (error) => reportError(error, "Không thể lưu phân quyền"),
     onSuccess: async (_, request) => {
       setModalOpen(false);
       setEditing(null);
@@ -211,7 +208,9 @@ function OrgUnitAccessView({
   const archiveMutation = useMutation({
     mutationFn: (assignment: OrgUnitAssignment) => {
       if (!canManage) {
-        throw new Error("Tài khoản này không thể thu hồi phân quyền chi nhánh");
+        throw new Error(
+          t("Tài khoản này không thể thu hồi phân quyền chi nhánh"),
+        );
       }
       return orgUnitAccessApi.archive(
         { token },
@@ -219,8 +218,7 @@ function OrgUnitAccessView({
         assignment.revision,
       );
     },
-    onError: (error) =>
-      message.error(errorMessage(error, "Không thể thu hồi phân quyền")),
+    onError: (error) => reportError(error, "Không thể thu hồi phân quyền"),
     onSuccess: async () => {
       message.success("Đã thu hồi quyền chi nhánh");
       await invalidateAssignments();
@@ -281,17 +279,20 @@ function OrgUnitAccessView({
     {
       key: "member",
       render: (_, assignment) => {
-        const member = memberPresentation(assignment.membershipId, memberDirectory);
+        const member = memberPresentation(
+          assignment.membershipId,
+          memberDirectory,
+        );
         return (
           <div>
             <strong>{member.name}</strong>
             <div className="table-muted">
-              {member.email || member.role || "Thành viên tổ chức"}
+              {member.email || member.role || t("Thành viên tổ chức")}
             </div>
           </div>
         );
       },
-      title: "Thành viên",
+      title: t("Thành viên"),
     },
     {
       key: "orgUnit",
@@ -304,7 +305,7 @@ function OrgUnitAccessView({
           </div>
         );
       },
-      title: "Đơn vị",
+      title: t("Đơn vị"),
     },
     {
       key: "access",
@@ -313,10 +314,10 @@ function OrgUnitAccessView({
           <Tag color={ACCESS_PRESENTATION[assignment.accessLevel].color}>
             {ACCESS_PRESENTATION[assignment.accessLevel].label}
           </Tag>
-          {assignment.includeDescendants && <Tag>Bao gồm cấp dưới</Tag>}
+          {assignment.includeDescendants && <Tag>{t("Bao gồm cấp dưới")}</Tag>}
         </Space>
       ),
-      title: "Mức quyền",
+      title: t("Mức quyền"),
     },
     {
       key: "status",
@@ -325,13 +326,15 @@ function OrgUnitAccessView({
           <Tag color={STATUS_PRESENTATION[assignment.status].color}>
             {STATUS_PRESENTATION[assignment.status].label}
           </Tag>
-          <div className="table-muted">Phiên bản {assignment.revision}</div>
+          <div className="table-muted">
+            {t("Phiên bản")} {assignment.revision}
+          </div>
         </div>
       ),
-      title: "Trạng thái",
+      title: t("Trạng thái"),
     },
     ...(canManage
-      ? [
+      ? ([
           {
             key: "actions",
             render: (_: unknown, assignment: OrgUnitAssignment) =>
@@ -342,12 +345,12 @@ function OrgUnitAccessView({
                     onClick={() => openEdit(assignment)}
                     size="small"
                   >
-                    Chỉnh sửa
+                    {t("Chỉnh sửa")}{" "}
                   </Button>
                   <Popconfirm
-                    okText="Xác nhận thu hồi"
+                    okText={t("Xác nhận thu hồi")}
                     onConfirm={() => archiveMutation.mutateAsync(assignment)}
-                    title="Thu hồi quyền tại đơn vị này?"
+                    title={t("Thu hồi quyền tại đơn vị này?")}
                   >
                     <Button
                       danger
@@ -357,14 +360,14 @@ function OrgUnitAccessView({
                       }
                       size="small"
                     >
-                      Thu hồi
+                      {t("Thu hồi")}{" "}
                     </Button>
                   </Popconfirm>
                 </Space>
               ) : null,
-            title: "Thao tác",
+            title: t("Thao tác"),
           },
-        ] satisfies ColumnsType<OrgUnitAssignment>
+        ] satisfies ColumnsType<OrgUnitAssignment>)
       : []),
   ];
 
@@ -376,10 +379,11 @@ function OrgUnitAccessView({
     <main aria-labelledby="org-unit-access-title" className="page-shell">
       <header className="page-heading">
         <div className="page-heading-copy">
-          <h1 id="org-unit-access-title">Phân quyền chi nhánh</h1>
+          <h1 id="org-unit-access-title">{t("Phân quyền chi nhánh")}</h1>
           <p>
-            Giới hạn phạm vi vận hành của thành viên theo đơn vị và các cấp trực
-            thuộc.
+            {t(
+              "Giới hạn phạm vi vận hành của thành viên theo đơn vị và các cấp trực thuộc.",
+            )}{" "}
           </p>
         </div>
         <Space>
@@ -391,17 +395,19 @@ function OrgUnitAccessView({
               if (isTenantAdmin) void assignmentsQuery.refetch();
             }}
           >
-            Làm mới
+            {t("Làm mới")}{" "}
           </Button>
           {isTenantAdmin && (
             <Button
               disabled={!canManage}
               icon={<PlusOutlined />}
               onClick={openCreate}
-              title={managementBlocked ? "Không thể tự mở rộng quyền" : undefined}
+              title={
+                managementBlocked ? t("Không thể tự mở rộng quyền") : undefined
+              }
               type="primary"
             >
-              Cấp quyền
+              {t("Cấp quyền")}{" "}
             </Button>
           )}
         </Space>
@@ -409,60 +415,82 @@ function OrgUnitAccessView({
 
       {readOnly && isTenantAdmin && (
         <Alert
-          description="Bạn vẫn xem được phân quyền hiện tại, nhưng không thể cấp, sửa hoặc thu hồi quyền."
+          description={t(
+            "Bạn vẫn xem được phân quyền hiện tại, nhưng không thể cấp, sửa hoặc thu hồi quyền.",
+          )}
           showIcon
-          title="Workspace chỉ đọc"
+          title={t("Workspace chỉ đọc")}
           type="info"
         />
       )}
       {managementBlocked && isTenantAdmin && (
         <Alert
-          description="Tài khoản quản trị này đang bị giới hạn theo chi nhánh. Để tránh tự nâng quyền, bạn không thể xem danh sách toàn cục, cấp thêm hoặc mở rộng phạm vi; hãy liên hệ một quản trị viên toàn cục."
+          description={t(
+            "Tài khoản quản trị này đang bị giới hạn theo chi nhánh. Để tránh tự nâng quyền, bạn không thể xem danh sách toàn cục, cấp thêm hoặc mở rộng phạm vi; hãy liên hệ một quản trị viên toàn cục.",
+          )}
           showIcon
-          title="Không thể tự mở rộng quyền chi nhánh"
+          title={t("Không thể tự mở rộng quyền chi nhánh")}
           type="error"
         />
       )}
       {!isTenantAdmin && (
         <Alert
-          description="Giảng viên có thể xem phạm vi được cấp cho chính mình; chỉ quản trị viên toàn cục mới được thay đổi phân quyền."
+          description={t(
+            "Giảng viên có thể xem phạm vi được cấp cho chính mình; chỉ quản trị viên toàn cục mới được thay đổi phân quyền.",
+          )}
           showIcon
-          title="Phạm vi chỉ đọc"
+          title={t("Phạm vi chỉ đọc")}
           type="info"
         />
       )}
 
-      <Card className="surface-card" title="Phạm vi của tài khoản hiện tại">
+      <Card
+        className="surface-card"
+        title={t("Phạm vi của tài khoản hiện tại")}
+      >
         {meQuery.isLoading ? (
           <Skeleton active />
         ) : meQuery.error ? (
           <Alert
-            action={<Button onClick={() => void meQuery.refetch()}>Thử lại</Button>}
-            description={errorMessage(meQuery.error, "Không thể tải phạm vi hiện tại")}
+            action={
+              <Button onClick={() => void meQuery.refetch()}>
+                {t("Thử lại")}
+              </Button>
+            }
+            description={errorMessage(
+              meQuery.error,
+              t("Không thể tải phạm vi hiện tại"),
+            )}
             showIcon
-            title="Không xác định được phạm vi truy cập"
+            title={t("Không xác định được phạm vi truy cập")}
             type="error"
           />
         ) : me ? (
           <Space size="large" wrap>
             <div>
-              <Typography.Text type="secondary">Trạng thái</Typography.Text>
+              <Typography.Text type="secondary">
+                {t("Trạng thái")}
+              </Typography.Text>
               <div>
                 <Tag color={me.scoped ? "blue" : "green"}>
-                  {me.scoped ? "Giới hạn theo đơn vị" : "Toàn tổ chức"}
+                  {me.scoped ? t("Giới hạn theo đơn vị") : t("Toàn tổ chức")}
                 </Tag>
               </div>
             </div>
             <div>
-              <Typography.Text type="secondary">Mức quyền cao nhất</Typography.Text>
+              <Typography.Text type="secondary">
+                {t("Mức quyền cao nhất")}
+              </Typography.Text>
               <div>
                 {me.highestAccessLevel
                   ? ACCESS_PRESENTATION[me.highestAccessLevel].label
-                  : "Quyền toàn cục"}
+                  : t("Quyền toàn cục")}
               </div>
             </div>
             <div>
-              <Typography.Text type="secondary">Đơn vị hiệu lực</Typography.Text>
+              <Typography.Text type="secondary">
+                {t("Đơn vị hiệu lực")}
+              </Typography.Text>
               <div>{scopeUnitNames(me.orgUnitIds, orgUnitNames)}</div>
             </div>
           </Space>
@@ -471,11 +499,11 @@ function OrgUnitAccessView({
 
       {isTenantAdmin && !managementBlocked && (
         <>
-          <Card className="surface-card" title="Bộ lọc phân quyền">
+          <Card className="surface-card" title={t("Bộ lọc phân quyền")}>
             <Space wrap>
               <Select
                 allowClear
-                aria-label="Lọc theo đơn vị"
+                aria-label={t("Lọc theo đơn vị")}
                 loading={orgUnitsQuery.isLoading}
                 onChange={setOrgUnitId}
                 optionFilterProp="label"
@@ -483,14 +511,14 @@ function OrgUnitAccessView({
                   label: unit.path.join(" / ") + " · " + unit.name,
                   value: unit._id,
                 }))}
-                placeholder="Mọi đơn vị"
+                placeholder={t("Mọi đơn vị")}
                 showSearch
                 style={{ minWidth: 220 }}
                 value={orgUnitId}
               />
               <Select
                 allowClear
-                aria-label="Lọc theo thành viên"
+                aria-label={t("Lọc theo thành viên")}
                 loading={membersQuery.isLoading}
                 onChange={setMembershipId}
                 optionFilterProp="label"
@@ -498,34 +526,40 @@ function OrgUnitAccessView({
                   label: `${member.fullName} · ${member.email}`,
                   value: member.membershipId,
                 }))}
-                placeholder="Mọi thành viên"
+                placeholder={t("Mọi thành viên")}
                 showSearch
                 style={{ minWidth: 240 }}
                 value={membershipId}
               />
               <Select
                 allowClear
-                aria-label="Lọc theo mức quyền"
+                aria-label={t("Lọc theo mức quyền")}
                 onChange={setAccessLevel}
-                options={(Object.keys(ACCESS_PRESENTATION) as OrgUnitAccessLevel[]).map(
-                  (value) => ({ label: ACCESS_PRESENTATION[value].label, value }),
-                )}
-                placeholder="Mọi mức quyền"
+                options={(
+                  Object.keys(ACCESS_PRESENTATION) as OrgUnitAccessLevel[]
+                ).map((value) => ({
+                  label: ACCESS_PRESENTATION[value].label,
+                  value,
+                }))}
+                placeholder={t("Mọi mức quyền")}
                 style={{ minWidth: 170 }}
                 value={accessLevel}
               />
               <Select
                 allowClear
-                aria-label="Lọc theo trạng thái"
+                aria-label={t("Lọc theo trạng thái")}
                 onChange={setStatus}
-                options={(Object.keys(STATUS_PRESENTATION) as OrgUnitAssignmentStatus[]).map(
-                  (value) => ({ label: STATUS_PRESENTATION[value].label, value }),
-                )}
-                placeholder="Mọi trạng thái"
+                options={(
+                  Object.keys(STATUS_PRESENTATION) as OrgUnitAssignmentStatus[]
+                ).map((value) => ({
+                  label: STATUS_PRESENTATION[value].label,
+                  value,
+                }))}
+                placeholder={t("Mọi trạng thái")}
                 style={{ minWidth: 170 }}
                 value={status}
               />
-              <Button onClick={clearFilters}>Xóa lọc</Button>
+              <Button onClick={clearFilters}>{t("Xóa lọc")}</Button>
             </Space>
           </Card>
 
@@ -538,12 +572,14 @@ function OrgUnitAccessView({
                     void membersQuery.refetch();
                   }}
                 >
-                  Tải lại danh mục
+                  {t("Tải lại danh mục")}{" "}
                 </Button>
               }
-              description="Chưa thể tải đủ đơn vị hoặc thành viên để cấp quyền mới. Danh sách hiện tại vẫn có thể xem bằng dữ liệu trả về từ máy chủ."
+              description={t(
+                "Chưa thể tải đủ đơn vị hoặc thành viên để cấp quyền mới. Danh sách hiện tại vẫn có thể xem bằng dữ liệu trả về từ máy chủ.",
+              )}
               showIcon
-              title="Không tải đủ danh mục phân quyền"
+              title={t("Không tải đủ danh mục phân quyền")}
               type="warning"
             />
           )}
@@ -551,15 +587,15 @@ function OrgUnitAccessView({
             <Alert
               action={
                 <Button onClick={() => void assignmentsQuery.refetch()}>
-                  Thử lại
+                  {t("Thử lại")}{" "}
                 </Button>
               }
               description={errorMessage(
                 assignmentsQuery.error,
-                "Không thể tải danh sách phân quyền",
+                t("Không thể tải danh sách phân quyền"),
               )}
               showIcon
-              title="Không tải được phân quyền chi nhánh"
+              title={t("Không tải được phân quyền chi nhánh")}
               type="error"
             />
           )}
@@ -568,7 +604,7 @@ function OrgUnitAccessView({
             {!assignmentsQuery.isLoading &&
             !assignmentsQuery.error &&
             assignments.length === 0 ? (
-              <Empty description="Chưa có phân quyền phù hợp bộ lọc" />
+              <Empty description={t("Chưa có phân quyền phù hợp bộ lọc")} />
             ) : (
               <Table<OrgUnitAssignment>
                 columns={columns}
@@ -584,23 +620,23 @@ function OrgUnitAccessView({
       )}
 
       <Modal
-        cancelText="Hủy"
+        cancelText={t("Hủy")}
         confirmLoading={saveMutation.isPending}
         destroyOnHidden
         okButtonProps={{ disabled: !canManage }}
-        okText="Lưu phân quyền"
+        okText={t("Lưu phân quyền")}
         onCancel={() => setModalOpen(false)}
         onOk={saveAssignment}
         open={modalOpen}
-        title={editing ? "Sửa phân quyền" : "Cấp quyền chi nhánh"}
+        title={editing ? t("Sửa phân quyền") : t("Cấp quyền chi nhánh")}
       >
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           {!editing && (
             <>
               <label>
-                <Typography.Text strong>Đơn vị</Typography.Text>
+                <Typography.Text strong>{t("Đơn vị")}</Typography.Text>
                 <Select
-                  aria-label="Đơn vị cần cấp quyền"
+                  aria-label={t("Đơn vị cần cấp quyền")}
                   loading={orgUnitsQuery.isLoading}
                   onChange={(value) =>
                     setForm((current) => ({ ...current, orgUnitId: value }))
@@ -610,16 +646,16 @@ function OrgUnitAccessView({
                     label: unit.path.join(" / ") + " · " + unit.name,
                     value: unit._id,
                   }))}
-                  placeholder="Chọn đơn vị"
+                  placeholder={t("Chọn đơn vị")}
                   showSearch
                   style={{ width: "100%" }}
                   value={form.orgUnitId || undefined}
                 />
               </label>
               <label>
-                <Typography.Text strong>Thành viên</Typography.Text>
+                <Typography.Text strong>{t("Thành viên")}</Typography.Text>
                 <Select
-                  aria-label="Thành viên cần cấp quyền"
+                  aria-label={t("Thành viên cần cấp quyền")}
                   loading={membersQuery.isLoading}
                   onChange={(value) =>
                     setForm((current) => ({ ...current, membershipId: value }))
@@ -629,7 +665,7 @@ function OrgUnitAccessView({
                     label: `${member.fullName} · ${ROLE_LABELS[member.role]} · ${member.email}`,
                     value: member.membershipId,
                   }))}
-                  placeholder="Chọn thành viên"
+                  placeholder={t("Chọn thành viên")}
                   showSearch
                   style={{ width: "100%" }}
                   value={form.membershipId || undefined}
@@ -639,29 +675,40 @@ function OrgUnitAccessView({
           )}
           {editing && (
             <Alert
-              description={`${memberPresentation(editing.membershipId, memberDirectory).name} · ${orgUnitPresentation(editing.orgUnitId, orgUnitNames).name} · phiên bản ${editing.revision}`}
+              description={t("{value0} · {value1} · phiên bản {value2}", {
+                value0: memberPresentation(
+                  editing.membershipId,
+                  memberDirectory,
+                ).name,
+                value1: orgUnitPresentation(editing.orgUnitId, orgUnitNames)
+                  .name,
+                value2: editing.revision,
+              })}
               showIcon
-              title="Đang cập nhật phân quyền hiện có"
+              title={t("Đang cập nhật phân quyền hiện có")}
               type="info"
             />
           )}
           <label>
-            <Typography.Text strong>Mức quyền</Typography.Text>
+            <Typography.Text strong>{t("Mức quyền")}</Typography.Text>
             <Select
-              aria-label="Mức quyền chi nhánh"
+              aria-label={t("Mức quyền chi nhánh")}
               onChange={(value) =>
                 setForm((current) => ({ ...current, accessLevel: value }))
               }
-              options={(Object.keys(ACCESS_PRESENTATION) as OrgUnitAccessLevel[]).map(
-                (value) => ({ label: ACCESS_PRESENTATION[value].label, value }),
-              )}
+              options={(
+                Object.keys(ACCESS_PRESENTATION) as OrgUnitAccessLevel[]
+              ).map((value) => ({
+                label: ACCESS_PRESENTATION[value].label,
+                value,
+              }))}
               style={{ width: "100%" }}
               value={form.accessLevel}
             />
           </label>
           <Space>
             <Switch
-              aria-label="Áp dụng cho đơn vị cấp dưới"
+              aria-label={t("Áp dụng cho đơn vị cấp dưới")}
               checked={form.includeDescendants}
               onChange={(checked) =>
                 setForm((current) => ({
@@ -671,9 +718,11 @@ function OrgUnitAccessView({
               }
             />
             <div>
-              <strong>Bao gồm đơn vị cấp dưới</strong>
+              <strong>{t("Bao gồm đơn vị cấp dưới")}</strong>
               <div className="table-muted">
-                Quyền này cũng có hiệu lực với các phòng ban hoặc chi nhánh con.
+                {t(
+                  "Quyền này cũng có hiệu lực với các phòng ban hoặc chi nhánh con.",
+                )}{" "}
               </div>
             </div>
           </Space>
@@ -684,6 +733,7 @@ function OrgUnitAccessView({
 }
 
 export default function OrgUnitAccessPage() {
+  const { t } = useOperationsCopy();
   const { effectiveAccess, organization, token, user } = useAuth();
   const scope = getViewerScope(user, organization);
   const supportedRole =
@@ -693,7 +743,9 @@ export default function OrgUnitAccessPage() {
     return (
       <Alert
         showIcon
-        title="Phân quyền chi nhánh chỉ dành cho quản trị viên và giảng viên."
+        title={t(
+          "Phân quyền chi nhánh chỉ dành cho quản trị viên và giảng viên.",
+        )}
         type="error"
       />
     );
@@ -702,7 +754,7 @@ export default function OrgUnitAccessPage() {
     return (
       <Alert
         showIcon
-        title="Phiên thành viên không hợp lệ. Vui lòng đăng nhập lại."
+        title={t("Phiên thành viên không hợp lệ. Vui lòng đăng nhập lại.")}
         type="error"
       />
     );
@@ -721,66 +773,113 @@ export default function OrgUnitAccessPage() {
   );
 }
 
-function flattenOrgUnits(roots: OrgUnitTreeNode[]): OrgUnitTreeNode[] {
-  return roots.flatMap((unit) => [unit, ...flattenOrgUnits(unit.children)]);
-}
-
-function orgUnitReferenceId(
-  reference: string | OrgUnitAssignmentOrgUnit,
-): string {
-  return typeof reference === "string" ? reference : reference._id;
-}
-
-function membershipReferenceId(
-  reference: string | OrgUnitAssignmentMembership,
-): string {
-  return typeof reference === "string" ? reference : reference._id;
-}
-
-function orgUnitPresentation(
-  reference: string | OrgUnitAssignmentOrgUnit,
-  directory: Map<string, string>,
-): { code: string; name: string } {
-  if (typeof reference !== "string") {
-    return { code: reference.code, name: reference.name };
-  }
-  return {
-    code: reference,
-    name: directory.get(reference) ?? "Đơn vị được cấp quyền",
-  };
-}
-
-function memberPresentation(
-  reference: string | OrgUnitAssignmentMembership,
-  directory: Map<string, TenantMember>,
-): { email: string; name: string; role: string } {
-  if (typeof reference !== "string") {
-    const user = typeof reference.userId === "string" ? null : reference.userId;
-    return {
-      email: user?.email ?? "",
-      name: reference.displayName || user?.fullName || "Thành viên tổ chức",
-      role: ROLE_LABELS[reference.role],
+function useOperationsCopy() {
+  const i18n = useI18n(operationsMessages);
+  return useI18nMemo(() => {
+    const { t, locale } = i18n;
+    const ACCESS_PRESENTATION: Record<
+      OrgUnitAccessLevel,
+      { color: string; label: string }
+    > = {
+      MANAGER: { color: "purple", label: t("Quản lý") },
+      STAFF: { color: "blue", label: t("Nhân sự") },
+      VIEWER: { color: "default", label: t("Chỉ xem") },
     };
-  }
-  const member = directory.get(reference);
-  return {
-    email: member?.email ?? "",
-    name: member?.fullName ?? "Thành viên tổ chức",
-    role: member ? ROLE_LABELS[member.role] : reference,
-  };
-}
 
-function scopeUnitNames(
-  orgUnitIds: string[] | null,
-  directory: Map<string, string>,
-): string {
-  if (orgUnitIds === null) return "Tất cả đơn vị";
-  if (orgUnitIds.length === 0) return "Chưa có đơn vị";
-  return orgUnitIds
-    .map((orgUnitId) => directory.get(orgUnitId) ?? orgUnitId)
-    .join(", ");
-}
+    const STATUS_PRESENTATION: Record<
+      OrgUnitAssignmentStatus,
+      { color: string; label: string }
+    > = {
+      ACTIVE: { color: "green", label: t("Hoạt động") },
+      ARCHIVED: { color: "default", label: t("Đã lưu trữ") },
+    };
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+    const ROLE_LABELS: Record<TenantMember["role"], string> = {
+      GUARDIAN: t("Phụ huynh"),
+      INSTRUCTOR: t("Giảng viên"),
+      LEARNER: t("Học viên"),
+      TENANT_ADMIN: t("Quản trị viên"),
+    };
+
+    function flattenOrgUnits(roots: OrgUnitTreeNode[]): OrgUnitTreeNode[] {
+      return roots.flatMap((unit) => [unit, ...flattenOrgUnits(unit.children)]);
+    }
+
+    function orgUnitReferenceId(
+      reference: string | OrgUnitAssignmentOrgUnit,
+    ): string {
+      return typeof reference === "string" ? reference : reference._id;
+    }
+
+    function membershipReferenceId(
+      reference: string | OrgUnitAssignmentMembership,
+    ): string {
+      return typeof reference === "string" ? reference : reference._id;
+    }
+
+    function orgUnitPresentation(
+      reference: string | OrgUnitAssignmentOrgUnit,
+      directory: Map<string, string>,
+    ): { code: string; name: string } {
+      if (typeof reference !== "string") {
+        return { code: reference.code, name: reference.name };
+      }
+      return {
+        code: reference,
+        name: directory.get(reference) ?? t("Đơn vị được cấp quyền"),
+      };
+    }
+
+    function memberPresentation(
+      reference: string | OrgUnitAssignmentMembership,
+      directory: Map<string, TenantMember>,
+    ): { email: string; name: string; role: string } {
+      if (typeof reference !== "string") {
+        const user =
+          typeof reference.userId === "string" ? null : reference.userId;
+        return {
+          email: user?.email ?? "",
+          name:
+            reference.displayName || user?.fullName || t("Thành viên tổ chức"),
+          role: ROLE_LABELS[reference.role],
+        };
+      }
+      const member = directory.get(reference);
+      return {
+        email: member?.email ?? "",
+        name: member?.fullName ?? t("Thành viên tổ chức"),
+        role: member ? ROLE_LABELS[member.role] : reference,
+      };
+    }
+
+    function scopeUnitNames(
+      orgUnitIds: string[] | null,
+      directory: Map<string, string>,
+    ): string {
+      if (orgUnitIds === null) return t("Tất cả đơn vị");
+      if (orgUnitIds.length === 0) return t("Chưa có đơn vị");
+      return orgUnitIds
+        .map((orgUnitId) => directory.get(orgUnitId) ?? orgUnitId)
+        .join(", ");
+    }
+
+    function errorMessage(error: unknown, fallback: string): string {
+      return error instanceof Error && error.message
+        ? describeOperationsError(error, locale, fallback)
+        : fallback;
+    }
+    return {
+      ...i18n,
+      ACCESS_PRESENTATION,
+      STATUS_PRESENTATION,
+      ROLE_LABELS,
+      flattenOrgUnits,
+      orgUnitReferenceId,
+      membershipReferenceId,
+      orgUnitPresentation,
+      memberPresentation,
+      scopeUnitNames,
+      errorMessage,
+    };
+  }, [i18n]);
 }

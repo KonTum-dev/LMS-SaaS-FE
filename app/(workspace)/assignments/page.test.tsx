@@ -8,14 +8,18 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EffectiveAccess } from "@/lib/types";
+import { LocalizedForm } from "@/components/form/localized-form";
+import { FeedbackLocaleProvider } from "@/components/feedback/feedback-locale";
 import AssignmentsPage from "./page";
 
 const mocks = vi.hoisted(() => ({
@@ -93,7 +97,7 @@ function installApiResponses() {
   );
 }
 
-function renderPage() {
+function renderPage(locale: "vi" | "en" = "vi") {
   const client = new QueryClient({
     defaultOptions: { queries: { gcTime: Infinity, retry: false } },
   });
@@ -101,7 +105,7 @@ function renderPage() {
     client,
     ...render(
       <QueryClientProvider client={client}>
-        <AssignmentsPage />
+        {locale === "en" ? <FeedbackLocaleProvider initialLocale="en"><AssignmentsPage /></FeedbackLocaleProvider> : <AssignmentsPage />}
       </QueryClientProvider>,
     ),
   };
@@ -111,6 +115,13 @@ function mutationCall(method: "DELETE" | "PATCH" | "POST") {
   return mocks.apiFetch.mock.calls.find(
     ([, options]) => options?.method === method,
   );
+}
+
+function deferred<T = unknown>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 describe("assignment lifecycle form", () => {
@@ -144,7 +155,11 @@ describe("assignment lifecycle form", () => {
     formApi.validateFields.mockImplementation(async () => ({
       ...mocks.formValues,
     }));
-    vi.spyOn(AntdForm, "useForm").mockReturnValue([formApi] as never);
+    // The wrapper copies AntD's compound API when imported. Both entry points
+    // must share one instance, just as useForm(providedForm) does in AntD.
+    const useMockForm = (providedForm?: unknown) => [providedForm ?? formApi] as never;
+    vi.spyOn(AntdForm, "useForm").mockImplementation(useMockForm);
+    vi.spyOn(LocalizedForm, "useForm").mockImplementation(useMockForm);
     vi.spyOn(AntdApp, "useApp").mockReturnValue({
       message: mocks.message,
     } as never);
@@ -157,12 +172,75 @@ describe("assignment lifecycle form", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows per-assignment archive loading, deduplicates confirmation and releases for retry after error", async () => {
+    const pending = deferred();
+    const base = mocks.apiFetch.getMockImplementation()!;
+    mocks.apiFetch.mockImplementation((path, options) => {
+      if (path === "/assignments") return Promise.resolve([assignment, { ...assignment, _id: "assignment-2", title: "Bài tập Hai" }]);
+      if (path === `/assignments/${assignment._id}` && options?.method === "DELETE") return pending.promise;
+      return base(path, options);
+    });
+    renderPage();
+    await screen.findByText(assignment.title);
+    const getGroup = () => screen.getByRole("group", { name: `Thao tác với bài tập ${assignment.title}` });
+    const getTrigger = () => within(getGroup()).getByRole("button", { name: `Lưu trữ bài tập ${assignment.title}` });
+    const confirm = within(getGroup()).getByRole("button", { name: "Lưu trữ" });
+    act(() => { fireEvent.click(confirm); fireEvent.click(confirm); });
+    expect(getTrigger().classList.contains("ant-btn-loading")).toBe(true);
+    expect(screen.getByRole("button", { name: "Lưu trữ bài tập Bài tập Hai" }).classList.contains("ant-btn-loading")).toBe(false);
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(1));
+    await act(async () => pending.reject(new Error("Temporary failure")));
+    await waitFor(() => expect(getTrigger().classList.contains("ant-btn-loading")).toBe(false));
+    expect(mocks.message.error).toHaveBeenCalledWith("Temporary failure");
+    fireEvent.click(within(getGroup()).getByRole("button", { name: "Lưu trữ" }));
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([, options]) => options?.method === "DELETE")).toHaveLength(2));
+    await waitFor(() => expect(getTrigger().classList.contains("ant-btn-loading")).toBe(false));
+  });
+
+  it("tìm không dấu trên toàn bộ dữ liệu, kết hợp khóa học/trạng thái và xóa bộ lọc", async () => {
+    const target = { ...assignment, _id: "assignment-target", title: "Ôn tập đại số", description: "Đồ thị", published: false, courseId: { _id: "course-2", slug: "math", title: "Toán nâng cao" } };
+    mocks.apiFetch.mockImplementation((path: string) => Promise.resolve(path === "/assignments"
+      ? [...Array.from({ length: 15 }, (_, index) => ({ ...assignment, _id: `assignment-${index}`, title: `Bài tập ${index + 1}` })), target]
+      : [course]));
+    renderPage();
+    const table = screen.getByRole("region", { name: "Danh sách bài tập" });
+    expect(await within(table).findByText("Bài tập 1")).toBeTruthy();
+    const search = screen.getByRole("searchbox", { name: "Tìm bài tập" });
+    fireEvent.change(search, { target: { value: "  ON   TAP  DAI SO  " } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Lọc theo khóa học" }), { target: { value: "course-2" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Lọc trạng thái bài tập" }), { target: { value: "DRAFT" } });
+    expect(within(table).getByText(target.title)).toBeTruthy();
+    expect(within(table).queryByText("Bài tập 1")).toBeNull();
+    fireEvent.change(screen.getByRole("combobox", { name: "Lọc trạng thái bài tập" }), { target: { value: "PUBLISHED" } });
+    expect(within(table).queryByText(target.title)).toBeNull();
+    expect(within(table).getByText("Không có bài tập phù hợp")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    expect((search as HTMLInputElement).value).toBe("");
+    expect(within(table).getByText("Bài tập 1")).toBeTruthy();
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("learner có bộ lọc tiếng Anh nhưng không tải directory hoặc thấy trạng thái nháp", async () => {
+    mocks.role = "LEARNER";
+    renderPage("en");
+    expect(await screen.findByRole("link", { name: assignment.title })).toBeTruthy();
+    expect(screen.getByRole("search", { name: "Assignment filters" })).toBeTruthy();
+    expect(screen.getByRole("searchbox", { name: "Search assignments" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Filter by course" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Filter assignment status" })).toBeNull();
+    expect(mocks.apiFetch.mock.calls.some(([path]) => path === "/courses")).toBe(false);
+  });
+
   it("create gửi courseId và defaults lifecycle mới", async () => {
     renderPage();
+    expect(screen.getByRole("main", { name: "Bài tập" })).toBeTruthy();
+    expect(screen.getByText("Tạo bài tập, đặt hạn nộp và công bố cho học viên.")).toBeTruthy();
     const createButton = await screen.findByRole("button", {
       name: "Tạo bài tập",
     });
+    expect(createButton.classList.contains("page-primary-action")).toBe(true);
     fireEvent.click(createButton);
+    expect(AntdForm.useForm).toHaveBeenCalledWith(formApi);
     Object.assign(mocks.formValues, {
       courseId: course._id,
       title: "Bài tập mới",

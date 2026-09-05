@@ -20,6 +20,15 @@ function viewer(sub: string): CurrentUser {
 }
 
 describe("query keys theo tenant và viewer", () => {
+  it("separates account lists/detail by platform actor and normalized server filters", () => {
+    const first = getViewerScope({ ...viewer("admin-a"), role: "SUPER_ADMIN" }, null)!;
+    const second = getViewerScope({ ...viewer("admin-b"), role: "SUPER_ADMIN" }, null)!;
+    const query = { page: 1, limit: 20, search: "  An  ", status: "ACTIVE" as const };
+    expect(lmsQueryKeys.adminAccounts(first, query)).toEqual(lmsQueryKeys.adminAccounts(first, { ...query, search: "An" }));
+    expect(lmsQueryKeys.adminAccounts(first, query)).not.toEqual(lmsQueryKeys.adminAccounts(second, query));
+    expect(lmsQueryKeys.adminAccounts(first, query)).not.toEqual(lmsQueryKeys.adminAccounts(first, { ...query, platformRole: "USER" }));
+    expect(lmsQueryKeys.adminAccount(first, "account-a")).toEqual([...lmsQueryKeys.adminAccountsRoot(first), "detail", "account-a"]);
+  });
   it("tách Google identity theo tài khoản và integrations theo authority workspace", () => {
     const first = getViewerScope(viewer("owner-a"), organization)!;
     const secondViewer = getViewerScope(viewer("owner-b"), organization)!;

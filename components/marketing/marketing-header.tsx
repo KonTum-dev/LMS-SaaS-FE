@@ -1,3 +1,8 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/i18n-provider";
+import { FeedbackLanguageSwitcher } from "@/components/feedback/feedback-locale";
+import { marketingMessages } from "@/lib/i18n/marketing-messages";
 import Link from "next/link";
 import styles from "@/app/marketing.module.css";
 import { Brand } from "./brand";
@@ -13,35 +18,53 @@ const navigation = [
 ];
 
 export function MarketingHeader() {
+  const { t } = useI18n(marketingMessages);
   return (
     <header className={styles.header} data-marketing-header>
       <MarketingHeaderEnhancement />
-      <a className={styles.skipLink} href="#noi-dung-chinh">Bỏ qua điều hướng</a>
+      <a className={styles.skipLink} href="#noi-dung-chinh">
+        {t("Bỏ qua điều hướng")}
+      </a>
       <div className={styles.headerInner}>
-        <a className={styles.brandLink} href="#top" aria-label="DX LMS, về đầu trang">
+        <a
+          className={styles.brandLink}
+          href="#top"
+          aria-label={t("DX LMS, về đầu trang")}
+        >
           <Brand />
         </a>
 
-        <nav className={styles.desktopNav} aria-label="Điều hướng chính">
-          {navigation.map((item) => <a href={item.href} key={item.href}>{item.label}</a>)}
+        <nav className={styles.desktopNav} aria-label={t("Điều hướng chính")}>
+          {navigation.map((item) => (
+            <a href={item.href} key={item.href}>
+              {t(item.label)}
+            </a>
+          ))}
         </nav>
 
+        <FeedbackLanguageSwitcher />
         <div className={styles.headerActions}>
-          <Link className={styles.textLink} href="/login">Đăng nhập</Link>
+          <Link className={styles.textLink} href="/login">
+            {t("Đăng nhập")}
+          </Link>
           <Link className={styles.compactButton} href="/register">
-            Dùng thử miễn phí <MarketingIcon name="right" />
+            {t("Dùng thử miễn phí")} <MarketingIcon name="right" />
           </Link>
         </div>
 
         <details className={styles.mobileMenu}>
-          <summary aria-label="Menu điều hướng">
+          <summary aria-label={t("Menu điều hướng")}>
             <MarketingIcon name="menu" />
-            <span>Menu</span>
+            <span>{t("Trình đơn")}</span>
           </summary>
-          <nav aria-label="Điều hướng trên thiết bị di động">
-            {navigation.map((item) => <a href={item.href} key={item.href}>{item.label}</a>)}
-            <Link href="/login">Đăng nhập</Link>
-            <Link href="/register">Tạo workspace dùng thử</Link>
+          <nav aria-label={t("Điều hướng trên thiết bị di động")}>
+            {navigation.map((item) => (
+              <a href={item.href} key={item.href}>
+                {t(item.label)}
+              </a>
+            ))}
+            <Link href="/login">{t("Đăng nhập")}</Link>
+            <Link href="/register">{t("Tạo workspace dùng thử")}</Link>
           </nav>
         </details>
       </div>

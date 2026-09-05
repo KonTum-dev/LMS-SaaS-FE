@@ -55,12 +55,14 @@ vi.mock("@/components/providers/app-providers", () => ({
 }));
 
 vi.mock("@/lib/communications-api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/communications-api")>();
+  const actual =
+    await importOriginal<typeof import("@/lib/communications-api")>();
   return {
     ...actual,
     communicationsApi: {
       archive: mocks.archive,
       create: mocks.create,
+      directory: mocks.list,
       list: mocks.list,
       publish: mocks.publish,
       update: mocks.update,
@@ -121,7 +123,10 @@ vi.mock("antd", async () => {
         onChange={(event) =>
           onChange?.(
             mode === "multiple"
-              ? Array.from(event.target.selectedOptions, (option) => option.value)
+              ? Array.from(
+                  event.target.selectedOptions,
+                  (option) => option.value,
+                )
               : event.target.value || undefined,
           )
         }
@@ -240,7 +245,14 @@ describe("CommunicationsPage", () => {
     mocks.readOnly = false;
     mocks.response = [draftAnnouncement, publishedAnnouncement];
     mocks.role = "TENANT_ADMIN";
-    mocks.list.mockImplementation(() => Promise.resolve(mocks.response));
+    mocks.list.mockImplementation((_context, query) =>
+      Promise.resolve({
+        items: mocks.response,
+        page: query.page,
+        limit: query.limit,
+        total: mocks.response.length,
+      }),
+    );
     mocks.cohorts.mockResolvedValue([cohort]);
     mocks.tree.mockResolvedValue({ items: [root], total: 2 });
     mocks.create.mockResolvedValue(draftAnnouncement);
@@ -334,16 +346,14 @@ describe("CommunicationsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Lịch nghỉ lễ")).toBeTruthy();
-    expect(screen.getByText("Nội dung chỉ đọc")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Tạo thông báo" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tạo thông báo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tạo thông báo" })).toBeNull();
     expect(screen.queryByText("Chỉnh sửa")).toBeNull();
     expect(mocks.cohorts).not.toHaveBeenCalled();
     expect(mocks.tree).not.toHaveBeenCalled();
     expect(mocks.list).toHaveBeenCalledWith(
       { token: "tenant-token" },
-      {},
+      { page: 1, limit: 20 },
       { signal: expect.any(AbortSignal) },
     );
   });
@@ -354,9 +364,11 @@ describe("CommunicationsPage", () => {
 
     expect(await screen.findByText("Workspace chỉ đọc")).toBeTruthy();
     expect(
-      (screen.getByRole("button", {
-        name: "Tạo thông báo",
-      }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Tạo thông báo",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(screen.queryByText("Chỉnh sửa")).toBeNull();
     expect(screen.queryByText("Phát hành")).toBeNull();
@@ -376,10 +388,118 @@ describe("CommunicationsPage", () => {
     await waitFor(() =>
       expect(mocks.list).toHaveBeenCalledWith(
         { token: "tenant-token" },
-        { audience: "ORG_UNIT", status: "PUBLISHED" },
+        { audience: "ORG_UNIT", status: "PUBLISHED", page: 1, limit: 20 },
         { signal: expect.any(AbortSignal) },
       ),
     );
+  });
+
+  it("phân trang toàn bộ kết quả, tìm trên máy chủ và reset trang khi đổi bộ lọc/kích thước", async () => {
+    mocks.list.mockImplementation((_context, query) =>
+      Promise.resolve({
+        items: [
+          { ...publishedAnnouncement, title: `Thông báo trang ${query.page}` },
+        ],
+        page: query.page,
+        limit: query.limit,
+        total: 125,
+      }),
+    );
+    renderPage();
+    await screen.findByText("Thông báo trang 1");
+    expect(
+      (screen.getByRole("button", { name: "Trang sau" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("Thông báo trang 2");
+    expect(mocks.list).toHaveBeenLastCalledWith(
+      { token: "tenant-token" },
+      { page: 2, limit: 20 },
+      { signal: expect.any(AbortSignal) },
+    );
+    const search = screen.getByRole("textbox", { name: "Tìm thông báo" });
+    fireEvent.change(search, { target: { value: "  học phí  " } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        { page: 1, limit: 20, search: "học phí" },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    await screen.findByText("Thông báo trang 1");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("Thông báo trang 2");
+    fireEvent.change(screen.getByLabelText("Lọc phạm vi thông báo"), {
+      target: { value: "COHORT" },
+    });
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        { page: 1, limit: 20, search: "học phí", audience: "COHORT" },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    fireEvent.change(screen.getByLabelText("Số dòng mỗi trang"), {
+      target: { value: "50" },
+    });
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        { page: 1, limit: 50, search: "học phí", audience: "COHORT" },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Xóa bộ lọc" }));
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        { page: 1, limit: 50 },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    expect((search as HTMLInputElement).value).toBe("");
+  });
+
+  it("quay về trang hợp lệ khi tổng số kết quả giảm", async () => {
+    let total = 21;
+    mocks.list.mockImplementation((_context, query) =>
+      Promise.resolve({
+        items: query.page === 1 || total > 20 ? [publishedAnnouncement] : [],
+        page: query.page,
+        limit: query.limit,
+        total,
+      }),
+    );
+    renderPage();
+    await screen.findByText("Lịch nghỉ lễ");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        { page: 2, limit: 20 },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    await screen.findByText("Lịch nghỉ lễ");
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Làm mới" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+    total = 20;
+    fireEvent.click(screen.getByRole("button", { name: "Làm mới" }));
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        { token: "tenant-token" },
+        { page: 1, limit: 20 },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+    await screen.findByText("Lịch nghỉ lễ");
+    expect(screen.queryByText("Chưa có thông báo phù hợp bộ lọc")).toBeNull();
   });
 
   it("sửa thông báo và xóa target cũ khi đổi về toàn trung tâm", async () => {
@@ -415,9 +535,7 @@ describe("CommunicationsPage", () => {
     renderPage();
     await screen.findByText("Điều chỉnh lịch học");
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Xác nhận phát hành" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận phát hành" }));
     await waitFor(() =>
       expect(mocks.publish).toHaveBeenCalledWith(
         { token: "tenant-token" },
